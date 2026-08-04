@@ -6,7 +6,7 @@ import numpy as np
 import torchvision
 from tqdm import tqdm
 import time,json,imageio,copy
-from dataset import TrackedData_infer
+from dataset import TrackedData_infer,load_canonical_render_prams
 from models.UbodyAvatar import Ubody_Gaussian_inferer,Ubody_Gaussian,GaussianRenderer
 from utils.general_utils import (
     ConfigDict, device_parser, 
@@ -45,9 +45,14 @@ def render_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Gaussian
         
         #warmming up
         vertex_gs_dict,up_point_gs_dict,_ = infer_model(source_info, )
-        start_time = time.time()
+        torch.cuda.synchronize()
+        inference_start_time=time.perf_counter()
         vertex_gs_dict,up_point_gs_dict,_ = infer_model(source_info, )
-        infer_time = time.time() - start_time
+        torch.cuda.synchronize()
+        source_avatar_inference_seconds=time.perf_counter()-inference_start_time
+        print(f'source_avatar_inference_seconds: {source_avatar_inference_seconds:.6f}')
+        print(f'source_avatar_inference_ms: {source_avatar_inference_seconds*1000.0:.3f}')
+        print(f'source_avatar_inference_fps: {1.0/source_avatar_inference_seconds:.3f}')
         
         ubody_gaussians=Ubody_Gaussian(meta_cfg.MODEL,vertex_gs_dict,up_point_gs_dict,pruning=True)
         ubody_gaussians.init_ehm(infer_model.ehm)
@@ -66,13 +71,16 @@ def render_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Gaussian
         target_info=dataset._load_target_info(video_id,frames[0])
         deform_gaussian_assets=ubody_gaussians(target_info)
         render_results=render_model(deform_gaussian_assets,target_info['render_cam_params'],bg=bg)
+        torch.cuda.synchronize()
         
         for idx,frame in tqdm(enumerate(frames[-test_num:])) :
             target_info=dataset._load_target_info(video_id,frame)
-            start_time = time.time()
+            torch.cuda.synchronize()
+            start_time=time.perf_counter()
             deform_gaussian_assets=ubody_gaussians(target_info)
             render_results=render_model(deform_gaussian_assets,target_info['render_cam_params'],bg=bg)
-            render_time=time.time() - start_time
+            torch.cuda.synchronize()
+            render_time=time.perf_counter()-start_time
             all_render_time+=render_time
             
             render_image=render_results['renders'][0]
@@ -88,7 +96,12 @@ def render_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Gaussian
         imageio.mimwrite(os.path.join(out_videoid_dir, f'{video_id}_video.mp4'), rendering_imgs, fps=30, quality=8)
         
         render_speed=test_num/all_render_time #fps
-        speed_info['infer_time (ms)']=infer_time*1000
+        milliseconds_per_frame=all_render_time*1000.0/test_num
+        print(f'animation_render_seconds: {all_render_time:.6f}')
+        print(f'milliseconds_per_frame: {milliseconds_per_frame:.3f}')
+        print(f'animation_render_fps: {render_speed:.3f}')
+
+        speed_info['infer_time (ms)']=source_avatar_inference_seconds*1000
         speed_info['render_speed (fps)']=render_speed
         with open(os.path.join(out_videoid_dir,'speed_info.json'), 'w') as f:
             json.dump(speed_info, f)
@@ -97,13 +110,32 @@ def render_cross_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Ga
     out_dir=os.path.join(root_path,dataset_name,) 
     os.makedirs(out_dir,exist_ok=True)
     bg=0.0
+    canonical_cam=None
+    if args.canonical_camera:
+        canonical_cam=load_canonical_render_prams(
+            device=target_dataset.device,
+            image_size=target_dataset.image_size,
+            tanfov=target_dataset.tanfov,
+        )
     
     s_video_ids=list(source_dataset.videos_info.keys())
     t_video_ids=list(target_dataset.videos_info.keys())
     for s_vidx,s_video_id in enumerate(s_video_ids):
         source_info=source_dataset._load_source_info(s_video_id,)
-        source_info['render_cam_params']=source_dataset._load_target_info(s_video_id,source_dataset.videos_info[s_video_id]['frames_keys'][0])
+        source_frame_info=source_dataset._load_target_info(
+            s_video_id,source_dataset.videos_info[s_video_id]['frames_keys'][0])
+        source_info['render_cam_params']=source_frame_info['render_cam_params']
+
+        infer_model(source_info)
+        torch.cuda.synchronize()
+        inference_start_time=time.perf_counter()
         vertex_gs_dict,up_point_gs_dict,_ = infer_model(source_info, )
+        torch.cuda.synchronize()
+        source_avatar_inference_seconds=time.perf_counter()-inference_start_time
+        print(f'source_avatar_inference_seconds: {source_avatar_inference_seconds:.6f}')
+        print(f'source_avatar_inference_ms: {source_avatar_inference_seconds*1000.0:.3f}')
+        print(f'source_avatar_inference_fps: {1.0/source_avatar_inference_seconds:.3f}')
+
         ubody_gaussians=Ubody_Gaussian(meta_cfg.MODEL,vertex_gs_dict,up_point_gs_dict,pruning=True)
         ubody_gaussians.init_ehm(infer_model.ehm)
         ubody_gaussians.eval()
@@ -120,15 +152,37 @@ def render_cross_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Ga
             
             test_num=target_dataset.testing_split[t_video_id]
             rendering_imgs=[]
-            for idx,frame in tqdm(enumerate(frames[-test_num:])) :
+            timed_frames=frames[-test_num:]
+
+            warmup_info=target_dataset._load_target_info(t_video_id,timed_frames[0])
+            warmup_info=change_id_info(warmup_info,source_info)
+            warmup_assets=ubody_gaussians(warmup_info)
+            if args.canonical_camera:
+                warmup_cam=canonical_cam
+            elif args.keep_source_cam:
+                warmup_cam=source_info['render_cam_params']
+            else:
+                warmup_cam=warmup_info['render_cam_params']
+            render_model(warmup_assets,warmup_cam,bg=bg)
+            torch.cuda.synchronize()
+
+            animation_render_seconds=0.0
+            for idx,frame in tqdm(enumerate(timed_frames)) :
                 target_info=target_dataset._load_target_info(t_video_id,frame)
                 target_info=change_id_info(target_info,source_info)
+
+                torch.cuda.synchronize()
+                start_time=time.perf_counter()
                 deform_gaussian_assets=ubody_gaussians(target_info)
-                if args.keep_source_cam:
+                if args.canonical_camera:
+                    render_cam_parms=canonical_cam
+                elif args.keep_source_cam:
                     render_cam_parms=source_info['render_cam_params']
                 else: render_cam_parms=target_info['render_cam_params']
                 
                 render_results=render_model(deform_gaussian_assets,render_cam_parms,bg=bg)
+                torch.cuda.synchronize()
+                animation_render_seconds+=time.perf_counter()-start_time
  
                 render_image=render_results['renders'][0]
                 gt_mask=target_info['mask'][0]
@@ -137,6 +191,12 @@ def render_cross_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Ga
                 
             rendering_imgs = np.stack(rendering_imgs, 0).transpose(0, 2, 3, 1)
             imageio.mimwrite(os.path.join(out_videoid_dir, f'{s_video_id}_{t_video_id}_video.mp4'), rendering_imgs, fps=30, quality=8)
+
+            milliseconds_per_frame=animation_render_seconds*1000.0/len(timed_frames)
+            animation_render_fps=len(timed_frames)/animation_render_seconds
+            print(f'animation_render_seconds: {animation_render_seconds:.6f}')
+            print(f'milliseconds_per_frame: {milliseconds_per_frame:.3f}')
+            print(f'animation_render_fps: {animation_render_fps:.3f}')
             
 def render_novel_views(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:GaussianRenderer,dataset:TrackedData_infer,dataset_name:str,root_path:str,):
     #render norvel views for self-reenactment
@@ -296,6 +356,7 @@ if __name__ == "__main__":
     
     parser.add_argument('--render_cross_act', action='store_true', default=False)
     parser.add_argument('--keep_source_cam', action='store_true', default=False)
+    parser.add_argument('--canonical_camera', action='store_true', default=False)
     parser.add_argument('--source_data_path', type=str, default=None,help='source info for cross_reenactment')
     
     args = parser.parse_args()
@@ -305,6 +366,8 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision('high')
     if args.render_cross_act:
         assert args.source_data_path is not None
+    assert not (args.keep_source_cam and args.canonical_camera), \
+        '--keep_source_cam and --canonical_camera cannot be used together.'
     if args.save_path is None:
         args.save_path=args.model_path
     test(args,args.config_name, args.basemodel, args.devices, args.data_path,args.model_path,args.save_path,args.saving_name)

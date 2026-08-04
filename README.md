@@ -139,6 +139,15 @@ To process your own videos, images, or to build a custom tracking training datas
 
 Navigate into the EHM-Tracker directory and follow the instructions provided in its [README.md](EHM-Tracker/README.md) file for detailed guidance.
 
+#### Driving videos
+Cross-reenactment only needs the per-frame parameters of the driving video, which [PEAR](https://github.com/Pixel-Talk/PEAR) predicts feed-forward instead of optimizing per video. Clone it into `third_party/PEAR`, prepare its assets as described in its README, and track driving videos with:
+
+```shell
+python main/pear_tracking.py --in_root driving.mp4 --output_dir outputs/tracked_driven_video
+```
+
+This writes the same layout EHM-Tracker does, so `outputs/tracked_driven_video/driving` can be passed straight to `--data_path`. Frames are cropped to one union person box with EHM-Tracker's detector, the same crop EHM-Tracker uses, so the driving camera agrees with the source avatar. Source images still need EHM-Tracker: its optimization also fits the identity parameters the avatar is built from.
+
 
 ## 🚂 Training Scripts
 You can use the EHM-Tracker to build your own dataset.

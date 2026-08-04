@@ -130,7 +130,7 @@ def run_master_process(source_selection, source_upload, driven_selection, driven
         progress(0.2, desc="✅ Source processed.")
 
         # --- 4. Resolve Driven Input ---
-        progress(0.25, desc="☕️ Processing driven video (can take a while)...")
+        progress(0.25, desc="☕️ Tracking driven video with PEAR...")
         if driven_upload:
             print("Processing uploaded driven video...")
             driven_video_fp = os.path.abspath(driven_upload)
@@ -140,7 +140,7 @@ def run_master_process(source_selection, source_upload, driven_selection, driven
             if os.path.exists(os.path.join(dcv_vid_root, 'optim_tracking_ehm.pkl')):
                  print(f'🐶 Uploaded driven video "{dst_name}" has been processed before, skipping tracking.')
             else:
-                cmd_in_tracker(f'python tracking_video.py -i "{driven_video_fp}" -o "{tracked_driven_video_dir}" --check_hand_score 0.0 -p 0,1 -n 1 -v 0')
+                cmd_in_basedir(f'python main/pear_tracking.py --in_root "{driven_video_fp}" --output_dir "{tracked_driven_video_dir}"')
         else: # A gallery item was selected
             dst_name = driven_selection['caption']
             dcv_vid_root = os.path.join(current_dir, TRACKED_VID_DIR, dst_name)
