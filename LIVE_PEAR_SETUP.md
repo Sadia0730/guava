@@ -79,7 +79,63 @@ python -c "import pytorch3d, diff_gaussian_rasterization_32, simple_knn, fused_s
 These files are licensed, large, or generated, so Git does not contain them.
 Download them on the new PC or transfer them from the working PC.
 
-GUAVA requires:
+Do not look for a file named `FLAME2020.npz`. The two license-gated model files
+have different names and come from different websites:
+
+| Model | Downloaded file | Official source |
+|---|---|---|
+| SMPL-X 2020 neutral | `SMPLX_NEUTRAL_2020.npz` | <https://smpl-x.is.tue.mpg.de/download.php> |
+| FLAME 2020 | `generic_model.pkl` | <https://flame.is.tue.mpg.de/download.php> |
+
+Registration and acceptance of each model's license are required. Do not add
+these files to Git.
+
+### 5.1 GUAVA checkpoint
+
+Create the destination first, then download the GUAVA checkpoint using the
+Google Drive link documented in `README.md`:
+
+```bash
+mkdir -p assets/GUAVA
+python -m pip install gdown
+gdown 19_p1FUoJTHfb9t_S2_DpNta4nrwSXabl -O assets/GUAVA/checkpoints.zip
+unzip assets/GUAVA/checkpoints.zip -d assets/GUAVA
+```
+
+Confirm this file exists:
+
+```text
+assets/GUAVA/checkpoints/best_160000.pt
+```
+
+`assets/GUAVA/config.yaml` is already tracked by Git.
+
+### 5.2 Shared SMPL-X and FLAME models
+
+After manually downloading the two licensed files, set their locations in the
+following commands and copy them into GUAVA, PEAR, and EHM-Tracker:
+
+```bash
+SMPLX_FILE=/path/to/SMPLX_NEUTRAL_2020.npz
+FLAME_FILE=/path/to/FLAME2020/generic_model.pkl
+
+mkdir -p assets/SMPLX assets/FLAME/FLAME2020
+mkdir -p third_party/PEAR/assets/SMPLX third_party/PEAR/assets/FLAME/FLAME2020
+mkdir -p EHM-Tracker/assets/SMPLX EHM-Tracker/assets/FLAME/FLAME2020
+
+cp "$SMPLX_FILE" assets/SMPLX/SMPLX_NEUTRAL_2020.npz
+cp "$SMPLX_FILE" third_party/PEAR/assets/SMPLX/SMPLX_NEUTRAL_2020.npz
+cp "$SMPLX_FILE" EHM-Tracker/assets/SMPLX/SMPLX_NEUTRAL_2020.npz
+
+cp "$FLAME_FILE" assets/FLAME/FLAME2020/generic_model.pkl
+cp "$FLAME_FILE" assets/SMPLX/flame_generic_model.pkl
+cp "$FLAME_FILE" third_party/PEAR/assets/FLAME/FLAME2020/generic_model.pkl
+cp "$FLAME_FILE" third_party/PEAR/assets/SMPLX/flame_generic_model.pkl
+cp "$FLAME_FILE" EHM-Tracker/assets/FLAME/FLAME2020/generic_model.pkl
+cp "$FLAME_FILE" EHM-Tracker/assets/SMPLX/flame_generic_model.pkl
+```
+
+GUAVA must now contain:
 
 ```text
 assets/GUAVA/config.yaml
@@ -89,10 +145,7 @@ assets/SMPLX/flame_generic_model.pkl
 assets/FLAME/FLAME2020/generic_model.pkl
 ```
 
-- Download the GUAVA checkpoint from the link in `README.md`.
-- Download SMPL-X from the official SMPL-X site.
-- Download FLAME 2020 from the official FLAME site. Copy its
-  `generic_model.pkl` to both FLAME paths shown above.
+### 5.3 PEAR assets
 
 PEAR requires its asset bundle under `third_party/PEAR/assets`. Follow
 `third_party/PEAR/README.md` and confirm at least these files exist:
@@ -106,6 +159,49 @@ third_party/PEAR/assets/FLAME/FLAME2020/generic_model.pkl
 
 The PEAR neural checkpoint is downloaded automatically from Hugging Face on
 the first run and then read from the local cache.
+
+### 5.4 EHM-Tracker assets (only for tracking new sources)
+
+This step is unnecessary when transferring an already tracked source such as
+the blue-shirt directory in section 6. To process a new source image, install
+EHM-Tracker's dependencies in its own environment:
+
+```bash
+conda create -n ehm-tracker python=3.10 -y
+conda activate ehm-tracker
+
+cd EHM-Tracker
+python -m pip install --upgrade pip
+python -m pip install ninja wheel setuptools
+python -m pip install -r requirements.txt
+python -m pip install --no-build-isolation \
+  "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.7"
+```
+
+Download EHM-Tracker's pretrained detectors and regressors:
+
+```bash
+python -m pip install gdown
+gdown 1g_4YKQvLSWo8yzYHgNstr91RCD4rne8p -O pretrained.zip
+unzip pretrained.zip -d .
+```
+
+Confirm that the model files and the two shared parametric models exist:
+
+```bash
+test -f pretrained/dwpose/yolox_l.onnx
+test -f pretrained/pixie/pixie_model.tar
+test -f assets/SMPLX/SMPLX_NEUTRAL_2020.npz
+test -f assets/SMPLX/flame_generic_model.pkl
+test -f assets/FLAME/FLAME2020/generic_model.pkl
+```
+
+Return to GUAVA and reactivate its environment before running the live script:
+
+```bash
+cd ..
+conda activate guava
+```
 
 ## 6. Restore the source avatar tracking
 
