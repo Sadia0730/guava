@@ -374,23 +374,23 @@ def compare_dict_shapes(d1, d2):
 
     return True
 
-def load_canonical_render_prams():
+def load_canonical_render_prams(device='cuda', image_size=512, tanfov=1.0/24):
     w2c_cam=torch.tensor([[ 1, 0, 0,    0],
                           [ 0, 1, 0, 0.6],
-                          [ 0, 0, 1, 22],
-                          [ 0, 0, 0, 1],
-                          ],dtype=torch.float32,device='cuda')
+                          [ 0, 0, 1,   22],
+                          [ 0, 0, 0,    1],
+                          ],dtype=torch.float32,device=device)
     c2w_cam=torch.linalg.inv(w2c_cam)
-    tanfov=torch.tensor([1.0/24],dtype=torch.float32,device='cuda')
-    image_size=torch.tensor([512*2],dtype=torch.int,device='cuda')
+    tanfov=torch.tensor([tanfov],dtype=torch.float32,device=device)
+    image_size=torch.tensor([image_size],dtype=torch.int,device=device)
     
-    view_matrix,full_proj_matrix=get_full_proj_matrix(w2c_cam.cpu(),tanfov)
+    view_matrix,full_proj_matrix=get_full_proj_matrix(w2c_cam,tanfov[0])
     render_cam_params={
-            "world_view_transform":view_matrix.cuda(),"full_proj_transform":full_proj_matrix.cuda(),
+            "world_view_transform":view_matrix.unsqueeze(0),
+            "full_proj_transform":full_proj_matrix.unsqueeze(0),
             'tanfovx':tanfov,'tanfovy':tanfov,
             'image_height':image_size,'image_width':image_size,
-            'camera_center':c2w_cam[:3,3]
+            'camera_center':c2w_cam[:3,3].unsqueeze(0)
         }
     return render_cam_params
-
 
