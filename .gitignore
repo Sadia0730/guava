@@ -5,6 +5,7 @@ outputs/
 third_party/
 assets/GUAVA/checkpoints/
 assets/example/
+assets.zip
 
 # Build products generated inside tracked submodules
 submodules/**/build/

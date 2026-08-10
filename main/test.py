@@ -27,7 +27,14 @@ def change_id_info(target_info,source_info):
     target_info['flame_coeffs']['shape_params']=source_info['flame_coeffs']['shape_params']
     return target_info
 
-def render_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:GaussianRenderer,dataset:TrackedData_infer,dataset_name:str,root_path:str,):
+def save_coarse_render(render_results, out_raw_render_path, idx, enabled):
+    if not enabled:
+        return
+    os.makedirs(out_raw_render_path, exist_ok=True)
+    raw_render_image = render_results['raw_renders'][0]
+    torchvision.utils.save_image(raw_render_image, os.path.join(out_raw_render_path, '{0:05d}'.format(idx) + ".png"))
+
+def render_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:GaussianRenderer,dataset:TrackedData_infer,dataset_name:str,root_path:str,args):
     out_dir=os.path.join(root_path,dataset_name,) 
     os.makedirs(out_dir,exist_ok=True)
     bg=0.0
@@ -37,6 +44,7 @@ def render_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Gaussian
         print(f'{video_id} [{vidx+1}/{len(video_ids)}]')
         out_videoid_dir=os.path.join(out_dir,video_id)
         out_render_path=os.path.join(out_videoid_dir,'render')
+        out_raw_render_path=os.path.join(out_videoid_dir,'raw_render')
         out_gt_path=os.path.join(out_videoid_dir,'gt')
         os.makedirs(out_render_path,exist_ok=True)
         os.makedirs(out_gt_path,exist_ok=True)
@@ -88,6 +96,7 @@ def render_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Gaussian
             gt_image=target_info['image'][0]*(gt_mask)+(1-gt_mask)*bg
             torchvision.utils.save_image(gt_image, os.path.join(out_gt_path, '{0:05d}'.format(idx) + ".png"))
             torchvision.utils.save_image(render_image, os.path.join(out_render_path, '{0:05d}'.format(idx) + ".png"))
+            save_coarse_render(render_results, out_raw_render_path, idx, args.save_coarse_render)
             
             cat_image=torch.cat([gt_image,render_image],dim=2)
             rendering_imgs.append(to8b(cat_image.detach().cpu().numpy()))
@@ -146,6 +155,7 @@ def render_cross_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Ga
             print(f'{t_video_id} [{t_vidx+1}/{len(t_video_ids)}]')
             out_videoid_dir=os.path.join(out_sub_dir,f'{s_video_id}_{t_video_id}')
             out_render_path=os.path.join(out_videoid_dir,'render')
+            out_raw_render_path=os.path.join(out_videoid_dir,'raw_render')
             os.makedirs(out_render_path,exist_ok=True)
             torchvision.utils.save_image(source_info['image'], os.path.join(out_videoid_dir,'source_image.png'))
             frames=target_dataset.videos_info[t_video_id]['frames_keys']
@@ -187,6 +197,7 @@ def render_cross_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Ga
                 render_image=render_results['renders'][0]
                 gt_mask=target_info['mask'][0]
                 torchvision.utils.save_image(render_image, os.path.join(out_render_path, '{0:05d}'.format(idx) + ".png"))
+                save_coarse_render(render_results, out_raw_render_path, idx, args.save_coarse_render)
                 rendering_imgs.append(to8b(render_image.detach().cpu().numpy()))
                 
             rendering_imgs = np.stack(rendering_imgs, 0).transpose(0, 2, 3, 1)
@@ -198,7 +209,7 @@ def render_cross_set(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:Ga
             print(f'milliseconds_per_frame: {milliseconds_per_frame:.3f}')
             print(f'animation_render_fps: {animation_render_fps:.3f}')
             
-def render_novel_views(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:GaussianRenderer,dataset:TrackedData_infer,dataset_name:str,root_path:str,):
+def render_novel_views(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:GaussianRenderer,dataset:TrackedData_infer,dataset_name:str,root_path:str,args):
     #render norvel views for self-reenactment
     out_dir=os.path.join(root_path,dataset_name,) 
     os.makedirs(out_dir,exist_ok=True)
@@ -210,6 +221,7 @@ def render_novel_views(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:
         print(f'{video_id} [{vidx+1}/{len(video_ids)}]')
         out_videoid_dir=os.path.join(out_dir,f"{video_id}")
         out_render_path=os.path.join(out_videoid_dir,'render')
+        out_raw_render_path=os.path.join(out_videoid_dir,'raw_render')
         os.makedirs(out_render_path,exist_ok=True)
         source_info=dataset._load_source_info(video_id)
         
@@ -231,6 +243,7 @@ def render_novel_views(meta_cfg,infer_model:Ubody_Gaussian_inferer,render_model:
             render_image=render_results['renders'][0]
             gt_mask=target_info['mask'][0]
             torchvision.utils.save_image(render_image, os.path.join(out_render_path, '{0:05d}'.format(idx) + ".png"))
+            save_coarse_render(render_results, out_raw_render_path, idx, args.save_coarse_render)
             rendering_imgs.append(to8b(render_image.detach().cpu().numpy()))
             
         rendering_imgs = np.stack(rendering_imgs, 0).transpose(0, 2, 3, 1)
@@ -251,6 +264,7 @@ def render_static_novel_views(meta_cfg,infer_model:Ubody_Gaussian_inferer,render
             frame_key=dataset.videos_info[video_id]['frames_keys'][ridx]
             out_videoid_dir=os.path.join(out_dir,frame_key,f"{video_id}")
             out_render_path=os.path.join(out_videoid_dir,'render')
+            out_raw_render_path=os.path.join(out_videoid_dir,'raw_render')
             os.makedirs(out_render_path,exist_ok=True)
             source_info=dataset._load_source_info(video_id)
             
@@ -270,6 +284,7 @@ def render_static_novel_views(meta_cfg,infer_model:Ubody_Gaussian_inferer,render
                 render_image=render_results['renders'][0]
                 gt_mask=target_info['mask'][0]
                 torchvision.utils.save_image(render_image, os.path.join(out_render_path, '{0:05d}'.format(idx) + ".png"))
+                save_coarse_render(render_results, out_raw_render_path, idx, args.save_coarse_render)
                 rendering_imgs.append(to8b(render_image.detach().cpu().numpy()))
                 
             rendering_imgs = np.stack(rendering_imgs, 0).transpose(0, 2, 3, 1)
@@ -320,10 +335,10 @@ def test(args,config_name, base_model, devices,data_path,model_path,save_path,ou
     with torch.no_grad():
         if not args.skip_self_act:
             print('Rendering self-reenactment')
-            render_set(meta_cfg,infer_model,render_model,test_dataset,f'{out_name}_self_act',save_path)
+            render_set(meta_cfg,infer_model,render_model,test_dataset,f'{out_name}_self_act',save_path,args)
         if args.render_dynamic_novel_views:
             print('Rendering dynamic novel views')
-            render_novel_views(meta_cfg,infer_model,render_model,test_dataset,f'{out_name}_dyn_novel_views',save_path)
+            render_novel_views(meta_cfg,infer_model,render_model,test_dataset,f'{out_name}_dyn_novel_views',save_path,args)
         if args.render_static_novel_views:
             print('Rendering static novel views')
             render_static_novel_views(meta_cfg,infer_model,render_model,test_dataset,f'{out_name}_sta_novel_views',save_path,args)
@@ -348,6 +363,8 @@ if __name__ == "__main__":
     parser.add_argument('--save_path','-s',type=str,default=None)
     parser.add_argument('--saving_name','-n',type=str,default='render')
     parser.add_argument('--non_test_full', action='store_true', default=False)
+    parser.add_argument('--save_coarse_render', action='store_true', default=False,
+                        help='save pre-refiner gaussian renders to raw_render directories')
     
     parser.add_argument('--skip_self_act', action='store_true', default=False)
     parser.add_argument('--render_dynamic_novel_views', action='store_true', default=False)

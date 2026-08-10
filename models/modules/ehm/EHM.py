@@ -2,7 +2,6 @@ import torch
 import numpy as np
 import torch.nn as nn
 from pytorch3d.structures import Meshes
-import time
 
 
 from ..smplx import SMPLX
@@ -37,7 +36,6 @@ class EHM(nn.Module):
                 static_offset=None, zero_expression=False, zero_jaw=False, zero_shape=False,pose_type='rotmat',):
         
         # for flame head model
-        start_time=time.time()
         if flame_param_dict is not None:
             eye_pose_params    = flame_param_dict['eye_pose_params']# batch_size,6
             shape_params       = flame_param_dict['shape_params']# batch_size,300
