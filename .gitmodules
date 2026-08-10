@@ -1,3 +1,6 @@
 [submodule "EHM-Tracker"]
 	path = EHM-Tracker
 	url = https://github.com/Sadia0730/EHM-Tracker.git
+[submodule "third_party/PEAR"]
+	path = third_party/PEAR
+	url = https://github.com/Sadia0730/PEAR_guava.git
