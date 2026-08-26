@@ -35,7 +35,7 @@ import torch
 PEAR_ROOT = Path(__file__).resolve().parents[1] / 'third_party' / 'PEAR'
 EHM_ROOT = Path(__file__).resolve().parents[1] / 'EHM-Tracker'
 PERSON_DETECTOR = EHM_ROOT / 'pretrained' / 'dwpose' / 'yolox_l.onnx'
-PEAR_CHECKPOINT = ('BestWJH/PEAR_models', 'ehm_model_stage1.pt')
+PEAR_CHECKPOINT = ('BestWJH/PEAR_models', 'pear_model.pt')
 MODEL_INPUT_SIZE = 256
 BODY_IMAGE_SIZE = 1024  # EHM-Tracker body_hd_size / GUAVA DATASET.origin_image_size
 

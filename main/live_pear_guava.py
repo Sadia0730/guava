@@ -62,16 +62,11 @@ from typing import Any, Dict
 import cv2
 import numpy as np
 import torch
-from pytorch3d.transforms import (
-    matrix_to_axis_angle,
-    matrix_to_rotation_6d,
-    rotation_6d_to_matrix,
-)
 
 ROOT = Path(__file__).resolve().parents[1]
 EHM_TRACKER_ROOT = ROOT / "EHM-Tracker"
 PEAR_ROOT = ROOT / "third_party" / "PEAR"
-PEAR_CHECKPOINT = ("BestWJH/PEAR_models", "ehm_model_stage1.pt")
+PEAR_CHECKPOINT = ("BestWJH/PEAR_models", "pear_model.pt")
 sys.path.insert(0, str(ROOT))
 DEFAULT_SOURCE = (
     ROOT / "assets" / "example" / "tracked_image" / "random_google_pic" / "blue_shirt"
@@ -85,6 +80,36 @@ FLAME_KEYS = (
 )
 DTYPES = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}
 COMPILE_TARGETS = ("pear", "deform", "refiner")
+
+
+def matrix_to_rotation_6d(matrix):
+    return matrix[..., :2, :].clone().reshape(*matrix.shape[:-2], 6)
+
+
+def rotation_6d_to_matrix(d6):
+    a1, a2 = d6[..., :3], d6[..., 3:]
+    b1 = torch.nn.functional.normalize(a1, dim=-1)
+    b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+    b2 = torch.nn.functional.normalize(b2, dim=-1)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack((b1, b2, b3), dim=-2)
+
+
+def matrix_to_axis_angle(matrix):
+    skew = torch.stack(
+        (
+            matrix[..., 2, 1] - matrix[..., 1, 2],
+            matrix[..., 0, 2] - matrix[..., 2, 0],
+            matrix[..., 1, 0] - matrix[..., 0, 1],
+        ),
+        dim=-1,
+    )
+    trace = matrix.diagonal(dim1=-2, dim2=-1).sum(-1)
+    cosine = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0)
+    angle = torch.acos(cosine)
+    sine = torch.sin(angle).abs().clamp_min(1e-6)
+    axis = skew / (2.0 * sine[..., None])
+    return axis * angle[..., None]
 
 
 def parse_args():
@@ -146,6 +171,24 @@ def parse_args():
     parser.add_argument("--window", type=int, default=30, help="rolling FPS window")
     parser.add_argument("--max_frames", type=int, default=0, help="0 runs until q or stream end")
     parser.add_argument("--no_display", action="store_true")
+    parser.add_argument(
+        "--pear_backend",
+        choices=("teacher", "student"),
+        default="teacher",
+        help="Use the original PEAR teacher or a trained PEAR student checkpoint.",
+    )
+    parser.add_argument(
+        "--student_config",
+        type=Path,
+        default=Path("configs/student_l70.yaml"),
+        help="PEAR student config path, relative to third_party/PEAR unless absolute.",
+    )
+    parser.add_argument(
+        "--student_ckpt",
+        type=Path,
+        default=None,
+        help="Checkpoint from train_pear_student_distill.py, required for --pear_backend student.",
+    )
 
     speed = parser.add_argument_group("throughput")
     speed.add_argument(
@@ -508,28 +551,44 @@ def async_frames(capture, pear, stop, device):
 
 def initialize_pear(args):
     """Load, compile and warm up PEAR, then release PEAR's generic module names."""
-    from huggingface_hub import hf_hub_download
-
     original_directory = Path.cwd()
+    student_ckpt = args.student_ckpt.resolve() if args.student_ckpt is not None else None
     sys.path.insert(0, str(PEAR_ROOT))
     os.chdir(PEAR_ROOT)
     try:
-        from models.pipeline.ehm_pipeline import Ehm_Pipeline
         from utils.general_utils import ConfigDict, add_extra_cfgs
 
-        config = add_extra_cfgs(ConfigDict(model_config_path="configs/infer.yaml"))
-        try:
-            checkpoint_path = hf_hub_download(
-                *PEAR_CHECKPOINT, repo_type="model", local_files_only=True
-            )
-        except FileNotFoundError:
-            checkpoint_path = hf_hub_download(*PEAR_CHECKPOINT, repo_type="model")
-        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-        model = Ehm_Pipeline(config)
-        model.backbone.load_state_dict(checkpoint["backbone"], strict=False)
-        model.head.load_state_dict(checkpoint["head"], strict=False)
+        if args.pear_backend == "teacher":
+            from huggingface_hub import hf_hub_download
+            from models.pipeline.ehm_pipeline import Ehm_Pipeline
+
+            config = add_extra_cfgs(ConfigDict(model_config_path="configs/infer.yaml"))
+            try:
+                checkpoint_path = hf_hub_download(
+                    *PEAR_CHECKPOINT, repo_type="model", local_files_only=True
+                )
+            except FileNotFoundError:
+                checkpoint_path = hf_hub_download(*PEAR_CHECKPOINT, repo_type="model")
+            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+            model = Ehm_Pipeline(config)
+            model.backbone.load_state_dict(checkpoint["backbone"], strict=False)
+            model.head.load_state_dict(checkpoint["head"], strict=False)
+            del checkpoint
+        else:
+            from models.pipeline.student_pipeline import PearStudentPipeline
+
+            if student_ckpt is None:
+                raise ValueError("--student_ckpt is required with --pear_backend student")
+            config_path = args.student_config
+            if not config_path.is_absolute():
+                config_path = PEAR_ROOT / config_path
+            config = add_extra_cfgs(ConfigDict(model_config_path=str(config_path)))
+            checkpoint = torch.load(student_ckpt, map_location="cpu", weights_only=True)
+            model = PearStudentPipeline(config)
+            model.load_state_dict(checkpoint["student"], strict=True)
+            print(f"Loaded PEAR student step {checkpoint.get('step', 'unknown')}: {student_ckpt}")
+            del checkpoint
         model = model.to(args.device).eval()
-        del checkpoint
 
         # The ViT backbone is essentially all of PEAR's compute; the decoder
         # head is one token and stays fp32, which also keeps its fp32 camera
