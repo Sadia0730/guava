@@ -50,6 +50,7 @@ import argparse
 import hashlib
 import math
 import os
+import pickle
 import subprocess
 import sys
 import threading
@@ -583,7 +584,14 @@ def initialize_pear(args):
             if not config_path.is_absolute():
                 config_path = PEAR_ROOT / config_path
             config = add_extra_cfgs(ConfigDict(model_config_path=str(config_path)))
-            checkpoint = torch.load(student_ckpt, map_location="cpu", weights_only=True)
+            try:
+                checkpoint = torch.load(student_ckpt, map_location="cpu", weights_only=True)
+            except pickle.UnpicklingError as exc:
+                print(
+                    "Safe student checkpoint load failed; retrying trusted local "
+                    f"checkpoint with weights_only=False: {exc}"
+                )
+                checkpoint = torch.load(student_ckpt, map_location="cpu", weights_only=False)
             model = PearStudentPipeline(config)
             model.load_state_dict(checkpoint["student"], strict=True)
             print(f"Loaded PEAR student step {checkpoint.get('step', 'unknown')}: {student_ckpt}")
