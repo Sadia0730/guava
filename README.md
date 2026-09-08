@@ -157,6 +157,14 @@ Once your dataset is prepared, run the following command to train your own GUAVA
 python main/train.py -c train/ubody_512 -d '0,1'
 ```
 
+## AvatarBudget
+
+The configuration-driven PEAR/student-to-GUAVA budgeted runtime, one-time
+identity fitting, teacher caches, render-impact router training, live demo, and
+full-pipeline latency benchmark are documented in
+[docs/avatarbudget.md](docs/avatarbudget.md). The benchmark reports mean, p95,
+and p99 stage latency and does not infer end-to-end FPS from isolated modules.
+
 
 ## 🖥️ Interface Demo
 After setting up the environment, necessary files, and the EHM-Tracker, you can try our interactive demo by running:

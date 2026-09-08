@@ -15,8 +15,14 @@ class GaussianRenderer(L.LightningModule):
 
     def forward(self,*args, **kwargs):
         return self.forward_nueral_refine(*args, **kwargs)
-    
-    def forward_nueral_refine(self, gaussian_assets, cam_params, bg=None,scaling_modifier=1.0,antialiasing=False):
+
+    def forward_raw(self, gaussian_assets, cam_params, bg=None,scaling_modifier=1.0,antialiasing=False):
+        """Rasterize Gaussians without running the neural refiner.
+
+        The returned ``raw_features`` tensor is the refiner input. Keeping this
+        stage public lets AvatarBudget profile rasterization independently and
+        skip refinement at its lowest progressive-render level.
+        """
         
         mean_3d = gaussian_assets['xyz']
         opacity = gaussian_assets['opacity']
@@ -70,16 +76,29 @@ class GaussianRenderer(L.LightningModule):
         rendered_images = torch.stack(rendered_images, dim=0)
         raw_images = rendered_images[:,:3]
         
-        refine_images = self.nerual_refiner(rendered_images)
-
         radiis = torch.stack(radiis, dim=0)
         depth_images = torch.stack(depth_images, dim=0)
         return {
-            "renders": refine_images,
             "raw_renders": raw_images,  
+            "raw_features": rendered_images,
             "viewspace_points": mean_2d,
             "radiis": radiis,
             "depths" : depth_images,
             'extra_renders':rendered_images[:,3:4],
-            
             }
+
+    def refine_raw(self, raw_results):
+        return self.nerual_refiner(raw_results["raw_features"])
+
+    def forward_nueral_refine(self, gaussian_assets, cam_params, bg=None,scaling_modifier=1.0,antialiasing=False):
+        results = self.forward_raw(
+            gaussian_assets,
+            cam_params,
+            bg=bg,
+            scaling_modifier=scaling_modifier,
+            antialiasing=antialiasing,
+        )
+        results["renders"] = self.refine_raw(results)
+        # This intermediate was not part of the original public return value.
+        del results["raw_features"]
+        return results

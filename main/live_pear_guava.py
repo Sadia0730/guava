@@ -169,6 +169,13 @@ def parse_args():
     parser.add_argument("--model_path", type=Path, default=ROOT / "assets" / "GUAVA")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--render_size", type=int, choices=(256, 512), default=512)
+    parser.add_argument(
+        "--input_crop_scale",
+        type=float,
+        default=1.0,
+        help="Center-crop the live frame by this zoom factor before PEAR. "
+             "Use 1.5-2.0 when the webcam shows too much room.",
+    )
     parser.add_argument("--window", type=int, default=30, help="rolling FPS window")
     parser.add_argument("--max_frames", type=int, default=0, help="0 runs until q or stream end")
     parser.add_argument("--no_display", action="store_true")
@@ -259,7 +266,19 @@ def format_timing_summary(timings):
     )
 
 
-def pad_and_resize(image, target_size=PEAR_INPUT_SIZE):
+def center_crop_scale(image, scale):
+    if scale <= 1.0:
+        return image
+    height, width = image.shape[:2]
+    crop_width = max(1, int(round(width / scale)))
+    crop_height = max(1, int(round(height / scale)))
+    x0 = max(0, (width - crop_width) // 2)
+    y0 = max(0, (height - crop_height) // 2)
+    return image[y0:y0 + crop_height, x0:x0 + crop_width]
+
+
+def pad_and_resize(image, target_size=PEAR_INPUT_SIZE, crop_scale=1.0):
+    image = center_crop_scale(image, crop_scale)
     height, width = image.shape[:2]
     scale = min(target_size / height, target_size / width)
     resized_width = int(width * scale)
@@ -386,6 +405,7 @@ class PearRunner:
         self.device = args.device
         self.dtype = DTYPES[args.precision]
         self.stride = max(1, args.pear_stride)
+        self.input_crop_scale = max(1.0, float(args.input_crop_scale))
         self.stream = torch.cuda.Stream(device=args.device)
         self.start_event = torch.cuda.Event(enable_timing=True)
         self.end_event = torch.cuda.Event(enable_timing=True)
@@ -398,7 +418,7 @@ class PearRunner:
         self._index = 0
 
     def _infer(self, frame_bgr):
-        image = pad_and_resize(frame_bgr)
+        image = pad_and_resize(frame_bgr, crop_scale=self.input_crop_scale)
         # Letterbox first, swap channels second: the two commute, and this way
         # the colour conversion runs on 256x256 instead of the full frame.
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -955,6 +975,8 @@ def run_live(args):
                     render_bgr = image.cpu().numpy()
 
                 stats.add("wait", (frame_start - wait_start) * 1000.0)
+                if pear.durations:
+                    stats.add("pear", pear.durations[-1])
                 stats.add("guava", renderer.start_event.elapsed_time(renderer.end_event))
                 if previous_frame_start is not None:
                     stats.add("frame", (frame_start - previous_frame_start) * 1000.0)

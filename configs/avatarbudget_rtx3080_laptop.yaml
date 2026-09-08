@@ -1,0 +1,59 @@
+scout:
+  height: 96
+  width: 128
+  roi_expand: 0.12
+  motion_gain: 4.0
+  appearance_gain: 2.0
+
+temporal:
+  history: 3
+  velocity_damping: 0.85
+  uncertainty_growth: 0.12
+  max_prediction_gap: 3
+
+router:
+  max_staleness: 3
+  minimum_risk: 0.35
+  render_quality_weight: 0.6
+  impact_weights: [1.0, 1.2, 1.2, 0.8]
+  weights:
+    motion: 1.0
+    uncertainty: 1.1
+    staleness: 0.8
+    render_impact: 1.3
+    visibility: 0.4
+    appearance: 0.7
+  # Initial priors only. Replace them with the benchmarked mean/p95 values
+  # from the target RTX 3080 Laptop before reporting budget compliance.
+  costs:
+    fixed_ms: 1.8
+    expert_shared_ms: 7.5
+    face_head_ms: 0.15
+    left_hand_head_ms: 0.10
+    right_hand_head_ms: 0.10
+    body_head_ms: 0.15
+    render_low_ms: 5.0
+    render_medium_ms: 7.5
+    render_high_ms: 10.0
+
+rendering:
+  low:
+    gaussian_fraction: 0.35
+    refine: false
+  medium:
+    gaussian_fraction: 0.65
+    refine: true
+  high:
+    gaussian_fraction: 1.0
+    refine: true
+
+scheduler:
+  target_fps: 50.0
+  deadline_ms: 20.0
+  sleep_to_rate: true
+  warmup_frames: 10
+
+profiling:
+  warmup_frames: 10
+  report_window: 300
+  report_every: 60
