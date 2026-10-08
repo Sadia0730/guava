@@ -15,7 +15,7 @@ from torchvision.io import ImageReadMode, read_image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from avatarbudget.cache import TeacherCacheWriter, file_fingerprint
+from distillation.teacher_cache import TeacherCacheWriter, file_fingerprint
 
 
 PEAR_ROOT = ROOT / "third_party" / "PEAR"
