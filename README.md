@@ -148,6 +148,46 @@ python main/pear_tracking.py --in_root driving.mp4 --output_dir outputs/tracked_
 
 This writes the same layout EHM-Tracker does, so `outputs/tracked_driven_video/driving` can be passed straight to `--data_path`. Frames are cropped to one union person box with EHM-Tracker's detector, the same crop EHM-Tracker uses, so the driving camera agrees with the source avatar. Source images still need EHM-Tracker: its optimization also fits the identity parameters the avatar is built from.
 
+#### Custom live avatar and paired recordings
+Create a GUAVA identity from your own full-body image, then use the returned
+tracked directory as `--source_data_path`:
+
+```shell
+PYTHONNOUSERSITE=1 python main/fit_avatar_identity.py \
+  --source_image /absolute/path/to/my_avatar.jpg \
+  --output_dir outputs/avatar_identities
+```
+
+For example, if the image is named `my_avatar.jpg`, the tracked identity is
+usually `outputs/avatar_identities/my_avatar`. The source image should show the
+person clearly, with the body and feet visible when possible. Tracking is a
+one-time setup step; it is not repeated during each live frame.
+
+The live PEAR/GUAVA runner can alternatively capture the source identity from
+the webcam after a countdown, then save frame-aligned camera and avatar videos:
+
+```shell
+PYTHONNOUSERSITE=1 CUDA_VISIBLE_DEVICES=0 python main/live_pear_guava.py \
+  --input 0 \
+  --capture_source --source_capture_input 0 --source_capture_delay 20 \
+  --source_capture_output_dir outputs/my_avatar_source \
+  --source_tracking_output_dir outputs/my_avatar_tracking \
+  --pear_backend student \
+  --student_config configs/student_l70_v2.yaml \
+  --student_ckpt /data/GUAVA/pear_student_ckpt/step_0235000.pt \
+  --avatar_view full --face_mode source-delta --show_pose_skeleton \
+  --render_size 256 --precision fp16 \
+  --compile_targets pear refiner --pipeline async --pear_stride 1 \
+  --window 60 --device cuda:0 \
+  --record_dir outputs/live_recordings/my_run --record_fps 30
+```
+
+The directory contains `live_rgb.mp4` (the original camera frames),
+`animated_avatar.mp4`, `comparison.mp4`, and `metadata.json`. Frame N in all
+three videos is paired. Encoding runs on a background thread, but a slow disk
+can still create backpressure and reduce live throughput; use recording for
+evaluation, then benchmark again without `--record_dir`.
+
 
 ## 🚂 Training Scripts
 You can use the EHM-Tracker to build your own dataset.

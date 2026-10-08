@@ -6,7 +6,9 @@ third_party/
 assets/GUAVA/checkpoints/
 assets/example/
 assets.zip
-
+docs/*
+docs/pear_teacher_student_architecture.md
+assets/3DPW/
 # Build products generated inside tracked submodules
 submodules/**/build/
 submodules/**/*.egg-info/

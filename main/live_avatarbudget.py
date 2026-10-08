@@ -73,6 +73,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pear_backend", choices=("teacher", "student"), default="student")
     parser.add_argument("--student_config", type=Path, default=Path("configs/student_l70.yaml"))
     parser.add_argument("--student_ckpt", type=Path)
+    parser.add_argument(
+        "--freeze_face",
+        action="store_true",
+        help="Keep the source avatar's face completely static (equivalent to --face_mode frozen).",
+    )
+    parser.add_argument(
+        "--face_mode",
+        choices=("live", "frozen", "source-delta"),
+        default="live",
+        help="Use live face coefficients, freeze the source face, or apply live motion around the source face.",
+    )
     parser.add_argument("--router_ckpt", type=Path)
     parser.add_argument("--precision", choices=tuple(DTYPES), default="fp16")
     parser.add_argument(

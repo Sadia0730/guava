@@ -48,9 +48,11 @@ Two findings worth keeping in mind before changing any of this:
 """
 import argparse
 import hashlib
+import json
 import math
 import os
 import pickle
+import queue
 import subprocess
 import sys
 import threading
@@ -63,6 +65,7 @@ from typing import Any, Dict
 import cv2
 import numpy as np
 import torch
+from roma import rotmat_to_rotvec
 
 ROOT = Path(__file__).resolve().parents[1]
 EHM_TRACKER_ROOT = ROOT / "EHM-Tracker"
@@ -81,6 +84,20 @@ FLAME_KEYS = (
 )
 DTYPES = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}
 COMPILE_TARGETS = ("pear", "deform", "refiner")
+BODY_JOINT_NAMES = (
+    "left_hip", "right_hip", "spine1", "left_knee", "right_knee", "spine2",
+    "left_ankle", "right_ankle", "spine3", "left_foot", "right_foot", "neck",
+    "left_collar", "right_collar", "head", "left_shoulder", "right_shoulder",
+    "left_elbow", "right_elbow", "left_wrist", "right_wrist",
+)
+LOWER_BODY_JOINTS = (0, 1, 3, 4, 6, 7, 9, 10)
+SKELETON_EDGES = (
+    (0, 1), (1, 4), (4, 7), (7, 10),
+    (0, 2), (2, 5), (5, 8), (8, 11),
+    (0, 3), (3, 6), (6, 9), (9, 12), (12, 15),
+    (12, 13), (13, 16), (16, 18), (18, 20),
+    (12, 14), (14, 17), (17, 19), (19, 21),
+)
 
 
 def matrix_to_rotation_6d(matrix):
@@ -97,24 +114,12 @@ def rotation_6d_to_matrix(d6):
 
 
 def matrix_to_axis_angle(matrix):
-    skew = torch.stack(
-        (
-            matrix[..., 2, 1] - matrix[..., 1, 2],
-            matrix[..., 0, 2] - matrix[..., 2, 0],
-            matrix[..., 1, 0] - matrix[..., 0, 1],
-        ),
-        dim=-1,
-    )
-    trace = matrix.diagonal(dim1=-2, dim2=-1).sum(-1)
-    cosine = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0)
-    angle = torch.acos(cosine)
-    sine = torch.sin(angle).abs().clamp_min(1e-6)
-    axis = skew / (2.0 * sine[..., None])
-    return axis * angle[..., None]
+    return rotmat_to_rotvec(matrix)
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--live_config", type=Path, help="Live runtime YAML; command-line options override it.")
     parser.add_argument("--input", default="0", help="webcam index, RTSP URL, HTTP URL, or video")
     parser.add_argument("--source_data_path", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument(
@@ -146,6 +151,12 @@ def parse_args():
         help="Drop this many frames before saving the source frame.",
     )
     parser.add_argument(
+        "--source_capture_delay",
+        type=float,
+        default=0.0,
+        help="Seconds to wait after pressing s before capturing the source frame.",
+    )
+    parser.add_argument(
         "--source_capture_max_attempts",
         type=int,
         default=60,
@@ -170,11 +181,19 @@ def parse_args():
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--render_size", type=int, choices=(256, 512), default=512)
     parser.add_argument(
+        "--avatar_view", choices=("full", "original"), default="full",
+        help="Full-body render camera, or the original tighter canonical camera.",
+    )
+    parser.add_argument(
         "--input_crop_scale",
         type=float,
         default=1.0,
         help="Center-crop the live frame by this zoom factor before PEAR. "
              "Use 1.5-2.0 when the webcam shows too much room.",
+    )
+    parser.add_argument(
+        "--input_framing", choices=("whole", "centered"), default="whole",
+        help="Centered removes excess landscape width, preserves full height, and previews model input. No detector.",
     )
     parser.add_argument("--window", type=int, default=30, help="rolling FPS window")
     parser.add_argument("--max_frames", type=int, default=0, help="0 runs until q or stream end")
@@ -196,6 +215,45 @@ def parse_args():
         type=Path,
         default=None,
         help="Checkpoint from train_pear_student_distill.py, required for --pear_backend student.",
+    )
+    parser.add_argument(
+        "--freeze_face",
+        action="store_true",
+        help="Keep the source avatar's face completely static (equivalent to --face_mode frozen).",
+    )
+    parser.add_argument(
+        "--face_mode",
+        choices=("live", "frozen", "source-delta"),
+        default="live",
+        help="Use live face coefficients, freeze the source face, or apply live motion around the source face.",
+    )
+    parser.add_argument(
+        "--rest_lower_body",
+        action="store_true",
+        help="Keep hips, knees, ankles, and feet in the source avatar pose.",
+    )
+    parser.add_argument(
+        "--show_pose_skeleton",
+        action="store_true",
+        help="Display the posed SMPL-X skeleton before Gaussian rendering.",
+    )
+    parser.add_argument(
+        "--display_width",
+        type=int,
+        default=1900,
+        help="Maximum preview width in pixels; all panels are scaled to fit.",
+    )
+    parser.add_argument(
+        "--record_dir",
+        type=Path,
+        default=None,
+        help="Save synchronized live_rgb.mp4, animated_avatar.mp4, and comparison.mp4 here.",
+    )
+    parser.add_argument(
+        "--record_fps",
+        type=float,
+        default=30.0,
+        help="Playback FPS written to recording files (default: 30).",
     )
 
     speed = parser.add_argument_group("throughput")
@@ -247,7 +305,40 @@ def parse_args():
         default=3,
         help="Warm-up iterations per model. CUDA graphs need one replay after capture.",
     )
-    return parser.parse_args()
+    argv = sys.argv[1:] if argv is None else argv
+    selector = argparse.ArgumentParser(add_help=False)
+    selector.add_argument("--live_config", type=Path)
+    selected, _ = selector.parse_known_args(argv)
+    config_argv = []
+    if selected.live_config is not None:
+        import yaml
+
+        try:
+            with selected.live_config.open() as handle:
+                settings = yaml.safe_load(handle)
+        except (OSError, yaml.YAMLError) as error:
+            parser.error(f"Could not read live config: {error}")
+        if not isinstance(settings, dict):
+            parser.error("Live config must be a mapping of CLI option names to values")
+        actions = {action.dest: action for action in parser._actions
+                   if action.dest not in ("help", "live_config")}
+        for name, value in settings.items():
+            if name not in actions:
+                parser.error(f"Unknown live config option: {name}")
+            action = actions[name]
+            if action.nargs == 0:
+                if not isinstance(value, bool):
+                    parser.error(f"Live config {name} must be true or false")
+                parser.set_defaults(**{name: value})
+                continue
+            values = value if isinstance(value, list) else [value]
+            if isinstance(value, list) and action.nargs not in ("*", "+"):
+                parser.error(f"Live config {name} must be a scalar")
+            if any(item is None or isinstance(item, (dict, list, bool)) for item in values):
+                parser.error(f"Invalid live config value for {name}")
+            config_argv.append(action.option_strings[0])
+            config_argv.extend(str(item) for item in values)
+    return parser.parse_args(config_argv + list(argv))
 
 
 def format_duration(seconds):
@@ -277,7 +368,12 @@ def center_crop_scale(image, scale):
     return image[y0:y0 + crop_height, x0:x0 + crop_width]
 
 
-def pad_and_resize(image, target_size=PEAR_INPUT_SIZE, crop_scale=1.0):
+def pad_and_resize(image, target_size=PEAR_INPUT_SIZE, crop_scale=1.0, framing="whole"):
+    if framing == "centered":
+        height, width = image.shape[:2]
+        crop_width = min(width, height)
+        left = (width - crop_width) // 2
+        image = image[:, left:left + crop_width]
     image = center_crop_scale(image, crop_scale)
     height, width = image.shape[:2]
     scale = min(target_size / height, target_size / width)
@@ -289,6 +385,8 @@ def pad_and_resize(image, target_size=PEAR_INPUT_SIZE, crop_scale=1.0):
     y_offset = (target_size - resized_height) // 2
     padded[y_offset:y_offset + resized_height, x_offset:x_offset + resized_width] = resized
     return padded
+
+
 
 
 class ReducedPrecision(torch.nn.Module):
@@ -367,6 +465,12 @@ class TargetBuilder:
 
     def __init__(self, identity, args):
         self.identity = identity
+        self.face_mode = (
+            "frozen" if bool(getattr(args, "freeze_face", False))
+            else getattr(args, "face_mode", "live")
+        )
+        self.rest_lower_body = bool(getattr(args, "rest_lower_body", False))
+        self.face_baseline = None
         self.filters = None
         if args.smooth:
             self.filters = {
@@ -378,13 +482,34 @@ class TargetBuilder:
         if self.filters is not None:
             params = {key: self.filters[key](value, timestamp) for key, value in params.items()}
 
+        live_face = {"exp": params["exp"][None]}
+        live_face.update({key: params[key][None] for key in FLAME_KEYS})
+        if self.face_mode == "live":
+            face = live_face
+        elif self.face_mode == "frozen":
+            face = {"exp": self.identity["source_exp"], **self.identity["source_flame"]}
+        else:
+            if self.face_baseline is None:
+                self.face_baseline = {
+                    key: value.detach().clone() for key, value in live_face.items()
+                }
+            source_face = {"exp": self.identity["source_exp"], **self.identity["source_flame"]}
+            face = {
+                key: source_face[key] + live_face[key] - self.face_baseline[key]
+                for key in live_face
+            }
+
         rotations = {
             key: matrix_to_axis_angle(rotation_6d_to_matrix(params[key])) for key in ROTATION_KEYS
         }
+        body_pose = rotations["body_pose"][None]
+        if self.rest_lower_body:
+            body_pose = body_pose.clone()
+            body_pose[:, LOWER_BODY_JOINTS] = self.identity["source_body_pose"][:, LOWER_BODY_JOINTS]
         smplx_coeffs = {
-            "exp": params["exp"][None],
+            "exp": face["exp"],
             "global_pose": rotations["global_pose"].reshape(1, 3),
-            "body_pose": rotations["body_pose"][None],
+            "body_pose": body_pose,
             "left_hand_pose": rotations["left_hand_pose"][None],
             "right_hand_pose": rotations["right_hand_pose"][None],
             "shape": self.identity["shape"],
@@ -392,7 +517,7 @@ class TargetBuilder:
             "head_scale": self.identity["head_scale"],
             "hand_scale": self.identity["hand_scale"],
         }
-        flame_coeffs = {key: params[key][None] for key in FLAME_KEYS}
+        flame_coeffs = {key: face[key] for key in FLAME_KEYS}
         flame_coeffs["shape_params"] = self.identity["flame_shape"]
         return {"smplx_coeffs": smplx_coeffs, "flame_coeffs": flame_coeffs}
 
@@ -406,6 +531,8 @@ class PearRunner:
         self.dtype = DTYPES[args.precision]
         self.stride = max(1, args.pear_stride)
         self.input_crop_scale = max(1.0, float(args.input_crop_scale))
+        self.input_framing = getattr(args, "input_framing", "whole")
+        self.last_input_bgr = None
         self.stream = torch.cuda.Stream(device=args.device)
         self.start_event = torch.cuda.Event(enable_timing=True)
         self.end_event = torch.cuda.Event(enable_timing=True)
@@ -418,7 +545,8 @@ class PearRunner:
         self._index = 0
 
     def _infer(self, frame_bgr):
-        image = pad_and_resize(frame_bgr, crop_scale=self.input_crop_scale)
+        image = pad_and_resize(frame_bgr, crop_scale=self.input_crop_scale, framing=self.input_framing)
+        self.last_input_bgr = image
         # Letterbox first, swap channels second: the two commute, and this way
         # the colour conversion runs on 256x256 instead of the full frame.
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -480,13 +608,16 @@ class AvatarRenderer:
         self.avatar = avatar
         self.render_model = render_model
         self.camera = camera
+        self.last_joints = None
         self.start_event = torch.cuda.Event(enable_timing=True)
         self.end_event = torch.cuda.Event(enable_timing=True)
 
     def render(self, target):
         """Enqueues one frame and returns it as an HWC uint8 BGR tensor."""
         self.start_event.record()
-        rendered = self.render_model(self.avatar(target), self.camera, bg=0.0)["renders"][0]
+        assets = self.avatar(target)
+        self.last_joints = assets.get("joints")
+        rendered = self.render_model(assets, self.camera, bg=0.0)["renders"][0]
         # Scale and swap to BGR on the GPU so the readback is one contiguous
         # uint8 copy instead of three float32 planes.
         image = (rendered.clamp(0.0, 1.0).flip(0) * 255.0).permute(1, 2, 0).to(torch.uint8)
@@ -500,10 +631,163 @@ class AvatarRenderer:
         torch.cuda.synchronize()
 
 
+def draw_pose_skeleton(joints, camera, height, width):
+    """Draw GUAVA's pre-rasterization SMPL-X body joints in render-camera space."""
+    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+    cv2.putText(
+        canvas, "PEAR/EHM pose (orange=legs, cyan=upper body)", (8, 22), cv2.FONT_HERSHEY_SIMPLEX,
+        0.46, (255, 255, 255), 1, cv2.LINE_AA,
+    )
+    if joints is None:
+        return canvas
+
+    body = joints[0, :22].detach().float()
+    homogeneous = torch.cat((body, torch.ones_like(body[:, :1])), dim=-1)
+    clip = homogeneous @ camera["full_proj_transform"][0]
+    w = clip[:, 3]
+    ndc = clip[:, :2] / w[:, None].clamp_min(1e-6)
+    points = torch.stack(
+        (((ndc[:, 0] + 1.0) * width - 1.0) * 0.5,
+         ((ndc[:, 1] + 1.0) * height - 1.0) * 0.5),
+        dim=-1,
+    ).cpu().numpy()
+    valid = (
+        torch.isfinite(ndc).all(dim=-1)
+        & (w > 0.0)
+        & (ndc.abs() < 1.25).all(dim=-1)
+    ).cpu().numpy()
+
+    for start, end in SKELETON_EDGES:
+        if valid[start] and valid[end]:
+            lower_body = start <= 11 and end <= 11 and start != 3 and end != 3
+            color = (0, 165, 255) if lower_body else (255, 190, 0)
+            cv2.line(
+                canvas, tuple(points[start].astype(int)), tuple(points[end].astype(int)),
+                color, 3, cv2.LINE_AA,
+            )
+    for index, point in enumerate(points):
+        if valid[index]:
+            color = (0, 210, 255) if index in (1, 2, 4, 5, 7, 8, 10, 11) else (255, 255, 255)
+            cv2.circle(canvas, tuple(point.astype(int)), 4, color, -1, cv2.LINE_AA)
+            if index in (0, 1, 2, 4, 5, 7, 8, 10, 11, 15):
+                cv2.putText(
+                    canvas, (("pelvis",) + BODY_JOINT_NAMES)[index], tuple((point + 6).astype(int)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.34, (220, 220, 220), 1, cv2.LINE_AA,
+                )
+    return canvas
+
+
 @dataclass
 class Frame:
     image_bgr: Any
+    raw_image_bgr: Any
     params: Dict[str, torch.Tensor]
+
+
+class LiveRecorder:
+    """Write paired camera/avatar frames without blocking GPU rendering on encode."""
+
+    def __init__(self, output_dir, fps):
+        if fps <= 0.0:
+            raise ValueError("--record_fps must be positive")
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.fps = float(fps)
+        self._queue = queue.Queue(maxsize=32)
+        self._error = None
+        self._writers = None
+        self._frames = 0
+        self._thread = threading.Thread(target=self._write_loop, name="live-recorder", daemon=True)
+        self._thread.start()
+
+    @staticmethod
+    def _open_writer(path, width, height, fps):
+        writer = cv2.VideoWriter(
+            str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height)
+        )
+        if not writer.isOpened():
+            writer.release()
+            raise RuntimeError(f"Could not open MP4 writer: {path}")
+        return writer
+
+    @staticmethod
+    def _comparison_frame(live_bgr, avatar_bgr):
+        avatar_height = avatar_bgr.shape[0]
+        live_width = max(1, int(round(live_bgr.shape[1] * avatar_height / live_bgr.shape[0])))
+        live_resized = cv2.resize(live_bgr, (live_width, avatar_height), interpolation=cv2.INTER_AREA)
+        return np.concatenate((live_resized, avatar_bgr), axis=1)
+
+    def _write_loop(self):
+        try:
+            while True:
+                item = self._queue.get()
+                if item is None:
+                    return
+                live_bgr, avatar_bgr = item
+                if self._writers is None:
+                    self._writers = (
+                        self._open_writer(
+                            self.output_dir / "live_rgb.mp4",
+                            live_bgr.shape[1], live_bgr.shape[0], self.fps,
+                        ),
+                        self._open_writer(
+                            self.output_dir / "animated_avatar.mp4",
+                            avatar_bgr.shape[1], avatar_bgr.shape[0], self.fps,
+                        ),
+                        self._open_writer(
+                            self.output_dir / "comparison.mp4",
+                            self._comparison_frame(live_bgr, avatar_bgr).shape[1],
+                            avatar_bgr.shape[0], self.fps,
+                        ),
+                    )
+                live_writer, avatar_writer, comparison_writer = self._writers
+                live_writer.write(live_bgr)
+                avatar_writer.write(avatar_bgr)
+                comparison_writer.write(self._comparison_frame(live_bgr, avatar_bgr))
+                self._frames += 1
+        except BaseException as error:
+            self._error = error
+
+    def _raise_error(self):
+        if self._error is not None:
+            raise RuntimeError(f"Live recording failed: {self._error}") from self._error
+
+    def write(self, live_bgr, avatar_bgr):
+        self._raise_error()
+        if live_bgr is None or avatar_bgr is None:
+            raise ValueError("LiveRecorder requires both a camera frame and an avatar frame")
+        if live_bgr.ndim != 3 or avatar_bgr.ndim != 3:
+            raise ValueError("LiveRecorder expects HWC BGR images")
+        # The producer may reuse capture/readback buffers after this call.
+        item = (np.ascontiguousarray(live_bgr.copy()), np.ascontiguousarray(avatar_bgr.copy()))
+        while True:
+            try:
+                self._queue.put(item, timeout=0.1)
+                break
+            except queue.Full:
+                self._raise_error()
+        self._raise_error()
+
+    def close(self):
+        if self._thread.is_alive():
+            self._queue.put(None)
+            self._thread.join()
+        if self._writers is not None:
+            for writer in self._writers:
+                writer.release()
+        self._raise_error()
+        metadata = {
+            "fps": self.fps,
+            "frames": self._frames,
+            "frame_alignment": "frame N in each file comes from the same selected live frame",
+            "live_rgb": "live_rgb.mp4",
+            "animated_avatar": "animated_avatar.mp4",
+            "comparison": "comparison.mp4",
+            "note": "Async live mode may skip camera frames when rendering falls behind; paired files remain aligned.",
+        }
+        (self.output_dir / "metadata.json").write_text(
+            json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+        )
 
 
 class LatestFrame:
@@ -545,7 +829,12 @@ def serial_frames(capture, pear, stop):
         ok, frame_bgr = capture.read()
         if not ok:
             return
-        yield Frame(frame_bgr, pear.step(frame_bgr))
+        params = pear.step(frame_bgr)
+        preview = frame_bgr
+        if pear.input_framing == "centered":
+            # Show the actual 192-column backbone input, including its side boundaries.
+            preview = pad_and_resize(pear.last_input_bgr[:, 32:-32])
+        yield Frame(preview, frame_bgr, params)
 
 
 def async_frames(capture, pear, stop, device):
@@ -681,6 +970,16 @@ def initialize_guava(args, warmup_params):
     camera = load_canonical_render_prams(
         device=args.device, image_size=args.render_size, tanfov=source_dataset.tanfov
     )
+    if getattr(args, "avatar_view", "full") == "full":
+        from utils.graphics_utils import get_full_proj_matrix
+
+        # The original camera's y=0.6, z=22 framing clips standing lower legs.
+        world_to_camera = torch.eye(4, device=args.device)
+        world_to_camera[2, 3] = 32.0
+        view, projection = get_full_proj_matrix(world_to_camera, source_dataset.tanfov)
+        camera["world_view_transform"] = view[None]
+        camera["full_proj_transform"] = projection[None]
+        camera["camera_center"] = torch.linalg.inv(world_to_camera)[None, :3, 3]
 
     # Only the refiner drops precision: the rasterizer feeding it is an
     # fp32-only CUDA kernel, and the deformation is memory bound.
@@ -696,6 +995,9 @@ def initialize_guava(args, warmup_params):
         "head_scale": source_info["smplx_coeffs"]["head_scale"],
         "hand_scale": source_info["smplx_coeffs"]["hand_scale"],
         "flame_shape": source_info["flame_coeffs"]["shape_params"],
+        "source_exp": source_info["smplx_coeffs"]["exp"],
+        "source_body_pose": source_info["smplx_coeffs"]["body_pose"],
+        "source_flame": {key: source_info["flame_coeffs"][key] for key in FLAME_KEYS},
     }
     # Warm up on a real PEAR parameter record rather than on the source's own
     # coefficients. The two differ in stride, and a guard failure would put
@@ -780,10 +1082,15 @@ def read_source_frame_auto(capture, source, args):
 def read_source_frame_interactive(capture, source, args):
     window_name = "GUAVA source capture"
     skip_frames = max(0, args.source_capture_skip_frames)
+    capture_delay = max(0.0, float(args.source_capture_delay))
+    capture_deadline = None
     max_attempts = max(1, args.source_capture_max_attempts)
     failed_reads = 0
 
-    print("Source capture preview opened. Press 's' to save, 'q' or Esc to cancel.")
+    print(
+        "Source capture preview opened. Press 's' to start the capture countdown, "
+        "'q' or Esc to cancel."
+    )
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     try:
         while failed_reads < max_attempts:
@@ -801,14 +1108,23 @@ def read_source_frame_interactive(capture, source, args):
                 skip_frames -= 1
                 prompt = f"Warming stream... {skip_frames} frames"
                 can_save = False
+            elif capture_deadline is not None:
+                remaining = capture_deadline - time.monotonic()
+                if remaining <= 0.0:
+                    return frame_bgr
+                prompt = f"Capturing in {math.ceil(remaining)} s | q/Esc to cancel"
+                can_save = False
             else:
-                prompt = "Press s to save source frame | q/Esc to cancel"
+                prompt = "Press s to start capture countdown | q/Esc to cancel"
                 can_save = True
 
             cv2.imshow(window_name, add_capture_prompt(frame_bgr, prompt))
             key = cv2.waitKey(1) & 0xFF
             if can_save and key == ord("s"):
-                return frame_bgr
+                if capture_delay <= 0.0:
+                    return frame_bgr
+                capture_deadline = time.monotonic() + capture_delay
+                print(f"Source capture countdown started: {capture_delay:g} seconds")
             if key in (27, ord("q")):
                 raise RuntimeError("Source capture cancelled.")
     finally:
@@ -882,6 +1198,7 @@ def track_source_image(image_path, args):
             "EHM-Tracker finished but the expected source tracking file was not "
             f"created: {optim_tracking_path}"
         )
+    print(f"Tracked source avatar: {tracked_source_path}")
     return tracked_source_path, tracking_seconds
 
 
@@ -900,18 +1217,21 @@ def describe(args):
     compile_state = f"{targets}" if targets == "off" else f"{targets}/{args.compile_mode}"
     return (
         f"precision={args.precision} compile={compile_state} pipeline={args.pipeline} "
-        f"pear_stride={args.pear_stride} smooth={'on' if args.smooth else 'off'}"
+        f"pear_stride={args.pear_stride} smooth={'on' if args.smooth else 'off'} "
+        f" avatar_view={args.avatar_view} rest_lower_body={args.rest_lower_body}"
+        f" input_framing={args.input_framing}"
     )
 
 
 def report(frame_count, pear, stats):
     pear_ms = mean(pear.durations)
-    return (
+    summary = (
         f"frames={frame_count} pear_calls={pear.calls} | "
         f"PEAR {fps(pear_ms):.1f} FPS ({pear_ms:.1f} ms) | "
         f"GUAVA {stats.fps('guava'):.1f} FPS ({stats.mean('guava'):.1f} ms) | "
         f"end-to-end {stats.fps('frame'):.1f} FPS | wait {stats.mean('wait'):.1f} ms"
     )
+    return summary
 
 
 def run_live(args):
@@ -931,6 +1251,7 @@ def run_live(args):
     pear, warmup_params = initialize_pear(args)
     setup_times["pear_init"] = time.perf_counter() - pear_start
 
+
     print("Loading GUAVA and creating the source avatar once...")
     guava_start = time.perf_counter()
     renderer, identity, source_dataset = initialize_guava(args, warmup_params)
@@ -947,6 +1268,9 @@ def run_live(args):
         frames = async_frames(capture, pear, stop, args.device)
     else:
         frames = serial_frames(capture, pear, stop)
+    recorder = LiveRecorder(args.record_dir, args.record_fps) if args.record_dir is not None else None
+    if not args.no_display:
+        cv2.namedWindow("PEAR live motion -> GUAVA avatar", cv2.WINDOW_NORMAL)
 
     frame_count = 0
     previous_frame_start = None
@@ -968,11 +1292,14 @@ def run_live(args):
 
                 target = build_target(frame.params, frame_start)
                 image = renderer.render(target)
-                if args.no_display:
+                if args.no_display and recorder is None:
                     render_bgr = None
                     renderer.end_event.synchronize()
                 else:
                     render_bgr = image.cpu().numpy()
+
+                if recorder is not None:
+                    recorder.write(frame.raw_image_bgr, render_bgr)
 
                 stats.add("wait", (frame_start - wait_start) * 1000.0)
                 if pear.durations:
@@ -986,11 +1313,21 @@ def run_live(args):
                 if frame_count == 1 or frame_count % args.window == 0:
                     print(report(frame_count, pear, stats))
 
-                if render_bgr is not None:
+                if not args.no_display:
                     preview = cv2.resize(
                         frame.image_bgr, (render_bgr.shape[1], render_bgr.shape[0])
                     )
-                    combined = np.concatenate((preview, render_bgr), axis=1)
+                    panels = [preview, render_bgr]
+                    if args.show_pose_skeleton:
+                        panels.append(
+                            draw_pose_skeleton(
+                                renderer.last_joints,
+                                renderer.camera,
+                                render_bgr.shape[0],
+                                render_bgr.shape[1],
+                            )
+                        )
+                    combined = np.concatenate(panels, axis=1)
                     label = (
                         f"PEAR {stats.fps('pear'):.1f} | GUAVA {stats.fps('guava'):.1f} | "
                         f"live {stats.fps('frame'):.1f} FPS"
@@ -999,13 +1336,24 @@ def run_live(args):
                         combined, label, (12, 30), cv2.FONT_HERSHEY_SIMPLEX,
                         0.7, (255, 255, 255), 2, cv2.LINE_AA,
                     )
-                    cv2.imshow("PEAR live motion -> GUAVA avatar", combined)
+                    display = combined
+                    max_width = max(1, int(args.display_width))
+                    if display.shape[1] > max_width:
+                        scale = max_width / display.shape[1]
+                        display = cv2.resize(
+                            display,
+                            (max_width, max(1, int(round(display.shape[0] * scale)))),
+                            interpolation=cv2.INTER_AREA,
+                        )
+                    cv2.imshow("PEAR live motion -> GUAVA avatar", display)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
     finally:
         stop.set()
         frames.close()
         capture.release()
+        if recorder is not None:
+            recorder.close()
         if not args.no_display:
             cv2.destroyAllWindows()
         source_dataset._lmdb_engine.close()

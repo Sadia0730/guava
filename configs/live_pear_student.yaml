@@ -1,0 +1,24 @@
+# Runtime settings, separate from the student network architecture config.
+# Run from /data/GUAVA. CLI arguments override these values.
+input: "0"
+source_data_path: /data/GUAVA/assets/example/tracked_image/random_google_pic/blue_shirt
+pear_backend: student
+student_config: configs/student_l70_v2.yaml
+student_ckpt: /data/GUAVA/pear_student_ckpt/step_0235000.pt
+
+avatar_view: full        # Keep standing feet inside the render camera.
+input_framing: centered # Fixed side crop, no detector. Stay inside the preview.
+input_crop_scale: 1.0   # No additional zoom that could cut off head or feet.
+smooth: false          # Diagnose raw pose response; true reduces jitter.
+rest_lower_body: false
+face_mode: source-delta
+show_pose_skeleton: true
+display_width: 1800
+
+render_size: 256
+precision: fp16
+compile_targets: [pear, refiner]
+pipeline: async
+pear_stride: 1
+window: 60
+device: cuda:0

@@ -22,6 +22,7 @@ from typing import Any
 import cv2
 import numpy as np
 import torch
+from roma import rotmat_to_rotvec
 
 ROOT = Path(__file__).resolve().parents[1]
 PEAR_ROOT = ROOT / "third_party" / "PEAR"
@@ -33,6 +34,12 @@ from tools.pear_debug_utils import find_state_dict, tensor_summary, tensor_tree 
 
 
 ROTATION_KEYS = ("global_pose", "body_pose", "left_hand_pose", "right_hand_pose")
+BODY_JOINT_NAMES = (
+    "left_hip", "right_hip", "spine1", "left_knee", "right_knee", "spine2",
+    "left_ankle", "right_ankle", "spine3", "left_foot", "right_foot", "neck",
+    "left_collar", "right_collar", "head", "left_shoulder", "right_shoulder",
+    "left_elbow", "right_elbow", "left_wrist", "right_wrist",
+)
 IDENTITY_KEYS = (
     "body_param.shape",
     "body_param.joints_offset",
@@ -57,6 +64,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frames", type=int, default=60)
     parser.add_argument("--frame-step", type=int, default=1)
     parser.add_argument("--input-crop-scale", type=float, default=1.0)
+    parser.add_argument("--input-framing", choices=("whole", "centered"), default="whole")
+    parser.add_argument("--capture-frames", type=int, default=0,
+                        help="Live frames to record before subsampling with --frame-step/--frames.")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--precision", choices=("fp32", "fp16", "bf16"), default="fp32")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "outputs/debug/teacher_student")
@@ -84,6 +94,8 @@ def cleanup_pear_modules() -> None:
 
 def load_models(args: argparse.Namespace):
     original_directory = Path.cwd()
+    student_path = args.student_checkpoint.resolve()
+    teacher_override = args.teacher_checkpoint.resolve() if args.teacher_checkpoint else None
     sys.path.insert(0, str(PEAR_ROOT))
     os.chdir(PEAR_ROOT)
     try:
@@ -114,13 +126,12 @@ def load_models(args: argparse.Namespace):
                     "explicitly allow --download-teacher."
                 ) from error
         else:
-            teacher_path = args.teacher_checkpoint.resolve()
+            teacher_path = teacher_override
         teacher_checkpoint = torch.load(teacher_path, map_location="cpu", weights_only=True)
         teacher.backbone.load_state_dict(teacher_checkpoint["backbone"], strict=True)
         teacher.head.load_state_dict(teacher_checkpoint["head"], strict=True)
         del teacher_checkpoint
 
-        student_path = args.student_checkpoint.resolve()
         try:
             student_checkpoint = torch.load(student_path, map_location="cpu", weights_only=True)
         except Exception as error:
@@ -170,7 +181,13 @@ def letterbox(frame: np.ndarray, size: int = 256) -> np.ndarray:
     return result
 
 
-def shared_preprocess(frame_bgr: np.ndarray, crop_scale: float, device: str) -> dict[str, Any]:
+def shared_preprocess(frame_bgr: np.ndarray, crop_scale: float, device: str, framing="whole") -> dict[str, Any]:
+    original_bgr = frame_bgr
+    if framing == "centered":
+        height, width = frame_bgr.shape[:2]
+        crop_width = min(width, height)
+        left = (width - crop_width) // 2
+        frame_bgr = frame_bgr[:, left:left + crop_width]
     crop_bgr = center_crop(frame_bgr, crop_scale)
     model_bgr = letterbox(crop_bgr)
     model_rgb = cv2.cvtColor(model_bgr, cv2.COLOR_BGR2RGB)
@@ -181,7 +198,7 @@ def shared_preprocess(frame_bgr: np.ndarray, crop_scale: float, device: str) -> 
     std = IMAGE_STD.to(device=device, dtype=model_tensor.dtype)
     normalized = ((model_tensor - mean) / std)[:, :, :, 32:-32].contiguous()
     return {
-        "original_bgr": frame_bgr,
+        "original_bgr": original_bgr,
         "person_crop_bgr": crop_bgr,
         "model_bgr": model_bgr,
         "model_tensor": model_tensor,
@@ -309,18 +326,29 @@ def run_model_from_shared_normalized(model, normalized: torch.Tensor, dtype: tor
 
 
 def matrix_to_axis_angle(matrix: torch.Tensor) -> torch.Tensor:
-    skew = torch.stack(
-        (
-            matrix[..., 2, 1] - matrix[..., 1, 2],
-            matrix[..., 0, 2] - matrix[..., 2, 0],
-            matrix[..., 1, 0] - matrix[..., 0, 1],
-        ),
-        dim=-1,
-    )
-    trace = matrix.diagonal(dim1=-2, dim2=-1).sum(-1)
-    angle = torch.acos(((trace - 1.0) * 0.5).clamp(-1.0, 1.0))
-    axis = skew / (2.0 * torch.sin(angle).abs().clamp_min(1e-6)[..., None])
-    return axis * angle[..., None]
+    return rotmat_to_rotvec(matrix)
+
+
+def joint_rotation_metrics(teacher_values, student_values):
+    """SO(3) distances avoid axis-angle wraparound; all reported angles are degrees."""
+    teacher = torch.cat([v.detach().float().cpu() for v in teacher_values])
+    student = torch.cat([v.detach().float().cpu() for v in student_values])
+
+    def distance(a, b):
+        relative = a @ b.transpose(-1, -2)
+        return torch.rad2deg(torch.linalg.vector_norm(rotmat_to_rotvec(relative), dim=-1))
+
+    error = distance(student, teacher)
+    result = {}
+    for index, name in enumerate(BODY_JOINT_NAMES):
+        row = {"teacher_student_mean_deg": float(error[:, index].mean())}
+        for label, rotations in (("teacher", teacher), ("student", student)):
+            excursion = distance(rotations[:, index], rotations[:1, index])
+            delta = distance(rotations[1:, index], rotations[:-1, index])
+            row[f"{label}_max_from_first_deg"] = float(excursion.max())
+            row[f"{label}_mean_frame_delta_deg"] = float(delta.mean()) if len(delta) else 0.0
+        result[name] = row
+    return result
 
 
 def converted_guava_parameters(output: dict[str, Any]) -> dict[str, torch.Tensor]:
@@ -466,7 +494,7 @@ def pose_record_for_live(output: dict[str, Any]) -> dict[str, torch.Tensor]:
 
 def initialize_guava_renderer(args, warmup_output):
     cleanup_pear_modules()
-    from main.live_pear_guava import TargetBuilder, initialize_guava
+    from main.live_pear_guava import TargetBuilder, draw_pose_skeleton, initialize_guava
 
     runtime_args = SimpleNamespace(
         source_data_path=args.source_data_path.resolve(),
@@ -485,7 +513,7 @@ def initialize_guava_renderer(args, warmup_output):
     renderer, identity, source_dataset = initialize_guava(
         runtime_args, pose_record_for_live(warmup_output)
     )
-    return renderer, TargetBuilder(identity, runtime_args), source_dataset
+    return renderer, TargetBuilder(identity, runtime_args), source_dataset, draw_pose_skeleton
 
 
 def render_output(renderer, target_builder, output):
@@ -511,12 +539,13 @@ def compare_category(
     normalized_frames = []
     crop_video = []
     teacher_renders, student_renders, avatar_pairs = [], [], []
+    skeleton_pairs = []
     first_frame_report = None
     guava = None
 
     with torch.inference_mode():
         for index, frame in enumerate(frames):
-            stages = shared_preprocess(frame, args.input_crop_scale, args.device)
+            stages = shared_preprocess(frame, args.input_crop_scale, args.device, args.input_framing)
             normalized = stages["normalized_tensor"]
             normalized_frames.append(normalized.detach().clone())
             teacher_output, teacher_features, teacher_tokens, _ = run_model_from_shared_normalized(
@@ -590,14 +619,26 @@ def compare_category(
             if args.render_guava:
                 if guava is None:
                     guava = initialize_guava_renderer(args, teacher_output)
-                renderer, target_builder, _source_dataset = guava
+                renderer, target_builder, _source_dataset, draw_pose_skeleton = guava
                 teacher_render = render_output(renderer, target_builder, teacher_output)
+                teacher_skeleton = draw_pose_skeleton(
+                    renderer.last_joints, renderer.camera, teacher_render.shape[0], teacher_render.shape[1]
+                )
                 student_render = render_output(renderer, target_builder, student_output)
+                student_skeleton = draw_pose_skeleton(
+                    renderer.last_joints, renderer.camera, student_render.shape[0], student_render.shape[1]
+                )
                 teacher_renders.append(teacher_render)
                 student_renders.append(student_render)
                 avatar_pairs.append(
                     cv2.hconcat(
                         (label(teacher_render, "PEAR teacher -> GUAVA"), label(student_render, "student -> GUAVA"))
+                    )
+                )
+                skeleton_pairs.append(
+                    cv2.hconcat(
+                        (label(teacher_skeleton, "teacher pre-render pose"),
+                         label(student_skeleton, "student pre-render pose"))
                     )
                 )
             print(f"{name}: {index + 1}/{len(frames)}", flush=True)
@@ -606,6 +647,16 @@ def compare_category(
         key: sequence_metrics(accumulated["teacher"][key], accumulated["student"][key])
         for key in accumulated["teacher"]
     }
+    body_key = "guava.body_pose"
+    body_joint_metrics = {}
+    if body_key in accumulated["teacher"]:
+        body_joint_metrics = {
+            name: sequence_metrics(
+                [value[:, index] for value in accumulated["teacher"][body_key]],
+                [value[:, index] for value in accumulated["student"][body_key]],
+            )
+            for index, name in enumerate(BODY_JOINT_NAMES)
+        }
     identity_variation = {
         key: metrics[key]
         for key in IDENTITY_KEYS
@@ -626,15 +677,26 @@ def compare_category(
         "frame_count": len(frames),
         "source_fps": fps,
         "precision": args.precision,
+        "input_framing": args.input_framing,
         "compiled": False,
         "first_frame_stage_statistics": first_frame_report,
         "sequence_parameter_statistics": metrics,
+        "body_joint_statistics": body_joint_metrics,
+        "body_joint_rotation_degrees": joint_rotation_metrics(
+            accumulated["teacher"]["body_param.body_pose"],
+            accumulated["student"]["body_param.body_pose"],
+        ),
         "sequence_activation_statistics": activation_metrics,
         "student_batch_norm_ablation": batch_norm_ablation,
         "identity_parameter_variation": identity_variation,
         "guava_rendered": args.render_guava,
     }
     (category_dir / "comparison.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    np.savez_compressed(
+        category_dir / "body_rotations.npz",
+        **{name: torch.cat(accumulated[name]["body_param.body_pose"]).float().cpu().numpy()
+           for name in ("teacher", "student")},
+    )
     rows = []
     for key, values in metrics.items():
         rows.append({"parameter": key, **values})
@@ -647,6 +709,7 @@ def compare_category(
         write_video(category_dir / "teacher_driven_guava.mp4", teacher_renders, fps)
         write_video(category_dir / "student_driven_guava.mp4", student_renders, fps)
         write_video(category_dir / "avatar_side_by_side.mp4", avatar_pairs, fps)
+        write_video(category_dir / "pose_skeleton_side_by_side.mp4", skeleton_pairs, fps)
         guava[2]._lmdb_engine.close()
     return report
 
@@ -710,7 +773,13 @@ def main() -> None:
         inputs["prerecorded_webcam"] = read_video(args.webcam_video, args.frames, args.frame_step)
     if args.live_input:
         live_path = args.output_dir / "live_webcam_captured_before_inference.mp4"
-        inputs["live_webcam_preprocessing"] = capture_live(args.live_input, args.frames, live_path)
+        print("Recording now: keep your full body visible; lift each knee, then move each leg sideways.", flush=True)
+        captured, capture_fps = capture_live(
+            args.live_input, args.capture_frames or args.frames, live_path
+        )
+        inputs["live_webcam_preprocessing"] = (
+            captured[::args.frame_step][:args.frames], capture_fps / args.frame_step
+        )
 
     teacher, student, teacher_path, student_config_path = load_models(args)
     reports = {}

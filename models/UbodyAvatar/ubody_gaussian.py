@@ -257,6 +257,7 @@ class Ubody_Gaussian(L.LightningModule):
         'opacity': self._opacity_deform, 
         'sh_degree':self.max_sh_degree,
         'smplx_xyz_deform':smplx_deform_res["vertices"],
+        'joints':smplx_deform_res["joints_transform"],
         })
         return deformed_assets
 

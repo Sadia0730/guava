@@ -1,5 +1,10 @@
 # PEAR Teacher vs Student Architecture
 
+> Historical architecture note. Its Student-S/L70 parameter tables describe
+> earlier variants. For the downloaded `student_l70_v2` checkpoint, use the
+> current architecture section in
+> [lower_body_accuracy_realtime_plan.md](lower_body_accuracy_realtime_plan.md).
+
 This compares the frozen PEAR teacher used by `Ehm_Pipeline` with the compact
 PEAR-compatible student added in `models/pipeline/student_pipeline.py`.
 

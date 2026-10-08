@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from tools.compare_teacher_student import sequence_metrics, shared_preprocess
+from tools.compare_teacher_student import sequence_metrics, shared_preprocess, joint_rotation_metrics
 from tools.domain_investigation_utils import (
     deterministic_random_frames,
     deterministic_sequential_clips,
@@ -26,6 +26,29 @@ from tools.pear_debug_utils import (
 
 
 class CheckpointAuditUtilityTests(unittest.TestCase):
+    def test_centered_preprocessing_matches_live_and_preserves_height(self):
+        from main.live_pear_guava import pad_and_resize
+
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)
+        frame[:5, 95:105] = 255
+        frame[-5:, 95:105] = 255
+        live = pad_and_resize(frame, framing="centered")
+        comparison = shared_preprocess(frame, 1., "cpu", framing="centered")
+        np.testing.assert_array_equal(live, comparison["model_bgr"])
+        self.assertGreater(live[0].sum(), 0)
+        self.assertGreater(live[-1].sum(), 0)
+
+    def test_rotation_metrics_detect_frozen_knee_across_angle_wrap(self):
+        import roma
+
+        angles = torch.zeros(2, 21, 3)
+        angles[:, 3, 0] = torch.tensor([torch.pi - 0.1, -torch.pi + 0.1])
+        teacher = roma.rotvec_to_rotmat(angles)
+        student = teacher[:1].repeat(2, 1, 1, 1)
+        report = joint_rotation_metrics([teacher], [student])
+        self.assertAlmostEqual(report["left_knee"]["teacher_max_from_first_deg"], 11.459, places=2)
+        self.assertAlmostEqual(report["left_knee"]["student_max_from_first_deg"], 0., places=4)
+
     def test_checkpoint_source_is_unambiguous(self):
         state = OrderedDict((("backbone.weight", torch.ones(2, 3)),))
         source, selected = find_state_dict({"step": 1, "student": state})
