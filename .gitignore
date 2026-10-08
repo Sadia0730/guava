@@ -9,6 +9,11 @@ assets.zip
 docs/*
 docs/pear_teacher_student_architecture.md
 assets/3DPW/
+assets/SMPLX/lockedhead/
+assets/SMPLX/smplx_lockedhead_20230207.zip
+datasets/
+openai.chatgpt-26.5825.51511-linux-x64.vsix
+pear.pdf
 # Build products generated inside tracked submodules
 submodules/**/build/
 submodules/**/*.egg-info/
