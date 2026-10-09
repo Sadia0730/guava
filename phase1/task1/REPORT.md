@@ -942,3 +942,48 @@ records a clean commit.
 Changes made for (6) before the runs: the trainer writes `step_XXXXXXX.pt` (with validation
 metrics) at every validation in addition to `latest.pt` and `best.pt` (`save_every: 0`), and stops
 with an error entry in `train_log.jsonl` if the loss becomes non-finite.
+
+## Screening (Checkpoint 4 runs)
+
+### Before the runs (2026-10-09)
+
+- **EHF zip** inside the repository deleted after re-checking its SHA-256 (`5c89b2b8…c7669`).
+  The extracted data and the hash stay in `/raid/ubx858/datasets/EHF/`.
+- **Commits** (not pushed): PEAR `4a41e72` (BEDLAM2 GT pipeline, configs, tests); guava `1843c2ce`
+  (EHF evaluator and tests, mapping-floor script), `ce6b401f` (in-loop 3DPW validation, report,
+  submodule pointer), `9744bf3d` (validation-curve plot). Every run below records guava `9744bf3d`
+  and PEAR `4a41e72`, both `dirty: false`.
+- **Context-crop build**, measured (`build_summary.json`): 1,081,932 rows (960,941 train,
+  120,991 validation; 40 jobs), 0 missing frames, **51.0 GB** (47.2 KB/row; the estimate from
+  the smoke subset was 47 GB), 660 s with 48 processes. `/raid` free: 513 GB before, 461 GB after.
+- **Reference lines on 3DPW validation** (standalone evaluator `eval-3dpw-standard-v1`, SHA-256
+  `d28f6efd…`, GT-keypoint crop, 10,413 person-frames, clean tree):
+
+  | Model | MPJPE | PA-MPJPE | PVE | Output (`/raid/ubx858/outputs/phase1_task1/eval_3dpw/…`) |
+  |---|---|---|---|---|
+  | PEAR (released ViT-H) | 77.55 | 45.68 | 86.88 | `pear/validation_gt_keypoints` (135 s, 5.21 GB) |
+  | Student 235000 | 108.05 | 72.38 | 123.98 | `student_235000/validation_gt_keypoints_clean` (57 s, 6.18 GB) |
+
+  The student rerun is bit-identical, frame by frame, to the earlier run from the uncommitted tree.
+- **Optional EHF reproduction of a published method: skipped.** Hand4Whole's released checkpoint
+  and its EHF boxes are public downloads, but its body model is SMPL-X v1.1
+  (`human_model_files/smplx/SMPLX_NEUTRAL.pkl`), which is not among our assets and needs an
+  account download from the SMPL-X website. Our SMPL-X 2020 and locked-head models use a different
+  shape space, so they cannot stand in for it in a check meant to be accurate to ~1 mm. SMPLer-X
+  has a heavier setup (mmcv/mmdet) and needs the same model. With SMPL-X v1.1 in place, the
+  Hand4Whole check would likely take under an hour (estimate).
+
+### Runs
+
+| Variant | GPU | Output (`/raid/ubx858/outputs/phase1_task1/screen/…`) | Config |
+|---|---|---|---|
+| (a) PEAR distillation | cuda:0 | `a/` | `configs/phase1_task1/screen_a.yaml` |
+| (b) BEDLAM2 GT | cuda:1 | `b/` | `configs/phase1_task1/screen_b.yaml` |
+| (c) GT + distillation | cuda:2 | `c/` | `configs/phase1_task1/screen_c.yaml` |
+
+Started 2026-10-09 18:49 (UTC−5). Seed 20261009 for all three; initial-weight hash
+`065c2dc263e5…` in all three; training split: 960,941 BEDLAM2 train rows; validation: 3DPW
+validation, full split, every 2,000 steps. Each directory holds `command.txt`, `run_info.json`,
+`config.yaml`, `train_log.jsonl` and `checkpoints/` (`step_XXXXXXX.pt` at every validation,
+`latest.pt`, `best.pt`). First 50 steps, measured: 73–75 images/s per run, 42.1 GiB peak allocated
+(44–45 GB used per GPU in `nvidia-smi`).
