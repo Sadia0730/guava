@@ -23,3 +23,8 @@ __pycache__/
 *.py[cod]
 pear_student_ckpt/
 PanGPI.log
+
+# Licensed EHF data (kept outside the repo in /raid/ubx858/datasets/EHF)
+assets/EHF.zip
+assets/EHF/
+**/EHF*.zip
