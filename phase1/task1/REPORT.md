@@ -427,3 +427,248 @@ for out-of-crop ankles the student's gap (+42 mm) is no larger than for visible 
 change is proposed for accuracy reasons. One check carries over to Checkpoint 2: measure the
 same visibility statistics on the BEDLAM2 training crops (detector box, square ×1.25 with
 jitter), because training crops, not these evaluation crops, decide what the student learns from.
+
+---
+
+## Checkpoint 2: BEDLAM2 compatibility (read only, no training code)
+
+Diagnostic scripts: `phase1/task1/scripts/c2_*.py`. Outputs:
+`/raid/ubx858/outputs/phase1_task1/checkpoint2/`. All numbers below are measured unless marked.
+
+**Correction to an earlier statement.** I previously said 6 render jobs in our manifest had no
+labels and that one label file was corrupt. Both came from reading a partially copied zip.
+The complete `bedlam2_labels_processed.zip` holds **68** label files; all 68 are now
+extracted and verified against the archive (size and CRC). **Every one of our 40 render jobs
+has labels.**
+
+### 1. Annotation format
+
+| Source on disk | Content | Granularity |
+|---|---|---|
+| `bedlam2_labels_processed/<job>.npz` (68 files, 20 GB; CameraHMR's processed labels) | one row per **person per labelled frame** | per frame, every 5th frame (6 fps of 30 fps; all 68 files) |
+| `motions_npz_training/*.npz` (9,952) | AMASS-format SMPL-X motions per body (`poses` 165, `trans`, `betas`), 30 fps | per motion |
+| `raw/bedlam2.0/*_gt_*csv.tar.gz` | `be_seq.csv` (bodies, motion names, placement), per-frame camera CSVs (Unreal units) | per sequence / per frame |
+| `render_db/bedlam2.sqlite` | `gt_camera` (8.0 M rows), `sequence` (`testset`, `affected`, `num_bodies`), `renderjob` | per frame / per sequence |
+| `B2RenderStatus.csv` | known issues per render job (free text) | per job |
+
+Label rows: **2,099,549** (single-person jobs 1,105,733 in 41 jobs; multi-person 993,816 rows
+over 279,769 images in 27 jobs).
+
+Fields (all verified by reconstruction, see §3):
+
+| Field | Shape | Meaning / units |
+|---|---|---|
+| `imgname` | str | `seq_XXXXXX/seq_XXXXXX_FFFF.png`; `FFFF` = frame index in the 30 fps video |
+| `pose_cam` | 165 | SMPL-X axis-angle: root (camera frame) 3, body 63, jaw 3, eyes 6, hands 90 (radians) |
+| `pose_world` | 165 | same, root in world frame; body/hands identical to `pose_cam` |
+| `shape` | 16 | betas of the **locked-head neutral SMPL-X** |
+| `trans_cam`, `trans_world` | 3 | metres; camera-frame vertices = `SMPLX(pose_cam, shape) + trans_cam + cam_ext[:3,3]` |
+| `cam_int` | 3×3 | per-frame pinhole intrinsics (zoom varies), principal point at image centre |
+| `cam_ext` | 4×4 | world→camera extrinsic, OpenCV axes (x right, y down, z forward), metres |
+| `proj_verts` | 437×3 | projected positions of a fixed set of 437 SMPL-X vertices; 3rd column always 1 |
+| `gtkps` | 171×3 | projected keypoints; 138 equal SMPL-X joints exactly, 33 (indices 1–14, 25–43) match no joint or vertex (unknown regressor); 3rd column always 1 |
+| `center`, `scale` | 2, 1 | CameraHMR crop box (not used; definition not verified) |
+| `lh_c`, `rh_c`, `lh_s`, `rh_s`, `hand_det_conf` | — | hand boxes and detection flags |
+| `gender` | str | always `neutral` |
+
+Linking: a label file is one render job; a row is identified by `imgname` only. **There is no
+person or body ID**: in single-person jobs each image has one row; in multi-person jobs people
+in the same image are not identified, and people are not linked across frames.
+
+Differences from the BEDLAM2 documentation / expectations:
+- No face ground truth: jaw and eye rotations are exactly 0 in every row; no expression field.
+- No visibility information (`gtkps` / `proj_verts` confidence is always 1, including
+  off-image points).
+- 33 of the 171 `gtkps` points have an unknown definition.
+- 2 label files have no entry in the render database (`20240621_1_250_archmodelsvol8_tracking`,
+  same row and sequence counts as `20241107_…_tracking`, probably a re-render; and
+  `20240805_5-10_250_busstation_orbit_zoom`). Neither is in our manifest.
+- "Test set motions will not be released", yet the labels contain rows in **test-flagged
+  sequences**: 1.2% of single-person rows (all in the six MOYO jobs, where the 17 labelled
+  test-flagged sequences per job differ from the 17 sequences missing from the labels) and
+  37.8% of multi-person rows. With no body ID, test bodies cannot be identified within a
+  sequence.
+
+### 2. Body model compatibility
+
+| Item | BEDLAM2 | Our student (EHM-s) | Compatible? |
+|---|---|---|---|
+| Body model | SMPL-X **locked head**, neutral | SMPL-X 2020 neutral (`SMPLX_NEUTRAL_2020.npz`) body, FLAME head | same topology and skeleton; different shape space |
+| Gender | neutral (all rows) | neutral | yes |
+| Shape | 16 betas | 200 betas (decoder), padded to 300 | **yes via a fixed linear map** (below) |
+| Hand pose | full axis-angle, 15 joints per hand, **flat hand mean** (absolute) | 6D → rotation matrices, 15 joints per hand, no mean added | **yes**, convert axis-angle → rotation matrix |
+| Face | none (jaw = eyes = 0, no expression) | FLAME pose / jaw / eyes / eyelids / 50 expr / 300 shape, head scale | **no ground truth** |
+
+**Shape conversion** (`betas_locked16_to_2020_200.npz`): least-squares affine map
+β₂₀₀ = M β₁₆ + c fitted on the 5,452 non-head vertices (EHM-s replaces the 5,023 head vertices
+with FLAME). On 1,020 real BEDLAM2 rows (15 per label file):
+
+| Measure | Converted (M, c) | Naive copy of 16 betas |
+|---|---|---|
+| T-pose body vertices | 0.0002 mm mean, 0.004 mm max | 0.31 mm mean, 1.99 mm max |
+| Posed body vertices, root-relative | 0.0003 mm mean, 0.008 mm max | — |
+| Posed body joints (22) | 0.03 mm mean, 0.86 mm max (head/neck joints) | — |
+| Posed hand joints (30) | 0.0002 mm mean, 0.001 mm max | — |
+| Head vertices (replaced by FLAME in EHM-s) | 0.22 mm mean, 29.4 mm max | — |
+
+The conversion is lossless for the body. Hand convention confirmed numerically: with
+flat-hand-mean the reconstruction matches the stored points to 0.0001 px; without it, up to
+20 px. PEAR's EHM-s body path matches the reference `smplx` SMPL-X 2020 implementation on body
+vertices (0.025 mm mean, 0.36 mm max; head region up to 5.9 mm).
+
+**Face.** BEDLAM2 provides no face ground truth. The rendered faces are neutral (zero jaw,
+zero expression), but supervising our FLAME expression to zero on BEDLAM2 would only teach
+"always neutral". Proposal: no face loss from BEDLAM2 in any variant. In (a) and (c) the face
+comes from PEAR distillation; in (b) the face head receives **no supervision at all**, so (b)
+is a body-accuracy arm only and its face and EHF face numbers are not meaningful.
+
+**Joint sets proposed for the losses.**
+- 3D: the 55 SMPL-X joints of SMPL-X 2020 with converted betas (22 body + jaw/eyes + 30 hand),
+  pelvis-relative, camera-frame orientation; computed with `SMPLXV2` for both prediction and
+  ground truth, so skeletons match exactly. Face joints excluded.
+- 2D: the same body and hand joints projected with the **true BEDLAM2 camera** into crop
+  coordinates; only joints inside the 256×256 crop contribute.
+- Rotations: root (camera frame), 21 body, 30 hand joints (geodesic).
+- Shape: L1 on the converted 200-D betas.
+
+### 3. Camera and crop geometry
+
+BEDLAM2: per-frame pinhole `cam_int` (focal varies with zoom, principal point at the image
+centre), OpenCV axes, metres; person in camera frame as in §1. Ours: rotation
+`diag(-1, -1, 1)`, translation T = (tx, ty, tz) with tz = 24/s, focal 24 over the normalised
+[0,1]² square, i.e. **3,072 px for a 256 px crop**, principal point at the crop centre. The
+body-model frame equals OpenCV camera axes (verified in the 3DPW evaluation).
+
+**Conversion.** Ground-truth body mesh X = SMPL-X(pose_cam, β) without translation;
+t = trans_cam + cam_ext[:3, 3]; square crop with top-left (x0, y0) and side L, a = 256/L;
+k = a·f / t_z. Then
+T_z = 3072 / k, T_x = −t_x − (a(c_x − x0) − 128)/k, T_y = −t_y − (a(c_y − y0) − 128)/k.
+2D targets: true BEDLAM2 projection mapped into the crop.
+
+**Verification** (50 random frames, single-person jobs; `camera_check/`, 10 overlays):
+
+| Projection compared with BEDLAM2's own camera | Mean per frame (median) | Worst frame mean | Worst single vertex |
+|---|---|---|---|
+| Our crop camera, analytic T | 4.9 px (3.5) | 15.0 px | 55.5 px |
+| Our crop camera, best possible T (per-frame least squares) | 3.5 px (2.8) | 11.5 px | 50.4 px |
+
+**It is not ~0, and cannot be with our camera model.** Our camera has a fixed ~4.8° field of
+view; BEDLAM2 crops typically span ~30°, so perspective (near/far body parts, off-axis viewing)
+cannot be reproduced by any translation. Distant on-axis shots match to 0.1–0.3 px; close-ups
+and off-axis people reach 10–15 px mean (correlation of error with off-axis angle 0.49).
+Consequences: 2D targets must be the true projections (not re-projections through our camera);
+the 2D loss has an irreducible floor of a few pixels; camera translation is best learned through
+the 2D loss, with the analytic T as an optional weak target. Fixing this properly needs a camera
+model with focal/principal-point input (out of scope; architecture v2).
+
+### 4. Crop boxes
+
+On 400 labelled frames (10 per job, 40 single-person jobs; `crop_boxes/`):
+
+| YOLOX-L vs ground-truth-mesh box (mesh box clipped to the image) | Value |
+|---|---|
+| IoU, mean / median / p10 | 0.918 / 0.937 / 0.856 |
+| Centre offset / box size, mean / p90 | 1.7% / 3.4% |
+| Scale ratio YOLOX / GT, mean (p10–p90) | 1.017 (0.996–1.048) |
+| Detector misses (IoU < 0.1) | 13 / 400 (3.3%) |
+
+| Option | Cost | Notes |
+|---|---|---|
+| (i) Regenerate YOLOX boxes | ~30 frames/s with 32 CPU processes (measured on the sample) → ~10 h for the 1.1 M single-person labelled frames, ~13 h with multi-person images (estimate); boxes < 0.2 GB | only visible-extent boxes; 3% misses; no person identity in multi-person frames |
+| (ii) Ground-truth mesh box, clipped to the image, + jitter | seconds | exact per person; detector deviation (1.7% centre, 1.7% scale) is far inside the planned ±10% shift / ±15% scale jitter |
+
+**Recommendation: (ii)**, with the mesh box **clipped to the image** before squaring. An
+unclipped box puts truncated body parts inside the crop as black padding, which a detector
+crop at inference never shows. Keep YOLOX for evaluation (secondary crop) and inference.
+
+Joint visibility on BEDLAM2 crops (square ×1.25; 800 wrist and 800 ankle instances):
+
+| Crop | Wrists: centre / strips / outside | Ankles: centre / strips / outside | Joints off the image |
+|---|---|---|---|
+| GT mesh box (unclipped) | 800 / 0 / 0 | 798 / 2 / 0 | 27 wrists, 129 ankles drawn as padding |
+| YOLOX box | 754 / 5 / 15 | 666 / 1 / 107 | 24 wrists, 125 ankles; 105 of the 107 ankles outside the crop are off the image |
+| GT mesh box + jitter | 795 / 5 / 0 | 790 / 8 / 2 | as unclipped |
+
+With ground-truth-box crops (plain or jittered) ≥98.75% of wrists and ankles land in the visible
+centre. With YOLOX crops 94% of wrists and 83% of ankles do; nearly all of the rest are body
+parts outside the photo itself, which no crop can show. As on 3DPW, the crop is not a
+meaningful loss of signal.
+
+Storage: training needs crops with jitter, so frames cannot be the existing pre-cut 256×256
+JPEGs. A full 1280×720 frame is ~249 KB (JPEG q95), ~275 GB for all single-person labelled
+frames (too large for the 519 GB free on `/raid`). Proposed: store a context crop of 2× the
+clipped box at 384×384 per labelled person (estimate ~50 KB → ~55 GB single-person,
+~85 GB with multi-person), and apply jitter, rotation and the final 256×256 crop on the fly.
+
+### 5. Data scope
+
+**Multi-person jobs** add 993,816 labelled person-rows (279,769 images), +90% over
+single-person; after removing test-flagged sequences 617,863 rows. Per-person ground-truth
+boxes make them usable without a detector or tracker. Risks: crowding (up to 10 people per
+image, other people inside the crop), heavy occlusion with no visibility flag, and no body ID
+for temporal clips. Their MP4s are not extracted yet. Recommendation: single-person jobs only
+for the screening runs; add multi-person data to the winner as a separate step.
+
+**BEDLAM2 official test flags.** Our existing manifests contain test-flagged sequences:
+1,075 in train and 162 in val (our val split is a hash of the render-job name and ignores the
+flags). Proposed fix: drop every test-flagged sequence (database `sequence.testset = 1`) from
+all splits, for distillation and ground truth alike, and also drop the labelled-but-test-
+flagged MOYO sequences. Cost: 13,410 single-person label rows (1.2%). "Affected" sequences
+(known issues per the database) occur only in multi-person jobs (18.4% of their rows); exclude
+them when multi-person data is added. Checkpoint selection uses 3DPW validation, so the BEDLAM2
+val split is for loss monitoring only.
+
+**UBody.** `annotations/<scene>/smplx_annotation.json` holds per-person SMPL-X **pseudo
+ground truth** (10 betas, root/body/hands/jaw axis-angle, 10 expression, translation) with a
+virtual camera of focal ~35,558 px (near-orthographic; depth not meaningful);
+`keypoint_annotation.json` holds COCO-WholeBody 2D keypoints with validity flags
+(`face_valid`, `lefthand_valid`, `full_body`, ...). Most frames are upper-body framings, so the
+SMPL-X lower body is largely unconstrained. Assessment: not reliable enough to be ground truth
+for body accuracy (our main metric); its 2D keypoints are usable where flagged valid.
+Recommendation: **(2) PEAR distillation only**, and only in the variants that use PEAR. For a
+clean comparison the screening runs should use **BEDLAM2 single-person frames only** in all
+three variants (same images), so that "GT vs distillation" is not confounded with "with vs
+without UBody". UBody distillation (at a fixed share, e.g. 20% of each batch instead of the
+current ~11× oversampled 50/50 balance, issue T9) is then a follow-up for the winner, which
+matters for the webcam/upper-body deployment.
+
+### 6. Mismatch table
+
+| Item | Mismatch found | Proposed fix | Effort | Risk |
+|---|---|---|---|---|
+| Shape space | locked-head 16 betas vs SMPL-X 2020 200 betas | fixed affine map M, c (saved); lossless on body | low | low |
+| Hand pose | none (both absolute, flat hand) | axis-angle → rotation matrices | low | low |
+| Face | no face GT in BEDLAM2 | no face loss from BEDLAM2; face from PEAR in (a)/(c); (b) face untrained | low | (b) unusable for face metrics |
+| Root translation | `trans_cam` is not the camera-frame translation | t = trans_cam + cam_ext[:3,3] (verified to 1e-4 px) | low | low |
+| Camera model | fixed 3,072 px crop focal vs real perspective | 2D targets from true projection; analytic T as weak target; accept 3.5–4.9 px floor | low | 2D loss cannot reach 0; close-ups noisier |
+| Crop boxes | never stored (T6) | GT mesh box clipped to image, square ×1.25, ±15% scale / ±10% shift jitter | low | slight train/inference box mismatch (measured small) |
+| Frame storage | pre-cut 256 crops prevent jitter | 2× context crops at 384 px for labelled frames (~55 GB) | medium (one-off build, hours) | disk |
+| Label rate | GT at 6 fps (every 5th frame) vs 30 fps clips, temporal stride 8 | single-frame training (clip length 1) for all screening variants; temporal losses later on 5-frame strides | low | loses current velocity/delta losses in screening |
+| Test split | 1,237 test-flagged sequences in our manifests; MOYO labels disagree with DB flags | drop all DB test-flagged sequences everywhere | low | 1.2% fewer single-person rows |
+| Visibility | no visibility/occlusion flags | 2D loss only for joints inside the crop; 3D for all | low | occluded joints still supervised in 3D (correct GT, harder) |
+| Multi-person | not used; no body ID | later, with per-person GT boxes, after excluding test/affected | medium | crowding/occlusion |
+| UBody | pseudo-GT, upper-body framing, 11× oversampling | distillation only, fixed share, after screening | low | deployment-relevant data delayed |
+| `gtkps` | 33 of 171 points undefined | do not use; compute targets from the GT mesh | none | none |
+
+### Proposed plan for Checkpoint 3 (no code written yet)
+
+1. **Data build** (one-off, read from the 40 single-person MP4 jobs): for every labelled row in
+   non-test-flagged sequences (~1.08 M rows), decode the frame, compute the image-clipped GT mesh
+   box, save a 2× context crop (384×384) and a per-row target record: root/body/hand rotations,
+   converted β₂₀₀, 55 pelvis-relative 3D joints, true 2D joints in context-crop coordinates,
+   t, K. Keep the existing job-level train/val split. Report the measured build time before running it.
+2. **Loader**: on-the-fly crop with ±15% scale, ±10% shift, rotation, colour jitter, synthetic
+   occlusion, horizontal flip (with SMPL-X left/right joint swap and pose mirroring), producing
+   the 256×256 input and transforming 2D targets and the root orientation consistently.
+3. **Losses**, each with its own weight: rotation (geodesic), shape (L1 on β₂₀₀), 3D joints, 2D
+   joints (camera-aware, in-crop only), optional camera-T, and the PEAR distillation terms as a
+   separate group; PEAR targets computed on the same augmented crop.
+4. **Configs** (a), (b), (c): single phase, linear warm-up + cosine, identical seed, batch,
+   images and augmentation; same initialisation, no PEAR head copied; selection on 3DPW
+   validation with the standard evaluator.
+5. **Smoke test** on a small subset: ~200 iterations per config, loss curves, and 10 BEDLAM2
+   crops with GT and predictions overlaid; then a full training-time proposal for approval.
+
+Decisions needed: (1) single-frame screening (no temporal losses) — yes/no; (2) BEDLAM2
+single-person only for screening, UBody/multi-person as follow-ups — yes/no; (3) ~55 GB context
+crop build on `/raid` — yes/no.
