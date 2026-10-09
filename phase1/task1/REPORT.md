@@ -987,3 +987,27 @@ validation, full split, every 2,000 steps. Each directory holds `command.txt`, `
 `config.yaml`, `train_log.jsonl` and `checkpoints/` (`step_XXXXXXX.pt` at every validation,
 `latest.pt`, `best.pt`). First 50 steps, measured: 73–75 images/s per run, 42.1 GiB peak allocated
 (44–45 GB used per GPU in `nvidia-smi`).
+
+### Question for later: is the backbone a public pretrained architecture? (no action taken)
+
+No. `models/backbones/student_backbone.py` is a custom hybrid with no public weights:
+- a MobileNetV2-style convolutional stem and four inverted-residual stages (1×1 expand ×4,
+  3×3 depthwise, 1×1 project; SiLU; no squeeze-excitation) with widths 96/192/384/512 and depths
+  2/3/6/3, total stride 16;
+- **GroupNorm** instead of BatchNorm, so BatchNorm-pretrained weights would not load directly;
+- four 512-wide transformer blocks on the 16×12 token grid with a learned position embedding, and a
+  1×1 convolution to the 1,280 channels the PEAR head expects.
+
+Measured: 24.52 M parameters (convolutional part 13.25 M, transformer 10.51 M, output
+projection 0.66 M); a 256×192 input gives 1280×16×12. Its layout resembles MobileViT and
+CoAtNet-style hybrids, but matches neither.
+
+Candidate pretrained replacements, keeping the 16×12 output grid and the 1×1 projection to 1,280.
+Parameter counts are published values; speed on our GPUs is **not measured** and must be checked
+before choosing.
+
+| Candidate | Pretraining | Params (published) | Fit |
+|---|---|---|---|
+| ViT-S/16 from ViTPose-S | COCO 2D pose (on ImageNet / MAE) | ~22 M (ViT-S) | Same 256×192 input and 16×12 tokens as the PEAR teacher's ViT-H; closest drop-in; LayerNorm |
+| CSPNeXt-l from RTMPose-l | COCO / Body8 2D pose | 27.7 M (whole RTMPose-l) | Efficient CNN; use the stride-16 stage (16×12) instead of the stride-32 output; BatchNorm |
+| HRNet-W32 | COCO 2D pose (ImageNet init) | 28.5 M | Strong pose features at stride 4 (pool to 16×12); multi-branch, likely slower; BatchNorm |
