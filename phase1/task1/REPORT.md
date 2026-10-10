@@ -1069,3 +1069,197 @@ training. Evaluated with the same evaluator and crop as the main protocol (GT-ke
 PEAR scores better on train than on validation/test (PA-MPJPE 40.0 vs ~45.7), consistent with,
 though not proof of, some exposure to that split. The student is flat across all three splits
 (70.0–72.4 PA-MPJPE), consistent with never having seen any 3DPW data.
+
+---
+
+## Checkpoint 5: diagnosing variant (a), and two further comparison runs (plan only)
+
+### Step 1: why did (a) reach only 196.8 mm PA-MPJPE?
+
+Scripts: `phase1/task1/scripts/c5a_teacher_quality_under_aug.py`,
+`phase1/task1/scripts/c5b_student_teacher_agreement.py`. Outputs:
+`/raid/ubx858/outputs/phase1_task1/checkpoint5/*.json`. Both are read-only diagnostics (no
+training), 2m14s and 4m40s respectively on one GPU, well under the 15-minute threshold.
+
+**1.1 Teacher quality under our augmentation** (PEAR vs BEDLAM2 ground truth, 3,000 validation
+crops never used for any gradient update, 55 SMPL-X kinematic joints, root-relative; PA-MPJPE
+uses the same similarity Procrustes as the standard evaluators):
+
+| Augmentation | MPJPE, 55 joints | PA-MPJPE, 55 joints | PA-MPJPE, 22 body joints |
+|---|---|---|---|
+| None | 105.8 | 64.2 | 51.0 |
+| Rotation only (always, ±30°) | 97.8 | 59.3 | 46.3 |
+| Flip only (always) | 105.2 | 64.1 | 52.8 |
+| Full (screening distribution) | 122.7 | 77.1 | 56.6 |
+
+PEAR's outputs stay reasonable distillation targets under every augmentation tested. Full
+augmentation is the worst case, and it is only **~20% worse** PA-MPJPE than no augmentation;
+rotation alone is slightly *better*. None of this is close to the factor needed to explain a
+196.8 vs 72.4 mm gap. **This rules out degraded distillation targets as the cause.**
+
+**1.2 Agreement with the teacher on 3DPW validation** (10,413 frames, GT-keypoint crop; rotation
+geodesic over 52 joints; `joint3d`/`joint2d` via the same SMPLXV2-regressed 22 joints the
+distillation terms use):
+
+| | (a) best (32k steps) | Student 235000 |
+|---|---|---|
+| Rotation geodesic vs teacher | 14.82° | 10.90° |
+| Camera params L1 vs teacher | 0.0354 | 0.0266 |
+| FLAME weighted L1 vs teacher | 0.102 | 0.164 |
+| Joint-3D vs teacher, root-relative | 166.3 mm | 65.3 mm |
+| Joint-2D vs teacher | 17.1 px | 7.0 px |
+
+**(a) does not agree closely with the teacher.** Per your own branching rule, this points to
+optimisation, not a bug in the distillation terms or their conversion. Notably the gap is much
+larger in joint space (2.4–2.5×) than in rotation-parameter space (1.36×): small per-parameter
+rotation errors compound through the kinematic chain into much larger joint-position errors under
+an optimisation that has not fully converged. (FLAME agreement is actually *better* for (a); face
+distillation is identical and unconditional in all three variants, so this is not relevant to the
+body/hand question and is not investigated further.)
+
+**Training-log evidence** (`diag_gt_root_angle_deg`, logged in every variant regardless of which
+loss terms are active, so it is a fair comparison across (a)/(b)/(c)):
+
+| Step | (a) | (b) | (c) |
+|---|---|---|---|
+| 1 | 163.0° | 163.0° | 163.0° |
+| 100 | 151.5° | 77.1° | 76.9° |
+| 500 | 156.8° | 66.2° | 66.8° |
+| 1,000 | 154.5° | 69.3° | 73.2° |
+| 2,000 | 46.9° | 44.7° | 46.5° |
+| 16,000 | 19.5° | 21.2° | 19.1° |
+| 32,000 | 22.1° | 18.3° | 19.7° |
+
+(a) is **stuck at ~150–157° (barely better than random) for roughly the first 1,000 steps**,
+while (b) and (c) — which share (a)'s exact distillation terms, plus a direct ground-truth
+geodesic rotation loss — drop to ~70–77° by step 100. By step 16,000, (a)'s own root-orientation
+diagnostic **converges to essentially the same value as (b)/(c)** (19.5° vs 21.2°/19.1°): the
+architecture and the distillation terms are not fundamentally broken, just much slower to escape
+the initial plateau. Final per-term distillation losses on the training distribution are only
+modestly worse for (a) than (c) (`bd_param` 1.35 vs 1.07, `bd_rotation` 0.198 vs 0.157 rad,
+`bd_camera` 0.034 vs 0.034, `bd_joint3d` 0.085 vs 0.043, `bd_joint2d` 0.047 vs 0.025 — a 25–30%
+gap on parameters, matching the 3DPW rotation-agreement gap, and a ~2× gap on the joint terms,
+matching the 3DPW joint-agreement gap). Final root-angle convergence to the same value, with only
+moderate per-term and per-parameter degradation, but sharply worse final accuracy, is the
+signature of a slow optimisation trajectory (lost ground never fully recovered in 32k steps), not
+of a loss or data bug specific to (a).
+
+**1.3 Every difference between the old distillation pipeline (→235000) and (a)**, confirmed from
+the checkpoints' own saved `args` and the code history:
+
+| | Old (→235000) | New (a) |
+|---|---|---|
+| Head init | **Phase 1 (0→150k steps, 2.40M images): PEAR's head copied in and frozen**, only the backbone trained. Phase 2 (150k→235k): head unfrozen, optimiser state reset | Head and backbone both random, trained jointly from step 1 (Decision after Checkpoint 2: no PEAR head copied, same init for all three, for a fair comparison) |
+| Steps / images at selection | 235,000 steps / 4.08 M images | 32,000 steps / 2.05 M images (25% screening budget) |
+| Batch size | 16 (phase 1) / 48 (phase 2) | 64 |
+| LR schedule | Phase 1: 3e-4 → 1.5e-5 (head frozen). Phase 2: **bug T2** — cosine computed over absolute steps 0–250k, so the stated peak 5e-5 and its warm-up never actually applied; effective LR ran 1.9e-5 → 2.9e-6 | One clean schedule: 3e-4 peak, 1,500-step warm-up, cosine to 1.5e-5 over 32,000 steps |
+| 2D distillation loss | **Bug T1**: divided unprojected joints by their own depth; verified to never respond to either model's camera (commit `7d9bb9c`, fixed 2026-10-08, *after* 235000 was trained) — so 235000 trained with an essentially uninformative joint2d term | Fixed camera-aware projection from step 1 (an improvement over what actually produced 235000, not a new difference introduced for (a)) |
+| 2D / camera safety | Not needed: the copied head starts with valid depth | `[-1, 2]` projection clamp and scale-space camera loss, both added after the smoke test found random-init depth going to ~0 or negative (Checkpoint 3). Needed specifically because (a) has no head-copy curriculum |
+| Loss weights | flame 0.5→2.0, feature 2.0→1.0 across phases; velocity 0→0.1 (phase 2) | flame 2.0 fixed; body/hand distillation weights all 1.0; no velocity (clip length 1, no temporal losses, per the approved screening plan) |
+| Augmentation | Flip only (p=0.5), whole clip | Scale ±15%, shift ±10%, rotation ±30° (p=0.6), flip (p=0.5), colour ±20%, synthetic occlusion (p=0.5) |
+| Data | BEDLAM2 (5.87 M frames, incl. multi-person) balanced 50/50 with UBody (504k frames, ~11× oversampled); 2-frame clips, temporal stride 8 | BEDLAM2 single-person jobs only, 960,941 rows, official-test sequences dropped, no UBody, single frame |
+| Reproducibility | No global seed (T3); no git commit or config saved | Full seed (Python/NumPy/torch/CUDA); `run_info.json` with git state, hashes, config |
+
+**1.4 Conclusion.** The most likely cause is **optimisation difficulty from training a randomly
+initialised head and backbone jointly under pure, indirect (image-mediated) distillation, without
+the old recipe's 150,000-step head-frozen warm start, for only 32,000 steps (25% of the old
+schedule's length)** — not a bug in the distillation loss terms, their conversion, or the
+teacher's targets. Evidence: (i) teacher quality is intact under augmentation (1.1); (ii)
+disagreement with the teacher is concentrated in joint space, consistent with compounding error
+through an unconverged optimisation rather than a wrong static target; (iii) (a) is stuck far
+above (b)/(c) for ~1,000 steps despite sharing their exact distillation terms, and later catches
+up on the root-orientation diagnostic specifically, which is the one quantity (b)/(c) supervise
+directly with a fixed, well-conditioned ground-truth target from step 1. One further, **unmeasured
+hypothesis**, offered for context only: monocular pose estimation is well known to have
+depth/orientation ambiguities, so some of PEAR's own predictions on heavily augmented, sometimes
+occluded crops may themselves be ambiguous or self-contradictory for root orientation specifically;
+a fixed ground-truth target does not have this problem. This is plausible given the above, but was
+not separately tested and should not be read as measured.
+
+**This is not a bug in terms (c) also uses**, so no fix is proposed and nothing changes for (c).
+(c) is not exposed to the same difficulty in the first place: its ground-truth geodesic rotation
+loss gives it the same fast escape from the initial plateau that (b) gets (76.9° by step 100,
+matching (b)'s 77.1°, both far ahead of (a)'s 151.5°).
+
+### Step 2: two further comparison runs (plan only — nothing launched)
+
+Both reuse (c)'s data, seed, augmentation, loss weights, validation (3DPW validation every 2,000
+steps) and 32,000-step budget, so they compare directly against (c)'s already-measured 3DPW test
+PA-MPJPE of 73.69 mm. Code (smoke-tested only, 150 real-data steps each for timing, not a training
+run): PEAR submodule `models/backbones/vitpose_small_backbone.py`,
+`models/pipeline/student_pipeline_vitpose.py`, `configs/phase1_task1/screen_c_235k.yaml`,
+`configs/phase1_task1/screen_c_vitpose.yaml`, and a `student_backbone` / `init_from_checkpoint` /
+`backbone_lr_mult` switch added to `train_student_gt.py`.
+
+**(c-235k).** Initialises every weight from checkpoint 235000 (loads cleanly, `strict=True`,
+confirmed) instead of random init; otherwise identical to (c). Peak LR **3e-5** (10× below (c)'s
+3e-4 — fine-tuning an already-reasonable model needs much less), warm-up **500 steps** (short,
+since the weights do not need to move far), same cosine decay shape to 5% over 32,000 steps.
+A 150-step timing run on the real training data gives step-150 3DPW validation PA-MPJPE 73.92 mm
+(consistent with a gentle start from 235000's own 72.38 mm) and confirms the pipeline runs
+correctly end to end.
+
+**(c-vitpose).** Replaces the backbone with **ViTPose-S** (`usyd-community/vitpose-plus-small`,
+Apache-2.0, official `usyd-community` mirror; `model.safetensors` SHA-256
+`f7bad8ed09eeeb2a7de6b38faaa8a88d07838e23e9c06a2a782099bca7467cb9`). This is the "+" (ViTPose++)
+variant, jointly trained on COCO, AI Challenger, MPII, AP-10K and APT-36K via 6 small per-dataset
+"part" experts (96 of 384 channels; fixed to the COCO expert here) — **not COCO-only**. A
+COCO-only ViTPose-S checkpoint exists (`danelcsb/vitpose-small`) and matches the architecture, but
+its model card states no license ("More Information Needed"), so it is not used. ViT-S: hidden
+size 384, 12 layers, 12 heads, patch 16×16, image size 256×192 → exactly the 16×12 token grid the
+head expects; backbone **30.52 M parameters** (measured, including all 6 experts). A new random
+1×1 convolution (384→1280) feeds the unchanged, randomly initialised PEAR head, as in (c). Loading
+the 341 backbone-prefixed weights is exact (`missing=[]`, `unexpected=[]`, confirmed). LR: the new
+random parts (projection + head) keep (c)'s 3e-4 peak; the pretrained ViT backbone trains at
+**10× lower** (`backbone_lr_mult: 0.1` → peak 3e-5) via a second optimiser param group, so pose
+pretraining is refined rather than overwritten in 32,000 steps — a plain two-group split, not full
+per-layer decay. A 150-step timing run on the real training data confirms the pipeline runs
+correctly (gradients reach both groups; expected high loss at these early random-head steps,
+similar in shape to (c)'s own first 150 steps).
+
+**Caveat:** (c-vitpose) only improves the backbone's starting point; the head is still randomly
+initialised, so it does **not** fully replicate the head-copy curriculum identified in Step 1 as
+the likely cause of (a)'s slow start. It may reduce, but might not eliminate, a similar slow-start
+pattern if the body/hand distillation terms alone were used — though (c-vitpose) also carries full
+ground-truth supervision, same as (c), so this risk is lower than it was for (a).
+
+**Measured throughput and memory** (150-step timing runs, real training data, batch 64, one GPU,
+steady-state after the first step):
+
+| Candidate | Images/s | Peak GPU memory | 32,000-step time (compute only) | + validation (16 passes) |
+|---|---|---|---|---|
+| (c-235k) | 71.5 | 42.11 GiB | 7.9 h | ~8.0 h |
+| (c-vitpose) | 187.3 | 8.70 GiB | 3.0 h | ~3.1 h |
+
+(c-vitpose) is markedly faster and lighter — ViTPose-S has no GroupNorm convolutional stages or
+the current backbone's own 4-block transformer, just a plain 12-layer ViT-S at this resolution.
+
+**Standalone latency script** (for your laptop, RTX 3080 Laptop): `phase1/task1/scripts/c5_latency_benchmark.py`.
+Needs only `models/backbones/*`, `models/smplx/*`, `configs/student_l70_v2.yaml` and
+`assets/SMPLX/smpl_mean_params.npz` from the PEAR checkout (no dataset, teacher, or trainer code);
+random weights by default. Batch 1, CUDA events, 50 warm-up + 500 timed iterations, fp32 and fp16
+(`.half()`), reports mean/median/p95 ms and peak VRAM. Run from the PEAR checkout:
+```
+python phase1/task1/scripts/c5_latency_benchmark.py --pear-root /path/to/third_party/PEAR --device cuda:0
+```
+Sanity-checked on this server's GPU (an L40S, not your 3080 — this confirms the script runs
+correctly, it is **not** the number you should use for a decision):
+current backbone+head fp32 5.52 ms / fp16 5.50 ms; ViTPose-S backbone+head fp32 7.69 ms / fp16
+7.50 ms (50 warm-up + 50 timed iterations only, for a quick check; your run should use the full
+500). ViTPose-S is *slower* per-forward here despite being lighter in training memory — attention
+over 192 tokens at width 384 plus a 12-layer transformer is not necessarily cheaper than the
+current CNN-heavy backbone at batch 1 on every GPU; this needs your laptop's own numbers before
+drawing a conclusion either way, which is why this script is a prerequisite for choosing.
+
+### Proposed GPUs, time, memory for the two runs (awaiting approval)
+
+| Run | GPU | Time | Peak GPU memory | Command |
+|---|---|---|---|---|
+| (c-235k) | cuda:0 (idle) | ~8.0 h | 42.11 GiB (measured) | `python train_student_gt.py --config configs/phase1_task1/screen_c_235k.yaml --output-dir /raid/ubx858/outputs/phase1_task1/screen/c_235k --device cuda:0` |
+| (c-vitpose) | cuda:1 (idle) | ~3.1 h | 8.70 GiB (measured) | `python train_student_gt.py --config configs/phase1_task1/screen_c_vitpose.yaml --output-dir /raid/ubx858/outputs/phase1_task1/screen/c_vitpose --device cuda:1` |
+
+Both in parallel, ~8 h wall-clock total (bounded by c-235k). All 8 GPUs are currently idle.
+Before launching I would commit the new PEAR/guava code (this diagnostic's scripts, the ViTPose-S
+module, the two configs, the trainer's small `student_backbone` / `init_from_checkpoint` /
+`backbone_lr_mult` additions) so both runs record a clean commit, as with the earlier screening
+runs. Awaiting your approval to launch either or both.
