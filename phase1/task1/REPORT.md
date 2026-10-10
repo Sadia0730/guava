@@ -1011,3 +1011,61 @@ before choosing.
 | ViT-S/16 from ViTPose-S | COCO 2D pose (on ImageNet / MAE) | ~22 M (ViT-S) | Same 256×192 input and 16×12 tokens as the PEAR teacher's ViT-H; closest drop-in; LayerNorm |
 | CSPNeXt-l from RTMPose-l | COCO / Body8 2D pose | 27.7 M (whole RTMPose-l) | Efficient CNN; use the stride-16 stage (16×12) instead of the stride-32 output; BatchNorm |
 | HRNet-W32 | COCO 2D pose (ImageNet init) | 28.5 M | Strong pose features at stride 4 (pool to 16×12); multi-branch, likely slower; BatchNorm |
+
+## Screening results (all three variants finished, 32,000/32,000 steps)
+
+All three runs finished cleanly (watchdog log: no divergence, no non-finite loss, no crash, no
+low-disk event). Best checkpoint = final step in all three (validation PA-MPJPE was still
+improving at step 32,000 for every variant, so more steps would likely help further — see
+Checkpoint 5 candidates below). 3DPW test and EHF use `best.pt` per variant, same evaluators and
+commands as the baseline rows (`tools/eval_3dpw_standard.py` SHA-256 `48a73f64…`, extended from
+the tagged `eval-3dpw-standard-v1` only by adding `train` to `--split`'s choices, verified
+byte-identical on existing splits; `tools/eval_ehf_standard.py` SHA-256 `50ae8028…`, unchanged).
+
+| Model | 3DPW val MPJPE/PA/PVE | 3DPW test MPJPE/PA/PVE | EHF PVE all/hand/face | EHF PA-PVE all/hand/face |
+|---|---|---|---|---|
+| PEAR (released ViT-H) | 77.55 / 45.68 / 86.88 | 73.56 / 45.65 / 82.28 | 66.6 / 40.3 / 36.7 | 47.9 / 11.0 / 8.7 |
+| Student, checkpoint 235000 | 108.05 / 72.38 / 123.98 | 112.98 / 71.61 / 129.08 | 113.0 / 61.0 / 39.1 | 63.9 / 17.6 / 6.0 |
+| (a) PEAR distillation (32k steps) | 230.52 / 196.80 / 301.50 | 232.01 / 193.56 / 296.97 | 288.8 / 150.3 / 197.4 | 148.3 / 20.1 / 9.0 |
+| (b) BEDLAM2 GT (32k steps) | 141.51 / 93.56 / 163.90 | 148.54 / 85.25 / 169.69 | 149.8 / 90.3 / 44.1 | 93.9 / 15.3 / 6.6 |
+| (c) GT + distillation (32k steps) | 114.65 / 77.78 / 132.87 | 123.53 / 73.69 / 141.31 | 119.2 / 72.4 / 47.6 | 77.5 / 16.5 / 6.3 |
+
+**Reading this table.**
+- None of the three variants (32,000 steps, random init) yet matches the existing distilled
+  student (235000 steps, 6.5 M images, initialised from the teacher head). This is an unfinished
+  screening run comparison, not a verdict on the ground-truth approach: variant (c) is already
+  closing most of the gap on body (3DPW PA-MPJPE 73.69 vs 71.61) despite a quarter of the steps
+  and random initialisation, and was still improving at the last validation.
+- **(c) > (b) > (a) on every metric, by a wide margin, at this step count.** Pure PEAR
+  distillation from random initialisation (a) is far behind both GT variants; it only reached
+  reasonable root orientation around step 1,000 (see the mid-run update) and never recovered the
+  time lost. BEDLAM2 ground truth clearly helps, and adding distillation to it (c) helps further,
+  most visibly on hands (EHF PA-PVE 16.46 vs (b)'s 15.31 is close, but 3DPW PA-MPJPE 73.69 vs 85.25
+  and EHF whole-body PA-PVE 77.5 vs 93.9 are not).
+- Face metrics are close across (a)/(b)/(c) (EHF PA-PVE face 8.95/6.64/6.27 mm) because the face
+  loss is identical and unconditional on the body/hand variant in all three, as specified.
+- Winner for further training: **(c)**, by 3DPW test PA-MPJPE, 3DPW test PVE, and EHF whole-body
+  PA-PVE, consistently.
+
+Outputs: `/raid/ubx858/outputs/phase1_task1/screen/{a,b,c}/` (training logs, checkpoints at every
+validation, run_info.json), `/raid/ubx858/outputs/phase1_task1/eval_3dpw/screen_{a,b,c}_best/`,
+`/raid/ubx858/outputs/phase1_task1/eval_ehf/screen_{a,b,c}_best/`.
+
+### 3DPW splits, all unseen in this project's training (2026-10-10, ad hoc request)
+
+Checked against the training manifests: the existing student (checkpoint 235000) and all three
+screening variants train only on BEDLAM2 and UBody, never on any 3DPW split. For PEAR's own
+training I could not confirm either way: the PEAR paper's implementation section describes its
+training data only in general terms ("large-scale image attribute datasets", "full-body human
+datasets") without naming 3DPW, so I cannot rule out 3DPW train-split exposure in PEAR's own
+training. Evaluated with the same evaluator and crop as the main protocol (GT-keypoint crop):
+
+| 3DPW split | PEAR MPJPE/PA-MPJPE/PVE | Student 235000 MPJPE/PA-MPJPE/PVE |
+|---|---|---|
+| Train | 66.19 / 39.99 / 74.86 | 108.03 / 70.02 / 125.82 |
+| Validation | 77.55 / 45.68 / 86.88 | 108.05 / 72.38 / 123.98 |
+| Test | 73.56 / 45.65 / 82.28 | 112.98 / 71.61 / 129.08 |
+
+PEAR scores better on train than on validation/test (PA-MPJPE 40.0 vs ~45.7), consistent with,
+though not proof of, some exposure to that split. The student is flat across all three splits
+(70.0–72.4 PA-MPJPE), consistent with never having seen any 3DPW data.
