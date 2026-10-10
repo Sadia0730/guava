@@ -1263,3 +1263,72 @@ Before launching I would commit the new PEAR/guava code (this diagnostic's scrip
 module, the two configs, the trainer's small `student_backbone` / `init_from_checkpoint` /
 `backbone_lr_mult` additions) so both runs record a clean commit, as with the earlier screening
 runs. Awaiting your approval to launch either or both.
+
+### ViTPose-S mixture-of-experts: confirmed before launching (c-vitpose)
+
+`usyd-community/vitpose-plus-small`'s backbone has, per transformer layer, a shared MLP branch
+(288 of 384 output channels, used for every token regardless of dataset) and a per-dataset
+"expert" branch (96 of 384 channels, one `nn.Linear` per dataset, 6 experts total). Our wrapper
+fixes `dataset_index = 0` for every forward pass.
+
+- **Every pretrained weight loads.** All 341 `backbone.*`-prefixed checkpoint tensors load with
+  `missing=[]`, `unexpected=[]` (strict). The only checkpoint weights not loaded are the 14 keys
+  of the original COCO heatmap decoder (`head.deconv1/2`, `head.conv`, `head.batchnorm1/2`),
+  deliberately discarded since the PEAR head replaces it.
+- **Expert 0's weights are used**; experts 1–5 are loaded and still execute their matrix multiply
+  every forward pass (matching the real model's own compute pattern — not optimised away), but
+  their output is masked to zero before concatenation with the shared branch.
+- **Training-time consequence:** masking to zero also zeroes the gradient, so across the
+  32,000-step fine-tune, experts 1–5 receive no gradient and stay frozen at their pretrained
+  values; only expert 0, the shared branches, attention and embeddings adapt.
+- **Dataset identity of index 0, confirmed from the source.** The official ViTPose++ training
+  config on GitHub, `ViTAE-Transformer/ViTPose`, `configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/vitPose+_small_coco+aic+mpii+ap10k+apt36k+wholebody_256x192_udp.py`,
+  assigns `dataset_idx=0` explicitly to `TopDownCocoDataset` (COCO). Full order: 0 COCO,
+  1 AI Challenger, 2 MPII, 3 AP-10K (animal), 4 AP-36K (animal), 5 COCO-WholeBody. **Index 0 is
+  COCO, a human-body dataset** — not one of the two animal-pose datasets ViTPose+ also includes.
+  This is used as the same fixed index everywhere: training, evaluation, and the standalone
+  laptop latency script (`c5_latency_benchmark_standalone.py`'s `ViTPoseSBackbone` also defaults
+  `dataset_index=0`).
+- **One caveat, stated plainly.** That GitHub config specifies `part_features=192`; the actual
+  released checkpoint's tensor shapes only load with zero missing/unexpected keys at
+  `part_features=96` (what our code uses). Tensor shapes are ground truth for what we actually
+  run, so this is not a loading error, but it means the distributed artifact does not exactly
+  match this particular training config file. The dataset-index ordering is a separate design
+  choice from the channel split and is very likely unaffected, but I cannot call this fully
+  proven from the files available to me.
+
+### (a) body-only rotation check (2026-10-10, read-only, no fixes)
+
+You're right that PA-MPJPE removes global rotation, so the stuck root-orientation plateau cannot
+by itself explain 196.8 mm PA-MPJPE; the articulated body pose has to be wrong too. Checked on
+(a)'s best checkpoint (step 32,000) vs the teacher, 3DPW validation, 10,413 frames, root + 21 body
+joints (hands excluded): `phase1/task1/scripts/c5c_variant_a_body_rotation.py`, 2m25s.
+
+Mean body-joint rotation geodesic is 19.2°, which on its own looks only moderately worse than
+checkpoint 235000's overall 10.9° (Step 1.2). But broken down per joint, one joint stands out
+sharply from every other:
+
+| Joint | Rotation error vs teacher | | Joint | Rotation error vs teacher |
+|---|---|---|---|---|
+| **spine2** | **178.2°** | | left_elbow | 18.3° |
+| right_elbow | 19.5° | | pelvis (root) | 14.8° |
+| right_knee | 13.9° | | right_hip | 13.9° |
+
+178.2° is essentially the maximum possible geodesic distance (180°): (a)'s predicted `spine2`
+rotation is, on average, very close to the **exact inverse** of the teacher's, not merely noisy.
+Every other joint, including the root, sits in the ordinary 3–20° range the rest of the body is
+in. This single near-complete inversion at a mid-chain joint — spine2 sits between the lower and
+upper body in the kinematic chain, so an inverted rotation there distorts everything above it
+(shoulders, arms, head) even where those joints' own local rotations look only moderately off —
+is a much more precise answer to "why does (a) score so much worse than the mean rotation error
+suggests" than the root-orientation plateau alone, and is consistent with a known failure mode of
+6D/continuous rotation representations: a sign or reflection ambiguity the optimisation settled
+into for that one joint. Shape and scale differences vs the teacher are unremarkable by
+comparison: body shape (200-D betas) L1 0.196, camera scale (`s`) L1 0.051, hand scale L1 0.045 —
+none of these stands out the way spine2's rotation does.
+
+This was not investigated further (no fix proposed, per your instruction) and does not change the
+Step 1 conclusion that this is not a bug in loss terms (c) also uses — if anything it sharpens it:
+a single-joint representation failure from random initialisation is exactly the kind of thing a
+direct ground-truth rotation target (as (b)/(c) have) is far less prone to than pure distillation.
+Raw numbers: `/raid/ubx858/outputs/phase1_task1/checkpoint5/variant_a_body_rotation.json`.
