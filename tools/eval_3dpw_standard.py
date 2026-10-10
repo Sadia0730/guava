@@ -374,7 +374,7 @@ def parse_args():
     p.add_argument("--model", choices=("pear", "student"), required=True)
     p.add_argument("--checkpoint", type=Path, default=None, help="student checkpoint; teacher default is the HF snapshot")
     p.add_argument("--student-config", default="configs/student_l70_v2.yaml")
-    p.add_argument("--split", choices=("test", "validation"), default="test")
+    p.add_argument("--split", choices=("test", "validation", "train"), default="test")
     p.add_argument("--crop", choices=("gt_keypoints", "detector"), default="gt_keypoints")
     p.add_argument("--detections", type=Path, help="JSON from --detect-only (required for --crop detector)")
     p.add_argument("--detect-only", action="store_true", help="run YOLOX on every image of the split and exit")
