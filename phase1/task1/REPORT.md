@@ -1678,3 +1678,78 @@ python train_student_gt.py --config configs/phase1_task1/longrun_vitpose_ldata.y
    checkpoint on 3DPW test, both crops, and EHF, in fp32 and fp16; plus the missing (c-vitpose)
    fp16 rows) and then launches L-data on GPU 0. It stops and reports on any problem.
 6. **Task 3**: no Task 3 brief (`phase1/task3/DESIGN.md`) has been received in this session.
+
+## (L-0.1) finished: evaluation, and matched-step comparison with (L-0.05) (2026-10-11)
+
+**Run.** (L-0.1) finished all 128,000 steps at 17:36. Its best 3DPW-validation PA-MPJPE is 48.96 mm,
+at step 102,000 (`screen/L_0.1/checkpoints/best.pt`, SHA-256 `fd1b9d978f810bb7…`).
+
+**Evaluation.** The watcher ran `screen/eval_L01_and_launch.sh` on GPU 0 from 17:36 to 17:45. The
+exact commands are in each `summary.json`.
+- Evaluators: `tools/eval_3dpw_standard.py` `a206029d…`, and `tools/eval_ehf_standard.py`
+  `d302e543…`. The latter is the version with `--precision` (commit f7744dfd); its fp32 path was
+  verified unchanged in that commit.
+- The (c-vitpose) fp32 EHF row was produced earlier with `8ab1f395…`.
+- Commits at evaluation time: guava `ffb3cb0a`, PEAR `4e58a33`.
+
+**Launches and watchers.**
+- L-data launched automatically at 17:32 on GPU 5, PID 1062494. GPU 5 had been free of every
+  user's processes on two consecutive checks. L-data was therefore already running when (L-0.1)'s
+  evaluation finished.
+- The old watcher exited at 17:45 after the evaluation. A problem-only watcher,
+  `screen/watch_L005_Ldata.py`, now covers (L-0.05) and L-data.
+
+| Model | 3DPW val MPJPE/PA/PVE | 3DPW test (GT crop) MPJPE/PA/PVE | 3DPW test (detector crop) MPJPE/PA/PVE | EHF PVE all/hand/face | EHF PA-PVE all/hand/face | EHF PA-MPJPE body/hand |
+|---|---|---|---|---|---|---|
+| PEAR (released ViT-H) | 77.55 / 45.68 / 86.88 | 73.56 / 45.65 / 82.28 | 73.7 / 45.9 / 82.5 | 66.6 / 40.3 / 36.7 | 47.9 / 11.0 / 8.7 | 49.2 / 11.1 |
+| Student, checkpoint 235000 | 108.05 / 72.38 / 123.98 | 112.98 / 71.61 / 129.08 | 111.2 / 71.3 / 127.6 | 113.0 / 61.0 / 39.1 | 63.9 / 17.6 / 6.0 | 76.7 / 17.9 |
+| (c-vitpose), step 32k, fp32 | 80.94 / 50.78 / 93.50 | 75.99 / 49.81 / 87.56 | 76.19 / 49.80 / 87.75 | 86.9 / 53.2 / 36.3 | 53.2 / 14.7 / 6.5 | 62.8 / 14.7 |
+| (c-vitpose), step 32k, fp16 | — | — | 76.20 / 49.81 / 87.75 | 86.9 / 53.2 / 36.3 | 53.2 / 14.7 / 6.5 | 62.8 / 14.7 |
+| **(L-0.1) best, step 102k, fp32** | 78.95 / 48.96 / 91.30 | **75.46 / 48.81 / 86.70** | **75.46 / 48.80 / 86.58** | **85.9 / 51.0 / 37.0** | **52.0 / 14.5 / 6.2** | **62.0 / 14.4** |
+| (L-0.1) best, step 102k, fp16 | — | 75.47 / 48.81 / 86.70 | 75.47 / 48.80 / 86.58 | 85.9 / 51.0 / 37.0 | 52.1 / 14.5 / 6.2 | 62.1 / 14.4 |
+
+All values are measured, in mm. The (L-0.1) validation numbers come from the in-loop validator,
+which matches the standalone evaluator to four decimals (Checkpoint 3). Sequence-bootstrap 95% CIs
+for (L-0.1) on test with the GT crop:
+- MPJPE [72.1, 78.8];
+- PA-MPJPE [46.2, 51.7] (for (c-vitpose): [47.3, 52.6]);
+- PVE [82.6, 90.9].
+
+**Reading.**
+- **Four times the steps buys about 1 mm.** On test with the GT crop, (L-0.1) vs (c-vitpose):
+  - PA-MPJPE 48.81 vs 49.81 (−1.0);
+  - MPJPE 75.46 vs 75.99 (−0.5);
+  - PVE 86.70 vs 87.56 (−0.9).
+
+  The detector crop shows the same pattern. The CIs overlap almost completely, and these are not
+  paired intervals. The lower-body diagnostic is 0.9 mm *worse* (94.46 vs 93.56).
+- **EHF improves slightly.**
+  - PVE: all −1.0, hands −2.2, face +0.7.
+  - PA-PVE: all −1.2, hands −0.2, face −0.3.
+  - Body PA-MPJPE: −0.8.
+
+  The gap to PEAR on 3DPW-test PA-MPJPE is now 3.2 mm (48.81 vs 45.65).
+- **Validation has plateaued.** Over steps 84k–128k, (L-0.1)'s PA-MPJPE is 49.51 ± 0.25 mm
+  (mean ± sd, 23 validations). The best, 48.96 at step 102k, sits at the low edge of that band, so
+  selecting it involves some luck.
+- **Precision.** fp16 equals fp32 within 0.01 mm on every 3DPW mean, and within 0.1 mm on every EHF
+  mean.
+
+**Matched-step comparison, (L-0.05) − (L-0.1).**
+- Data: 42 validations at the same steps (2k to 84k, every 2k). The two runs share seed, data order
+  and schedule; only `backbone_lr_mult` differs (0.05 vs 0.1).
+
+| Metric | Mean difference (sd), all 42 | Mean difference (sd), steps ≥ 42k (n = 22) | (L-0.05) lower at |
+|---|---|---|---|
+| PA-MPJPE | −0.16 (0.81) | −0.16 (0.51) | 23 of 42 |
+| MPJPE | +0.01 (1.16) | −0.13 (0.68) | 20 of 42 |
+| PVE | −0.25 (1.15) | −0.25 (0.67) | 25 of 42 |
+
+- **Best values so far.**
+  - (L-0.05): 48.85 at 54k.
+  - (L-0.1): 49.45 at 78k within the matched range; its overall best is 48.96 at 102k.
+- **Verdict: no detectable difference** between the two backbone learning rates. The mean
+  difference (about 0.2 mm) is well inside the step-to-step spread (sd 0.5–0.8 mm), and neither run
+  is consistently ahead.
+- **(L-0.05) status.** Step 84,650 of 128,000 at 72.5 img/s on the shared GPU 1, so about 10.6 h
+  remain (estimate). Whether to stop it or let it finish is your decision.
