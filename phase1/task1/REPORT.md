@@ -1424,3 +1424,127 @@ original backbone for the full run.
 
 Not launched. Awaiting approval, including on the backbone-LR-multiplier choice (0.1, as in
 screening, vs a lower 0.05) before committing to one for 128,000 steps.
+
+## Long runs of (c-vitpose): backbone LR sweep (running)
+
+Approved and launched 2026-10-11 03:20 (UTC−5): two runs identical to the (c-vitpose) screening
+config except 128,000 steps, differing **only** in `backbone_lr_mult`. PEAR commit `7cc50d4`
+(configs `configs/phase1_task1/longrun_vitpose_lr01.yaml`, `longrun_vitpose_lr005.yaml`), guava
+`c03c1f33`, both clean; seed 20261009; BEDLAM2 single-person data; 3DPW validation every 2,000
+steps with a checkpoint at every validation (64 per run, ~818 MB each, ~52 GB per run).
+
+| Run | GPU | `backbone_lr_mult` | Output |
+|---|---|---|---|
+| (L-0.1) | cuda:0 | 0.1 (as screening) | `/raid/ubx858/outputs/phase1_task1/screen/L_0.1/` |
+| (L-0.05) | cuda:1 | 0.05 | `/raid/ubx858/outputs/phase1_task1/screen/L_0.05/` |
+
+**Throughput depends on GPU sharing, not on the run.** This server's GPUs are shared with other
+users. GPU 0 had no other process at launch; GPU 1 carries another user's job at ~99% utilisation.
+Measured at 03:52: (L-0.1) step 4,200 at 152.7 img/s, (L-0.05) step 1,550 at 56.2 img/s — same
+code, same model, a 2.7× difference from the neighbour alone. Projected finish (estimate at these
+rates): (L-0.1) ~15 h after launch, (L-0.05) ~40 h. The trainer has no resume, so moving (L-0.05)
+would restart it; it is left running. Results are unaffected (same seed and data order).
+
+## L-data follow-up: prepared and smoke-tested, NOT launched
+
+Identical to (L-0.1) except the data: multi-person BEDLAM2 added, and UBody as PEAR-distillation-
+only data at a fixed batch share. Config: `configs/phase1_task1/longrun_vitpose_ldata.yaml`.
+
+### Multi-person BEDLAM2 crops
+
+`tools/build_bedlam2_gt_crops.py` gains `--include-multiperson` / `--only-multiperson` /
+`--videos-root` (additive):
+- **Jobs**: the label files not in the old single-person manifest that have a render-database
+  entry: **26 multi-person jobs** (2–10 labelled people per frame). Two non-manifest label files are
+  skipped because they have no database entry and no video (the duplicate re-render
+  `20240621_1_250_archmodelsvol8_tracking` and `20240805_5-10_250_busstation_orbit_zoom`, both
+  noted in Checkpoint 2).
+- **Exclusions**: official-test sequences (as before) and "affected" sequences. Of 991,261 label
+  rows, 375,953 are test and 182,604 affected → **432,704 rows kept** (418,675 train, 14,029 val).
+- **Split**: these jobs were never in the old manifest, so they get the same rule fresh:
+  SHA-1(job name) < 0.05 → val (2 jobs). Checkpoint selection still uses 3DPW validation.
+- **Boxes are per person**: each label row is one person, and the box is that person's projected
+  GT mesh clipped to the image, exactly as for single-person jobs.
+- **Bug found and fixed while preparing this** (it would have silently corrupted multi-person
+  data): the builder keyed each written crop by frame index only, so with several people in a
+  frame every person's row would have pointed at one file holding only the last person's crop.
+  Crops are now written per person (`FFFF_pK.jpg` in multi-person jobs; single-person paths
+  unchanged, `FFFF.jpg`). Smoke check: 1,150–2,045 rows, one distinct file per row, up to 10 people
+  per frame.
+- **No regression on single-person builds**: the new builder and the committed original builder,
+  run on the same 260 rows, give identical arrays and byte-identical JPEGs (0 of 260 differ). Both
+  differ from the full build at float32 rounding level (≤ 3×10⁻⁴ px on joints, ≤ 1.2×10⁻⁴ px on
+  boxes; JPEG pixels up to 9 levels) because the SMPL-X forward is batched differently on a small
+  subset; this is a property of the original code, not of the change.
+- **Affected sequences in single-person jobs**: the database marks 2,399 affected sequences in
+  `_1_` jobs (Checkpoint 2 said affected sequences occur only in multi-person jobs). Checked: **none
+  of the 1,081,932 single-person rows we train on lies in an affected sequence**, so screening and
+  the long runs are unaffected; Checkpoint 2's statement holds for our data, not for the whole
+  database.
+
+Multi-person videos are not extracted yet: the 26 `*_mp4.tar` archives are 41.4 GB. The smoke test
+extracted 12 sequences from 4 jobs (86 MB) into a scratch directory.
+
+### UBody as distillation-only data
+
+`dataset/ubody_distill_dataset.py`: UBody train frames from the old distillation manifest (3,083
+sequences, **504,402 frames**, the existing 256×256 crops; official UBody test lists were already
+held out there). Each sample has the BEDLAM2 sample's fields, with `has_gt = 0`; every
+ground-truth term and diagnostic is averaged over `has_gt = 1` rows only
+(`student_gt_losses.ground_truth`, additive: without `has_gt` the original expressions run
+unchanged). The 2D and camera terms are additionally masked by construction (no valid joints, so
+no translation fit). Distillation terms apply to every row.
+
+**Proposed share: 20% of every batch (13 of 64 images).** Over 128,000 steps this is 1.66 M UBody
+samples, 3.3 passes over its frames, against 6.53 M BEDLAM2 samples, 4.7 passes over 1.38 M rows
+(single + multi-person train): UBody goes from ~11× oversampled relative to BEDLAM2 to slightly
+*under*-sampled, but it is still the only real-image, upper-body source, which matters for the
+webcam deployment. Ground truth stays dominant (80% of every batch).
+
+**Augmentation caveat.** The same augmentation is applied, but stored UBody crops have no context
+margin: 16% of their pixels are already black (the old pipeline's square box runs past the image
+edge on upper-body shots; 59% of crops have >10% black), and augmentation raises this to 24% mean
+(p90 41%), against 3% (p90 11%) for multi-person BEDLAM2 crops. The teacher sees the same
+augmented image, so targets stay consistent; this was also the input distribution of the old
+distillation pipeline.
+
+### Smoke test (200 steps, scratch data)
+
+Smoke roots: the earlier single-person smoke subset plus the multi-person smoke crops, UBody from
+the real manifest, `--max-rows 6000` each; 51 BEDLAM2 + 13 UBody images per batch.
+
+- **All 15 loss terms decrease** (e.g. `gt_body_rot` 1.91 → 0.39, `bd_rotation` 2.19 → 0.23,
+  `gt_joint2d` 0.34 → 0.075); no non-finite values; root-angle diagnostic 157° → 21°.
+- **Masking works**: camera-fit diagnostic 1.000 over GT rows (it would read 0.797 = 51/64 if
+  UBody rows leaked into the GT average).
+- **Regression check of the training-code changes**: the committed code and the new code, run on
+  `screen_c_vitpose.yaml` for 6 steps (no UBody, single root), give **bit-identical** values for
+  every loss term, diagnostic, gradient norm and the validation result; only `peak_mem_gb`
+  differs (≤ 1 MB, allocator bookkeeping).
+- **Overlays** (`/raid/ubx858/outputs/phase1_task1/ldata_smoke/overlays_grid.jpg`, script
+  `phase1/task1/scripts/c6_ldata_overlays.py`): 6 multi-person samples (GT mesh, our-camera 2D
+  targets and true 2D stay on the target person through flips, rotations up to ±28° and occlusion;
+  other people's boxes sit off-centre) and 6 UBody samples with the teacher's projected joints
+  (the distillation target), which follow the visible upper body and extrapolate out-of-frame legs.
+- **Speed**: L-data and plain (c-vitpose), run back to back on the same shared GPU: 65.9 vs 65.9
+  img/s. The mixing adds no measurable cost; the absolute rate is set by GPU sharing.
+
+### Estimates for the full L-data run (not measured on an idle GPU; none is idle now)
+
+| Item | Estimate | Basis |
+|---|---|---|
+| Video extraction | 41.4 GB (can be deleted after the crop build) | archive sizes |
+| Crop build | ~20.8 GB, ~10 min with 48 processes | 432,704 rows × 48.1 KB (smoke); time scaled from the single-person build by video volume (41 vs 129 GB) |
+| Training memory | 8.69 GiB peak | measured in the smoke test |
+| Training time | ~12.7 h on an unshared GPU (187 img/s); ~35 h at the 66 img/s measured on a shared GPU | screening throughput; smoke throughput |
+| Checkpoints | ~52 GB (64 × 818 MB) | same as the long runs |
+| Disk | /raid free now 304 GB; the two long runs will add ~100 GB more of checkpoints; L-data needs ~62 GB for data (41 temporary) + ~52 GB checkpoints | — |
+
+Commands, for when approved:
+```
+# from third_party/PEAR, PYTHONPATH=/raid/ubx858/datasets/eval_assets/pylib
+mkdir -p /raid/ubx858/datasets/expanded/BEDLAM
+for t in /raid/ubx858/datasets/raw/bedlam2.0/<26 multi-person jobs>_mp4.tar; do tar -xf $t -C /raid/ubx858/datasets/expanded/BEDLAM; done
+python tools/build_bedlam2_gt_crops.py --output-root /raid/ubx858/datasets/processed/bedlam2_gt_multi --include-multiperson --only-multiperson --processes 48
+python train_student_gt.py --config configs/phase1_task1/longrun_vitpose_ldata.yaml --output-dir /raid/ubx858/outputs/phase1_task1/screen/L_data --device cuda:<free GPU>
+```
