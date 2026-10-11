@@ -161,6 +161,8 @@ def main():
     p.add_argument("--student-config", default="configs/student_l70_v2.yaml")
     p.add_argument("--output-dir", type=Path, required=True)
     p.add_argument("--device", default="cuda:0")
+    p.add_argument("--precision", choices=("fp32", "fp16", "bf16"), default="fp32",
+                   help="model forward under autocast in this dtype (fp32: unchanged path); same as the 3DPW evaluator")
     args = p.parse_args()
     t0 = time.time()
     frames = load_frames()
@@ -178,9 +180,16 @@ def main():
         finally:
             os.chdir(cwd)
         images = torch.stack([crop(f)[0] for f in frames])
+        dtype = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}[args.precision]
         with torch.inference_mode():
             for s in range(0, len(frames), 25):
-                out = model(images[s:s + 25].to(device).float().div_(255.0))
+                if dtype == torch.float32:
+                    out = model(images[s:s + 25].to(device).float().div_(255.0))
+                else:   # as in eval_3dpw_standard.py: autocast forward, outputs back to fp32
+                    with torch.autocast(device_type=device.type, dtype=dtype):
+                        out = model(images[s:s + 25].to(device).float().div_(255.0))
+                    out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()}
+                               if isinstance(v, dict) else v.float()) for k, v in out.items()}
                 verts = ev.predicted_smplx_vertices(out, ehm).double().cpu().numpy()
                 for j, v in enumerate(verts):
                     preds[frames[s + j]["id"]] = v
@@ -196,7 +205,7 @@ def main():
         w = csv.DictWriter(handle, fieldnames=["frame", *keys]); w.writeheader(); w.writerows(rows)
     report = {
         "protocol": "Hand4Whole EHF.evaluate (c94908654b81); crop from EHF OpenPose BODY_25 via PEAR get_bbox x1.2 + process_bbox x1.25",
-        "model": args.model, "frames": len(rows), "metrics_mm": summary,
+        "model": args.model, "frames": len(rows), "metrics_mm": summary, "precision": args.precision,
         "checkpoint": None if args.model == "gt" else str(checkpoint),
         "checkpoint_sha256": None if args.model == "gt" else ev.sha256(checkpoint),
         "assets_sha256": {n: ev.sha256(SMPLX_ASSETS / n) for n in
