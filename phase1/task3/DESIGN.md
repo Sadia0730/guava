@@ -174,7 +174,13 @@ taken from GUAVA's opacities.
 **Person mask.**
 - StyleMatte (EHM-Tracker's matting, `stylematte_synth.pt`) gives the alpha. Its backbone comes from
   `facebook/mask2former-swin-tiny-coco-instance`, which it downloads on first use to
-  `assets/StyleMatte/` (182 MB, untracked, **not to be committed**).
+  `assets/StyleMatte/` (182 MB, in `.gitignore`, **not to be committed**).
+- **Licence of `assets/StyleMatte/`** (checked 2026-10-11): the Hugging Face model card declares
+  `license: other` with no licence text. The card was written by Hugging Face, not by the authors.
+  The upstream repository (facebookresearch/Mask2Former), which released the weights, is MIT-licensed
+  ("the majority of Mask2Former is licensed under a MIT License"; its Deformable-DETR part is
+  Apache-2.0). The weights are trained on COCO (annotations CC BY 4.0, images under Flickr terms).
+  Treated as research use; it is not redistributed.
 - In two-person frames, the full Mask2Former Swin-T COCO-instance model (same downloaded weights)
   gives instances. The one with the highest IoU with the track's detector box is selected and
   intersected with the matte.
@@ -428,9 +434,18 @@ approval. Runs use GPUs not used by the Task 1 training jobs.
 Every run logs its config, git commits of both repositories, seed, data split, and checkpoint path
 and SHA-256, as in Task 1.
 
-**Open decisions for you** (they do not block A0 or A):
-1. **Part parser.** Approve downloading Sapiens-Seg 0.3B or SCHP-LIP, after a licence check.
-   Without one, (c) has no direct leg-swap signal.
-2. **An optional (b + c) arm.** It would answer "does the avatar add anything **on top of**
-   keypoints?". The pre-registered criterion compares (c) with (b) only, as specified, so this arm
-   would be reported outside the criterion.
+**Decisions (2026-10-11).**
+1. **Part parser approved** after a licence check; non-commercial research use is acceptable.
+   Choice: **Sapiens-Seg 0.3B** (`facebook/sapiens-seg-0.3b-torchscript`). It is CC-BY-NC-4.0 on the
+   model card and in the repository's LICENSE. It has 28 Goliath classes, with left/right upper leg,
+   lower leg, foot, shoe and sock. Clothing classes (upper clothing, lower clothing, apparel) cover
+   the body parts underneath, so they are used as set-valued labels (§3). Speed is measured in A0.
+2. **(b + c) arm approved** as optional, reported outside the pre-registered criterion.
+3. **A0 additions:**
+   - the subject's own avatar on 3 validation tracks, with ≥ 50 frames each;
+   - losses tested: solid silhouette, DINOv2 features (upper body, hands, face), part labels, and a
+     DWPose 2D-keypoint control with the same fitting procedure;
+   - ranking accuracy (the loss is lower at the GT pose than at the student's pose), overall and
+     per body part;
+   - the 3D effect of fitting for every loss;
+   - a shape test: the student's shape replaced by the enrollment shape.

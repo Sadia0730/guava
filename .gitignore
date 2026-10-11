@@ -28,3 +28,7 @@ PanGPI.log
 assets/EHF.zip
 assets/EHF/
 **/EHF*.zip
+
+# Hugging Face cache written by EHM-Tracker's StyleMatte on first use (Mask2Former Swin-T COCO-instance
+# weights, ~182 MB); licence recorded in phase1/task3/DESIGN.md
+assets/StyleMatte/
