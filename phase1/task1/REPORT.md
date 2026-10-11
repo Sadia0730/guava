@@ -1548,3 +1548,65 @@ for t in /raid/ubx858/datasets/raw/bedlam2.0/<26 multi-person jobs>_mp4.tar; do 
 python tools/build_bedlam2_gt_crops.py --output-root /raid/ubx858/datasets/processed/bedlam2_gt_multi --include-multiperson --only-multiperson --processes 48
 python train_student_gt.py --config configs/phase1_task1/longrun_vitpose_ldata.yaml --output-dir /raid/ubx858/outputs/phase1_task1/screen/L_data --device cuda:<free GPU>
 ```
+
+### Decisions received (2026-10-11) and what was done
+
+1. **L-data approved, UBody share 20%**, to run on an unshared GPU: GPU 0 once (L-0.1) and its
+   evaluation finish, or earlier if a GPU becomes fully free (no process from any user). A
+   watchdog checks every 2 minutes; at 04:57 no GPU was fully free (GPUs 2–7 all carry other
+   users' processes, GPU 7 idle but holding 3.2 GB).
+2. **Multi-person crops built and verified; video extraction deleted.** 26 jobs extracted to a
+   temporary directory (39 GB, 50 s), crops built into
+   `/raid/ubx858/datasets/processed/bedlam2_gt_multi` in 339 s: **432,704 rows (418,675 train,
+   14,029 val), 0 missing frames, 20.0 GB (46.2 KB/row)**, one unique file per row, up to 10 people
+   per frame, no blank crops (300 sampled, minimum mean intensity 10). The two-root dataset loads
+   1,379,616 train rows (960,941 + 418,675). The builder was unchanged since commit `db95c3e`
+   (the build summary's `dirty: true` comes from other uncommitted files at the time). The
+   extraction directory was then deleted (the raw `*_mp4.tar` archives remain).
+3. **Milder augmentation for UBody rows** (PEAR `0f77ed3`): zoom in only, scale 0.80–1.00 (at 0.80
+   the crop equals the person's own box, 1.25 × 0.80), shift ±0.05 (half of BEDLAM2's); rotation,
+   flip, colour and occlusion unchanged. Black area on 400 UBody crops (geometry only):
+
+   | Augmentation | Mean black | p90 | Samples gaining > 2 points vs stored |
+   |---|---|---|---|
+   | None (stored crops) | 17.2% | 32.7% | — |
+   | Screening (scale ±15%, shift ±10%, rotation ±30°) | 23.6% | 41.1% | 69% |
+   | **Chosen** (scale 0.80–1.00, shift ±5%, rotation ±30°) | **12.8%** | 28.4% | 15% |
+
+   **Remaining caveat:** ~16–17% of every stored UBody crop is black padding from the old
+   pipeline's square box running past the image edge on upper-body shots (59% of crops have > 10%
+   black). Zooming in removes part of it but the input distribution still differs from BEDLAM2's
+   context crops (3% black). This was also what the old distilled student (235000) trained on.
+4. **Resume support** (PEAR `12b8b45`, committed separately): `--resume` restores model,
+   optimizer, step (LR schedule position), best metric, all RNG states and the data-loader
+   position. The loader position needed a replay sampler that reproduces the original
+   `shuffle=True` stream exactly, including a detail of torch 2.2: at the end of every epoch the
+   `RandomSampler` draws a second permutation that it discards. Tests, L-data config with both
+   loaders, 300-row subsets so epochs wrap every 5 steps:
+   - committed vs new code, 50 steps, validation every 10: **1,300/1,300 logged values
+     identical** (fresh runs are unchanged by the new sampler);
+   - uninterrupted 50 steps vs crash after step 33 + resume from step 30: **1,300/1,300 values
+     identical; checkpoints at steps 30, 40, 50 and best.pt bit-identical** in weights (471
+     tensors), optimizer state (1,392 tensors), best value and Python/NumPy/torch/CUDA RNG states.
+   Two bugs were found by these tests and fixed before committing: `latest.pt` was saved before
+   the best value was updated, so a resume could overwrite the correct `best.pt` (caught by
+   comparing checkpoints, not logs); and the in-loop validator's DataLoader drew from the global
+   torch RNG on first use, at a different step after a resume (validation is now RNG-neutral).
+   The two running long runs use the earlier code; their checkpoints lack RNG states and the best
+   value, which `--resume` falls back on (best from the log) if they ever need resuming.
+5. **(L-0.05)** keeps running; at (L-0.1)'s end the two validation curves will be compared at
+   matched steps.
+6. **Disk** (/raid 288 GB free at 05:00 after deleting 49 GB of my own resume-test checkpoints):
+   proposal, **awaiting approval**, to keep only `best.pt` and `latest.pt` (= final) of every
+   screening run and delete the 16 `step_*.pt` files of each (`step_0032000.pt` is a duplicate of
+   `latest.pt`; best = final = step 32,000 in all five runs). Validation curves are in the logs, not
+   the checkpoints.
+
+   | Run | Files deleted | Frees |
+   |---|---|---|
+   | (a), (b), (c), (c-235k) | 16 each | ~11 GB each |
+   | (c-vitpose) | 16 | ~12 GB |
+   | **Total** | 80 | **~56 GB** |
+
+   Not proposed: the old distillation runs `pear_student_v2_phase1/phase2` (30 GB; phase 2 holds
+   checkpoint 235000) and the long runs' checkpoints (kept at every validation, as requested).
