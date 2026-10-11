@@ -1610,3 +1610,71 @@ python train_student_gt.py --config configs/phase1_task1/longrun_vitpose_ldata.y
 
    Not proposed: the old distillation runs `pear_student_v2_phase1/phase2` (30 GB; phase 2 holds
    checkpoint 235000) and the long runs' checkpoints (kept at every validation, as requested).
+
+### Decisions received (2026-10-11, afternoon) and what was done
+
+1. **Screening checkpoints deleted** (approved; strictly the five screening directories). Before:
+   `step_0235000.pt` SHA-256 `b62f4027…c061c495` matched the recorded value. Deleted exactly the 80
+   `step_*.pt` files (16 per run) in `screen/{a,b,c,c_235k,c_vitpose}/checkpoints/` (63.6 GB); each
+   run keeps `best.pt` and `latest.pt` (best = final = step 32,000), including (c-vitpose)'s
+   `best.pt` for Task 3. After: `step_0235000.pt` present, same SHA-256; its run directory
+   unchanged (21 files).
+2. **Correction.** In a chat message (not in this report) I wrote that (L-0.1) at step 13,450,
+   ~54 mm, was ~4 mm better than (c-vitpose) at 32k. That was wrong: (c-vitpose) reached
+   50.78 mm, so ~54 mm was worse. Matched-step comparison on 3DPW validation (PA-MPJPE, mm; both
+   seed 20261009 with the same data order; schedules identical until warm-up ends at step 1,500,
+   then (c-vitpose) decays over 32k steps and (L-0.1) over 128k):
+
+   | Step | (c-vitpose) | LR | (L-0.1) | LR | (L-0.1) − (c-vitpose) |
+   |---|---|---|---|---|---|
+   | 2,000 | 64.14 | 3.0e-4 | 62.69 | 3.0e-4 | −1.45 |
+   | 6,000 | 55.37 | 2.8e-4 | 54.15 | 3.0e-4 | −1.22 |
+   | 10,000 | 56.32 | 2.5e-4 | 54.83 | 3.0e-4 | −1.48 |
+   | 16,000 | 53.44 | 1.7e-4 | 54.85 | 2.9e-4 | +1.41 |
+   | 24,000 | 51.32 | 6.1e-5 | 52.88 | 2.8e-4 | +1.56 |
+   | 32,000 | 50.78 | 1.5e-5 | 52.69 | 2.6e-4 | +1.91 |
+
+   (L-0.1) is 1.0–1.5 mm lower while the learning rates are nearly equal (up to ~10k), then
+   0.5–1.9 mm higher once (c-vitpose)'s rate has decayed, as expected from the schedules. With one
+   run each, differences of 1–2 mm are within run-to-run variation, so this is not evidence for
+   either schedule. (L-0.1) first went below 50.78 mm around step 76,000; best so far 49.39 mm at
+   step 84,000 (learning rate still ~1e-4).
+3. **ViTPose-S computes only the selected expert** (PEAR `4e58a33`; finding from the laptop).
+   transformers' implementation runs all 6 expert layers in every block and multiplies 5 outputs by
+   zero. `SingleExpertMoeMLP` runs only expert 0 (COCO) with the same arithmetic, same submodules and
+   parameter names; used for training and evaluation by default.
+   - **A subtlety, found by testing:** the forward pass is bit-identical, but at first a 50-step
+     training run matched the committed code for 6 steps and then differed in the last bit of the
+     gradient norm at step 7 (176.22172 vs 176.22174), after which the runs drift apart. Each
+     variant repeats itself exactly, so the change was the cause: the unused experts had
+     exactly-zero gradients before and no gradient now, and `clip_grad_norm_` reduces over the list
+     of per-tensor norms, so a shorter list rounds the total norm differently. The trainer now
+     gives those experts zero gradients after each backward, as before.
+   - **Verified**, against the committed code: training (L-data config, both loaders, 50 steps,
+     validation every 10) 1,300/1,300 logged values identical, checkpoints identical in all 471
+     weight tensors (including the 120 unused-expert tensors), all optimizer state and the best
+     value. Evaluation of the (c-vitpose) checkpoint: 3DPW test, both crops, all 35,515 per-frame
+     results identical (max diff 0.0 mm); EHF metrics and all 100 per-frame rows identical.
+     (Gradients cannot be compared bit for bit in isolation: the backward pass is not
+     deterministic even for one variant run twice, e.g. the patch-embedding convolution.)
+   - **Speed**, measured on shared GPUs (other users' jobs on every GPU), interleaved to share the
+     noise: backbone forward + backward at batch 64, bf16: **109.7 → 70.2 ms (36% faster)**. Full
+     trainer on the real L-data configuration, alternated twice: **79.0 / 80.2 → 83.6 / 84.8 img/s
+     (~6%)**; the step there (~800 ms on a contended GPU) is dominated by the ViT-H teacher and
+     the losses, and the backbone saves ~40 ms of it. On an unshared GPU (~340 ms per step at the
+     screening rate of 187 img/s) the same saving would be ~12%, giving an estimated ~11–11.5 h
+     for L-data instead of ~12.7 h (estimate, not measured: no GPU is unshared). Batch-1 inference
+     on these shared GPUs was too noisy to measure reliably (medians 15–19 ms vs ~7 ms measured
+     earlier on a quiet GPU); outputs bit-identical in fp32 and fp16. The laptop measurement
+     (~2.9 ms faster) is the reliable inference number.
+4. **EHF evaluator `--precision`** (guava `f7744dfd`, for the requested fp16/fp32 tables):
+   additive, as in the 3DPW evaluator; fp32 path unchanged (per-frame identical on the (c-vitpose)
+   checkpoint); fp16 max per-frame difference 0.16 mm.
+5. **L-data launch** is now automatic, because a fully free GPU appeared at 06:36 (GPU 2) but the
+   watchdog's notice only reached the assistant at 12:38 with the next message, by which time the
+   GPU was busy again (and the single-expert change was not ready). `screen/ldata_watcher.py`
+   launches L-data itself on a fully free GPU (two consecutive checks, no process from any user),
+   or, when (L-0.1) finishes, first runs `screen/eval_L01_and_launch.sh` on GPU 0 ((L-0.1) best
+   checkpoint on 3DPW test, both crops, and EHF, in fp32 and fp16; plus the missing (c-vitpose)
+   fp16 rows) and then launches L-data on GPU 0. It stops and reports on any problem.
+6. **Task 3**: no Task 3 brief (`phase1/task3/DESIGN.md`) has been received in this session.
