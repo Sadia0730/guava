@@ -417,6 +417,23 @@ mismatched avatar gives a gradient but no useful direction. Whether the **subjec
 unknown. The plan therefore starts with a go/no-go gate on exactly that (§7, step A0) before the
 harness is built.
 
+### Environment findings while running A0 (2026-10-11)
+
+- **onnxruntime-gpu 1.18 cannot load its CUDA provider here.** It wants CUDA 11
+  (`libcublasLt.so.11`) while torch ships CUDA 12, so DWPose and EHM-Tracker's HaMeR run on the CPU.
+- **One weight file in `EHM-Tracker/pretrained` is truncated.** `hamer/onnx__MatMul_4769` is
+  6,631,417 bytes instead of the 26,214,400 in `EHM-Tracker/pretrained.zip`; all 472 other entries
+  match. The submodule is left untouched. The A0 run directory
+  (`/raid/ubx858/outputs/phase1_task3/a0/ehm_run`) links every file and holds a CRC-verified copy of
+  this one, extracted from the zip.
+- **EHM-Tracker needs `yacs`.** It is installed with `--no-deps` into a separate directory,
+  `/raid/ubx858/datasets/eval_assets/pylib_task3`, so the evaluation `pylib` is unchanged.
+- **EHM-Tracker downloads torchvision's `resnet50-0676ba61.pth` on first use.**
+- **EHM-Tracker reads the licensed SMPL-X and FLAME files** through links in the run directory to
+  PEAR's assets, so nothing licensed enters any repository.
+- **Enrollment cost** (*measured*): 5 min 16 s for one track, i.e. 150 frames sampled at interval 6,
+  of which 23 of 25 were kept.
+
 ## 7. Implementation plan
 
 Time estimates are working days and GPU time; all are **estimates**. Any GPU job longer than
@@ -439,7 +456,21 @@ and SHA-256, as in Task 1.
    Choice: **Sapiens-Seg 0.3B** (`facebook/sapiens-seg-0.3b-torchscript`). It is CC-BY-NC-4.0 on the
    model card and in the repository's LICENSE. It has 28 Goliath classes, with left/right upper leg,
    lower leg, foot, shoe and sock. Clothing classes (upper clothing, lower clothing, apparel) cover
-   the body parts underneath, so they are used as set-valued labels (§3). Speed is measured in A0.
+   the body parts underneath, so they are used as set-valued labels (§3).
+   - **Files.** Weights at `/raid/ubx858/models/sapiens/` (1.36 GB, SHA-256 `735a9a8d63fe8f3f…`),
+     outside the repo, with the model card copied next to them.
+   - **Speed on this server** (*measured*; L40S, GPU 6 otherwise idle; 1024×768 input, 1.24 TFLOPs;
+     4 frames × 5 timed runs): 148–149 ms per frame in fp32, 49 ms in bf16. Peak memory 2.75 GiB.
+   - **RTX 3080 laptop** (*estimate, not measured*): 2–4× slower, from the memory-bandwidth ratio
+     (864 vs about 448 GB/s) and the fp32 throughput ratio. That gives about 100–200 ms per frame in
+     bf16 and 300–550 ms in fp32. Run only on adaptation frames (every k = 8 frames), bf16 amortises
+     to about 12–25 ms per frame.
+   - **What it labels on 3DPW** (*checked* on 4 frames of `courtyard_jumpBench_01`):
+     - Trousers are labelled `Lower_Clothing`, so legs carry no left/right label; only shoes and
+       socks do.
+     - Left/right labels are anatomically correct in a back view.
+     - DWPose, by contrast, places confident face keypoints (mean confidence 0.68–0.92) on the back
+       of the head.
 2. **(b + c) arm approved** as optional, reported outside the pre-registered criterion.
 3. **A0 additions:**
    - the subject's own avatar on 3 validation tracks, with ≥ 50 frames each;
