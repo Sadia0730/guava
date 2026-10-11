@@ -155,7 +155,7 @@ def crop(frame):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", choices=("pear", "student", "gt"), required=True,
+    p.add_argument("--model", choices=("pear", "student", "student_vitpose", "gt"), required=True,
                    help="'gt' feeds the ground truth as the prediction (must give 0 everywhere)")
     p.add_argument("--checkpoint", type=Path, default=None)
     p.add_argument("--student-config", default="configs/student_l70_v2.yaml")

@@ -319,6 +319,17 @@ def load_model(kind: str, checkpoint: Path, student_config: str, batch_size: int
         state = torch.load(checkpoint, map_location="cpu", weights_only=False)
         model.load_state_dict(state["student"], strict=True)
         load_report = {"strict": True, "step": int(state.get("step", -1))}
+    elif kind == "student_vitpose":
+        # Checkpoint 5, Step 2 candidate (c-vitpose): same head, a ViTPose-S backbone instead of
+        # the default student backbone (train_student_gt.py's student_backbone: vitpose_s).
+        import train_pear_student_distill as tpd
+        from models.pipeline.student_pipeline_vitpose import PearStudentViTPosePipeline
+        cfg = tpd.load_config(student_config)
+        tpd.set_config_batch_size(cfg, batch_size, 1)
+        model = PearStudentViTPosePipeline(cfg)  # random backbone init; real weights loaded below
+        state = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        model.load_state_dict(state["student"], strict=True)
+        load_report = {"strict": True, "step": int(state.get("step", -1))}
     else:
         from models.pipeline.ehm_pipeline import Ehm_Pipeline
         cfg = add_extra_cfgs(ConfigDict(model_config_path="configs/infer.yaml"))
@@ -371,7 +382,7 @@ def bootstrap_ci(values: np.ndarray, groups: np.ndarray, n: int = 1000, seed: in
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", choices=("pear", "student"), required=True)
+    p.add_argument("--model", choices=("pear", "student", "student_vitpose"), required=True)
     p.add_argument("--checkpoint", type=Path, default=None, help="student checkpoint; teacher default is the HF snapshot")
     p.add_argument("--student-config", default="configs/student_l70_v2.yaml")
     p.add_argument("--split", choices=("test", "validation", "train"), default="test")
@@ -387,7 +398,7 @@ def parse_args():
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--num-workers", type=int, default=12)
     p.add_argument("--device", default="cuda:0")
-    p.add_argument("--precision", choices=("fp32", "bf16"), default="fp32")
+    p.add_argument("--precision", choices=("fp32", "fp16", "bf16"), default="fp32")
     p.add_argument("--stride", type=int, default=1, help="evaluate every Nth sample (smoke tests only)")
     p.add_argument("--save-overlays", type=int, default=0, help="save N 2D reprojection overlays")
     return p.parse_args()
@@ -466,7 +477,7 @@ def main():
 
     loader = DataLoader(CropDataset(samples, args.crop, detections), batch_size=args.batch_size,
                         num_workers=args.num_workers, shuffle=False, pin_memory=True)
-    dtype = {"fp32": torch.float32, "bf16": torch.bfloat16}[args.precision]
+    dtype = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}[args.precision]
     rows, overlay_dir = [], args.output_dir / "overlays"
     args.output_dir.mkdir(parents=True, exist_ok=True)
     reproj = []
