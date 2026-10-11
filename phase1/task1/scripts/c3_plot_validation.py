@@ -21,8 +21,10 @@ REFERENCES = {
     "Student 235000": OUT / "eval_3dpw/student_235000/validation_gt_keypoints_clean/summary.json",
 }
 METRICS = (("pa_mpjpe_mm", "PA-MPJPE"), ("mpjpe_mm", "MPJPE"), ("pve_mm", "PVE"))
-COLOURS = {"a": "tab:blue", "b": "tab:orange", "c": "tab:green"}
-LABELS = {"a": "(a) PEAR distillation", "b": "(b) BEDLAM2 GT", "c": "(c) GT + distillation"}
+COLOURS = {"a": "tab:blue", "b": "tab:orange", "c": "tab:green",
+           "c_235k": "tab:purple", "c_vitpose": "tab:red"}
+LABELS = {"a": "(a) PEAR distillation", "b": "(b) BEDLAM2 GT", "c": "(c) GT + distillation",
+          "c_235k": "(c-235k) from checkpoint 235000", "c_vitpose": "(c-vitpose) ViTPose-S backbone"}
 
 
 def main():
@@ -37,7 +39,7 @@ def main():
         refs[name] = {k: summary["metrics"][k]["mean"] for k, _ in METRICS}
 
     curves = {}
-    for variant in "abc":
+    for variant in ("a", "b", "c", "c_235k", "c_vitpose"):
         log = args.runs / variant / "train_log.jsonl"
         if log.exists():
             rows = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
@@ -54,8 +56,9 @@ def main():
         ax.set_title(f"3DPW validation {title} (mm)")
         ax.set_xlabel("training step")
         ax.grid(alpha=0.3)
-        lo = min([v[key] for v in refs.values()] + [r[key] for rows in curves.values() for r in rows])
-        ax.set_ylim(bottom=max(0.0, lo - 15), top=max(v[key] for v in refs.values()) * 1.6)
+        all_vals = [v[key] for v in refs.values()] + [r[key] for rows in curves.values() for r in rows]
+        lo, hi = min(all_vals), max(all_vals)
+        ax.set_ylim(bottom=max(0.0, lo - 15), top=hi + 15)
     axes[0].legend(fontsize=8)
     fig.tight_layout()
     args.output.parent.mkdir(parents=True, exist_ok=True)

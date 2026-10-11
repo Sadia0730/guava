@@ -1332,3 +1332,95 @@ Step 1 conclusion that this is not a bug in loss terms (c) also uses — if anyt
 a single-joint representation failure from random initialisation is exactly the kind of thing a
 direct ground-truth rotation target (as (b)/(c) have) is far less prone to than pure distillation.
 Raw numbers: `/raid/ubx858/outputs/phase1_task1/checkpoint5/variant_a_body_rotation.json`.
+
+## Step 2 results: (c-235k) and (c-vitpose), both finished (32,000/32,000 steps)
+
+Both runs finished cleanly (watchdog: no divergence, no non-finite loss, no crash, no low-disk
+event). Best checkpoint = final step for both (still slightly improving at the end, as with the
+original three variants). Evaluated with the same evaluators and commands as every other row;
+`student_vitpose` was added to `load_model()` for (c-vitpose)'s different backbone, verified to
+introduce zero regression on the existing `pear`/`student` paths (PEAR and student 235000 rerun
+on 3DPW validation: per-frame results bit-identical to the prior runs, max diff 0.0 mm, 10,413
+frames). Evaluator SHA-256: `tools/eval_3dpw_standard.py` → `a206029d…` (extended twice now from
+the tagged `eval-3dpw-standard-v1`, each extension verified byte-identical on prior splits/models);
+`tools/eval_ehf_standard.py` → `8ab1f395…`.
+
+| Model | 3DPW val MPJPE/PA/PVE | 3DPW test (GT crop) MPJPE/PA/PVE | 3DPW test (detector crop) MPJPE/PA/PVE | EHF PVE all/hand/face | EHF PA-PVE all/hand/face |
+|---|---|---|---|---|---|
+| PEAR (released ViT-H) | 77.55 / 45.68 / 86.88 | 73.56 / 45.65 / 82.28 | — | 66.6 / 40.3 / 36.7 | 47.9 / 11.0 / 8.7 |
+| Student, checkpoint 235000 | 108.05 / 72.38 / 123.98 | 112.98 / 71.61 / 129.08 | 111.2 / 71.3 / 127.6 | 113.0 / 61.0 / 39.1 | 63.9 / 17.6 / 6.0 |
+| (c) from scratch (32k steps) | 114.65 / 77.78 / 132.87 | 123.53 / 73.69 / 141.31 | 123.53 / 73.72 / 141.52 | 119.2 / 72.4 / 47.6 | 77.5 / 16.5 / 6.3 |
+| **(c-235k)** (32k steps, warm-started) | 108.48 / 70.69 / 125.08 | 113.37 / 68.66 / 129.38 | 112.52 / 68.62 / 128.70 | 105.7 / 59.3 / 38.6 | 62.4 / 16.3 / 5.6 |
+| **(c-vitpose)** (32k steps, ViTPose-S backbone) | **80.94 / 50.78 / 93.50** | **75.99 / 49.81 / 87.56** | **76.19 / 49.80 / 87.75** | **86.9 / 53.2 / 36.3** | **53.2 / 14.7 / 6.5** |
+
+**Reading this table.**
+- **(c-vitpose) is the clear winner**, and by a wide margin: on every single metric in every
+  table it is closer to PEAR than to any student-architecture variant, including the existing
+  235,000-step distilled student. 3DPW test PA-MPJPE 49.81 mm is already within 4.2 mm of PEAR's
+  own 45.65 mm, from only 32,000 steps and a random head. It also nearly matches PEAR's EHF hand
+  PA-PVE (14.7 vs 11.0 mm) and face PA-PVE (6.5 vs 8.7 mm, actually *better*).
+- **(c-235k) is a modest, genuine improvement over its own starting point** (235000): 3DPW test
+  PA-MPJPE 68.66 vs 71.61 mm, EHF whole-body PA-PVE 62.4 vs 63.9 mm — a fine-tune that helped a
+  little in 32,000 steps at a low learning rate, not a breakthrough. It is **not** competitive
+  with (c-vitpose).
+- **(c) from scratch remains the weakest of the three (c)-family runs**, confirming the backbone
+  (not the loss recipe) is the main lever available right now: identical data, schedule, losses
+  and step count as (c-vitpose), far behind it.
+- Crop choice (GT-keypoint vs detector) changes results by under 1 mm everywhere, as in every
+  earlier table.
+
+Validation curves, all five training runs plus the two reference lines:
+`/raid/ubx858/outputs/phase1_task1/screen/validation_curves_step2.png`
+(`phase1/task1/scripts/c3_plot_validation.py`, extended to plot `c_235k`/`c_vitpose`).
+
+Outputs: `/raid/ubx858/outputs/phase1_task1/screen/{c_235k,c_vitpose}/`,
+`/raid/ubx858/outputs/phase1_task1/eval_3dpw/{c_235k_best,c_vitpose_best}/`,
+`/raid/ubx858/outputs/phase1_task1/eval_ehf/{c_235k_best,c_vitpose_best}/`.
+
+### Precision check: (c-vitpose) on 3DPW test, fp32 vs fp16 vs bf16
+
+`--precision` gained an `fp16` option (additive; already implemented via `torch.autocast`, so only
+the dtype map and CLI choices needed widening). Full 35,515-frame 3DPW test, GT-keypoint crop:
+
+| Precision | MPJPE | PA-MPJPE | PVE | Seconds | Max \|Δ\| vs fp32 (any metric) | Mean \|Δ\| vs fp32 |
+|---|---|---|---|---|---|---|
+| fp32 | 75.99 | 49.81 | 87.56 | 115.8 | — | — |
+| fp16 | 76.00 | 49.81 | 87.57 | 88.3 | 14.3 mm (hands diagnostic) | 0.04–0.10 mm |
+| bf16 | 75.91 | 49.76 | 87.54 | 104.5 | **316.9 mm** (hands diagnostic) | 0.19–0.80 mm |
+
+Aggregate (mean-over-all-frames) metrics are indistinguishable across all three precisions — under
+0.1 mm everywhere. But **per-frame, bf16 has far larger worst-case deviations than fp16**: up to
+143 mm on MPJPE and 317 mm on the hands diagnostic for a small number of individual frames,
+against fp16's worst case of 14 mm. fp16 is also the fastest here (88.3 s vs 115.8 s fp32, 104.5 s
+bf16). **Recommendation: fp16 for inference on this model**, not bf16, despite bf16's wider
+dynamic range reputation — bf16's few large per-frame outliers suggest a precision-sensitive
+computation (plausibly the camera depth/projection chain, not re-investigated further here) that
+fp16's extra mantissa bits handle better in this specific architecture.
+
+### ViTPose+ expert index: resolution
+
+See "ViTPose-S mixture-of-experts: confirmed before launching (c-vitpose)" above: `dataset_index=0`
+is **COCO**, confirmed from the official ViTPose++ training config
+(`ViTAE-Transformer/ViTPose`, `configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/vitPose+_small_coco+aic+mpii+ap10k+apt36k+wholebody_256x192_udp.py`,
+`dataset_idx=0` → `TopDownCocoDataset`), not one of the two animal-pose datasets (AP-10K, AP-36K)
+ViTPose+ also trains on. Same fixed index used in training, evaluation, and the standalone laptop
+latency script.
+
+### Proposed long training run of (c-vitpose) (plan only — not launched)
+
+Given the screening result, I'd recommend committing to (c-vitpose) specifically rather than (c)'s
+original backbone for the full run.
+
+| Item | Proposal | Basis |
+|---|---|---|
+| Steps | 128,000 (4× the screening budget, matching the original full-run proposal) | (c-vitpose) was still improving at 32,000 steps (PA-MPJPE 53.4→50.8 mm over the last 14,000 steps, slope flattening but not flat) |
+| Images seen | ~8.2 M (4× 2.05 M) | same batch (64) and schedule shape as screening |
+| Peak LR, new parts (projection + head) | 3e-4 (unchanged from screening) | these are random-init parts; no reason to lower their LR for a longer run |
+| Peak LR, pretrained ViT backbone | 1.5e-5 to 3e-5 (`backbone_lr_mult` 0.05–0.1, vs screening's 0.1) | consider the lower end since the backbone is already adapting well (COCO-pretrained features transfer cleanly to this task, per the screening result); a measured choice between these two needs a short side-by-side, not run here |
+| Warm-up | 1,500 steps (unchanged) | no evidence of instability at the current warm-up in screening |
+| Estimated time | ~12 h on one GPU (4× the measured 3.0–3.1 h for 32,000 steps) | measured rate (187 img/s uncontended), not re-verified at 128k |
+| Estimated memory | 8.70 GiB peak (measured in screening, same batch size) | — |
+| Data: multi-person BEDLAM2 and UBody | **Not yet — add later, to the chosen winner, not during this run.** Checkpoint 2's decision was multi-person and UBody as follow-ups once a winner is picked; (c-vitpose) is now that winner by every screening metric, but changing the data mix in the same run that's meant to confirm the backbone choice would confound the two questions. I'd propose a *second* run afterwards, same backbone, data mix extended as planned in Checkpoint 2 (multi-person BEDLAM2 with test/affected sequences excluded, UBody at a fixed ~20% batch share instead of the old 11× oversampling), to also close the webcam/upper-body deployment gap noted in Checkpoint 1. |
+
+Not launched. Awaiting approval, including on the backbone-LR-multiplier choice (0.1, as in
+screening, vs a lower 0.05) before committing to one for 128,000 steps.
