@@ -1753,3 +1753,16 @@ for (L-0.1) on test with the GT crop:
   is consistently ahead.
 - **(L-0.05) status.** Step 84,650 of 128,000 at 72.5 img/s on the shared GPU 1, so about 10.6 h
   remain (estimate). Whether to stop it or let it finish is your decision.
+
+### Decision (2026-10-11 evening): (L-0.05) stopped
+
+**Decision received.** "Stop (L-0.05) now. 42 matched validations show no difference from (L-0.1),
+so the rest of the run answers nothing new. Keep its latest.pt and best.pt and its logs."
+
+**Done.**
+- Stopped with SIGTERM at about 19:5x, at step 92,650 of 128,000. PID 106014 exited within 1 s.
+- `screen/L_0.05/checkpoints/latest.pt` (step 92,000, the last validation) and `best.pt`
+  (step 54,000, validation PA-MPJPE 48.85) are kept, with `train_log.jsonl`, `run_info.json` and
+  `screen/L_0.05.log`. Nothing was deleted; the periodic `step_*.pt` files are still there.
+- The 650 steps after the last checkpoint were not saved.
+- A watcher now covers L-data only: `screen/watch_Ldata.py`, log `screen/watch_Ldata.log`.
