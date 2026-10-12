@@ -36,6 +36,14 @@ before and after.
 
 Shape test: the student's prediction with its body shape replaced by the enrollment shape.
 
+A3 (geometry ranking): --rank-losses normal depth msil normal_sil kp with --sapiens-normal / --sapiens-depth:
+the subject's avatar body mesh (GUAVA's posed SMPL-X with the avatar's static offsets) rasterised with
+PyTorch3D in the true camera (normals, depth, silhouette) vs Sapiens-Normal / Sapiens-Depth estimates
+from the frame, inside the Sapiens-Seg person mask. normal = mean (1 - cos) over the overlap, with the
+estimate's axis convention fixed globally (one of 8 sign patterns, chosen on the first 10 frames' GT-pose
+renders); depth = least-squares scale+shift alignment of the estimate to the rendered depth, mean
+|residual| in metres; msil = 1 - IoU(mesh mask, person mask); normal_sil = normal + msil.
+
 A1 (post-hoc follow-up, not pre-registered): --fit-only --fit-joints upper --no-fit-camera
 --fit-losses sil feat_uf kp_upper feat_uf+kp_upper fits only spine, neck, head, collars, shoulders
 and elbows (root, legs, wrists, fingers and camera fixed at the student's prediction), with
@@ -126,6 +134,9 @@ def parse_args():
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--save-vis", type=int, default=3, help="overlay images per track")
     p.add_argument("--fit-only", action="store_true", help="only the fit frames, no ranking (A1)")
+    p.add_argument("--rank-losses", nargs="+", default=LOSSES)
+    p.add_argument("--sapiens-normal", type=Path, default=None)
+    p.add_argument("--sapiens-depth", type=Path, default=None)
     p.add_argument("--fit-joints", choices=("all", "upper"), default="all")
     p.add_argument("--no-fit-camera", action="store_true")
     p.add_argument("--fit-losses", nargs="+", default=FIT_LOSSES)
@@ -175,6 +186,15 @@ def main():
 
     # --- Sapiens, DINOv2 ---
     sapiens = torch.jit.load(str(args.sapiens)).eval().to(device)
+    sap_normal = torch.jit.load(str(args.sapiens_normal)).eval().to(device) if args.sapiens_normal else None
+    sap_depth = torch.jit.load(str(args.sapiens_depth)).eval().to(device) if args.sapiens_depth else None
+    A3 = any(l in ("normal", "depth", "msil", "normal_sil") for l in args.rank_losses)
+    if A3:
+        from pytorch3d.ops import interpolate_face_attributes
+        from pytorch3d.renderer import MeshRasterizer, RasterizationSettings
+        from pytorch3d.structures import Meshes
+        from pytorch3d.utils import cameras_from_opencv_projection
+        SIGNS = torch.tensor([[sx, sy, sz] for sx in (1, -1) for sy in (1, -1) for sz in (1, -1)], dtype=torch.float32, device=device)
     sap_mean = torch.tensor([123.675, 116.28, 103.53], device=device).view(1, 3, 1, 1)
     sap_std = torch.tensor([58.395, 57.12, 57.375], device=device).view(1, 3, 1, 1)
     dino = torch.hub.load(os.path.expanduser("~/.cache/torch/hub/facebookresearch_dinov2_main"), "dinov2_vitb14",
@@ -300,7 +320,8 @@ def main():
         vpart = torch.tensor([PARTS.index(JOINT_PART[int(j)]) for j in lbs_w.argmax(1).tolist()])
         gpart = torch.cat([vpart[:n_vert_gs], vpart[faces[binding, 0]]]).to(device)
         n_gs = gpart.shape[0]
-        part_onehot = F.one_hot(gpart, len(PARTS)).float()[None]                          # (1, N, K)
+        part_onehot = F.one_hot(gpart, len(PARTS)).float()[None]
+        faces_dev = avatar.smplx.faces_tensor.long().to(device)                          # (1, N, K)
 
         def render(rv, out, offset, camd, shape=None, solid_pass=True, real_pass=True):
             """offset: (1, 3) translation in the camera (OpenCV) frame. Solid pass: parts + solid alpha;
@@ -390,6 +411,16 @@ def main():
                     for a in SAPIENS_ALLOWED[name]:
                         allowed[0 if a == "bg" else 1 + PARTS.index(a)] |= sel
                 allowed = allowed.to(device)
+                pmask = torch.from_numpy(lab256 != 0).float().to(device)                     # Sapiens-Seg person mask
+                if A3:
+                    def warp_dense(t):
+                        t = F.interpolate(t.float(), (1024, 768), mode="bilinear")[0].permute(1, 2, 0).cpu().numpy()
+                        w_ = cv2.warpAffine(t, M[:2].astype(np.float32), (256, 256), flags=cv2.INTER_LINEAR, borderValue=0)
+                        return torch.from_numpy(w_.reshape(256, 256, -1)).to(device)
+                    with torch.autocast("cuda", dtype=torch.bfloat16):
+                        est_n = warp_dense(sap_normal(xp))                                      # (256, 256, 3)
+                        est_d = warp_dense(sap_depth(xp))[..., 0]                               # (256, 256)
+                    est_n = F.normalize(est_n, dim=-1)
 
                 # DWPose on the same box (full frame), mapped into the crop
                 bx = [float(box[0]), float(box[1]), float(box[0] + box[2]), float(box[1] + box[3])]
@@ -458,8 +489,48 @@ def main():
             def dino_tokens(x):
                 return dino.forward_features((x - im_mean) / im_std)["x_norm_patchtokens"]    # (B, 256, 768)
 
+            def mesh_render(rv, offset, camd, shape=None):
+                """Avatar body mesh (posed SMPL-X with the avatar's static offsets), OpenCV camera frame."""
+                bp, fp = out["body_param"], out["flame_param"]
+                smplx = {"exp": bp["exp"], "global_pose": rv[:, 0], "body_pose": rv[:, 1:22],
+                         "left_hand_pose": rv[:, 22:37], "right_hand_pose": rv[:, 37:52],
+                         "shape": bp["shape"] if shape is None else shape,
+                         "joints_offset": src["smplx_coeffs"]["joints_offset"],
+                         "head_scale": bp["head_scale"], "hand_scale": bp["hand_scale"]}
+                flame = {k: fp[k] for k in ("expression_params", "jaw_params", "pose_params", "eye_pose_params", "eyelid_params")}
+                flame["shape_params"] = src["flame_coeffs"]["shape_params"]
+                verts = avatar({"smplx_coeffs": smplx, "flame_coeffs": flame})["smplx_xyz_deform"] + offset[:, None]
+                Kc = torch.tensor([[camd["f"], 0, float(camd["c"][0])], [0, camd["f"], float(camd["c"][1])], [0, 0, 1]], device=device)[None]
+                cams = cameras_from_opencv_projection(torch.eye(3, device=device)[None], torch.zeros(1, 3, device=device), Kc,
+                                                      torch.tensor([[256, 256]], device=device))
+                mesh = Meshes(verts=verts.float(), faces=faces_dev[None])
+                frag = MeshRasterizer(cameras=cams, raster_settings=RasterizationSettings(image_size=256, blur_radius=0.0,
+                                      faces_per_pixel=1, bin_size=0))(mesh)
+                vn = mesh.verts_normals_packed()
+                nmap = interpolate_face_attributes(frag.pix_to_face, frag.bary_coords, vn[faces_dev])[0, :, :, 0]
+                vis = frag.pix_to_face[0, :, :, 0] >= 0
+                return F.normalize(nmap, dim=-1), frag.zbuf[0, :, :, 0], vis
+
             def all_losses(rv, offset, camd, shape=None, need=("sil", "part", "feat", "kp")):
                 L = {}
+                if any(n in need for n in ("normal", "depth", "msil")):
+                    nm, zb, vis = mesh_render(rv, offset, camd, shape)
+                    ov = vis & (pmask > 0.5)
+                    L["msil"] = 1 - ov.sum().float() / (vis | (pmask > 0.5)).sum().clamp_min(1).float()
+                    if ov.sum() >= 50:
+                        cosv = (nm[ov][:, None, :] * (est_n[ov][:, None, :] * SIGNS[None])).sum(-1)      # (P, 8)
+                        for k in range(8):
+                            L[f"normal_p{k}"] = (1 - cosv[:, k]).mean()
+                        de, dr = est_d[ov].double(), zb[ov].double()
+                        A_ = torch.stack([de, torch.ones_like(de)], 1)
+                        sol = torch.linalg.lstsq(A_, dr[:, None]).solution[:, 0]
+                        L["depth"] = (A_ @ sol - dr).abs().mean().float()
+                        L["depth_scale_sign"] = torch.sign(sol[0]).float()
+                    else:
+                        for k in range(8):
+                            L[f"normal_p{k}"] = torch.tensor(float("nan"), device=device)
+                        L["depth"] = torch.tensor(float("nan"), device=device)
+                        L["depth_scale_sign"] = torch.tensor(0.0, device=device)
                 want_feat, want_uf = "feat" in need, "feat_uf" in need
                 if any(n in need for n in ("sil", "part", "feat", "feat_uf")):
                     r = render(rv, out, offset, camd, shape, solid_pass="sil" in need or "part" in need,
@@ -526,7 +597,8 @@ def main():
                     poses[f"cf_{part}"] = (rv_p, o_g)
                 for pname, (rv_, o_) in poses.items():
                     if not args.fit_only:
-                        L = all_losses(rv_, o_, cam_true)
+                        base = {"normal": "normal", "normal_sil": "normal", "depth": "depth", "msil": "msil"}
+                        L = all_losses(rv_, o_, cam_true, need=tuple(sorted({base.get(l, l) for l in args.rank_losses})))
                         row.update({f"{pname}_{k}": float(v) for k, v in L.items()})
                     m = metrics(as_output(out, rv_), gt)
                     row.update({f"{pname}_m_{k}": v for k, v in m.items() if "h36m" not in k})
@@ -552,7 +624,19 @@ def main():
                 row["diag_dwpose_face_conf"] = float(kp_conf[24:92].mean())
                 torch.cuda.synchronize(device)
                 row["rank_s"] = time.time() - t_frame
-                if n_vis < args.save_vis:
+                if n_vis < args.save_vis and A3:
+                    def nvis(n, m):
+                        return ((n * 0.5 + 0.5).clamp(0, 1) * m[..., None] * 255).byte().cpu().numpy()
+                    ns, zs, vs = mesh_render(rv_s, o_s_true, cam_true)
+                    ng, zg, vg = mesh_render(rv_g, o_g, cam_true)
+                    def dvis(z, m):
+                        z = z.clone(); z[~m] = float("nan"); lo, hi = np.nanpercentile(z.cpu().numpy(), [2, 98])
+                        return (((z - lo) / max(hi - lo, 1e-6)).clamp(0, 1).nan_to_num(0) * 255).byte()[..., None].expand(-1, -1, 3).cpu().numpy()
+                    pm = pmask > 0.5
+                    tiles = [(frame[0].permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8), nvis(est_n, pm.float()),
+                             nvis(ng, vg.float()), nvis(ns, vs.float()), dvis(est_d, pm), dvis(zg, vg), dvis(zs, vs)]
+                    cv2.imwrite(str(args.out / f"{track}_{sample.frame:05d}_a3.jpg"), np.ascontiguousarray(np.concatenate(tiles, 1)[:, :, ::-1]))
+                if n_vis < args.save_vis and not A3:
                     rs, rg = render(rv_s, out, o_s_true, cam_true), render(rv_g, out, o_g, cam_true)
                     pal = np.random.default_rng(1).integers(40, 255, (len(PARTS) + 1, 3)); pal[0] = 0
                     def pmap(r):
@@ -612,6 +696,7 @@ def main():
 
     # ---------------- summary ----------------
     def frac(rows, a, b):
+        rows = [r for r in rows if a in r and b in r and np.isfinite(r[a]) and np.isfinite(r[b])]   # A3: no overlap -> NaN
         return float(np.mean([r[a] < r[b] for r in rows])) if rows else float("nan")
 
     summary = {"tracks": per_track, "frames": len(results), "steps": args.steps, "anchor": args.anchor,
@@ -619,8 +704,22 @@ def main():
     if args.fit_only:
         write_fit_summary(args, summary, results)
         return
+    LOSSES_ = args.rank_losses
+    if any(l in ("normal", "normal_sil") for l in LOSSES_):
+        # global axis convention of the estimated normals: the sign pattern with the lowest GT-pose normal loss
+        # on the first 10 frames (GT used only to fix one convention for all frames)
+        calib = results[:10]
+        score = [float(np.nanmean([r[f"gt_normal_p{k}"] for r in calib])) for k in range(8)]
+        kbest = int(np.nanargmin(score))
+        summary["normal_convention"] = {"signs": SIGNS[kbest].tolist(), "calibration_loss_per_pattern": score}
+        for r in results:
+            for pre in [k[:-len("_normal_p0")] for k in list(r) if k.endswith("_normal_p0")]:
+                r[f"{pre}_normal"] = r[f"{pre}_normal_p{kbest}"]
+                r[f"{pre}_normal_sil"] = r[f"{pre}_normal"] + r[f"{pre}_msil"]
+    if "depth" in LOSSES_:
+        summary["depth_scale_sign_positive_frac"] = float(np.mean([r["gt_depth_scale_sign"] > 0 for r in results]))
     rank = {}
-    for lname in LOSSES:
+    for lname in LOSSES_:
         rank[lname] = {"overall": frac(results, f"gt_{lname}", f"student_{lname}"),
                        **{part: frac(results, f"gt_{lname}", f"cf_{part}_{lname}") for part in PART_JOINTS}}
     summary["ranking_accuracy"] = rank
@@ -640,9 +739,9 @@ def main():
     dwflip = [r for r in results if r["diag_dwpose_lr_flip"]]
     summary["diagnostics"] = {"student_flip_frames": len(flip), "student_leg_swap_frames": len(swapf),
                               "dwpose_lr_flip_frames": len(dwflip),
-                              "ranking_overall_on_student_flip_frames": {l: frac(flip, f"gt_{l}", f"student_{l}") for l in LOSSES},
-                              "ranking_legs_on_student_swap_frames": {l: frac(swapf, f"gt_{l}", f"cf_legs_{l}") for l in LOSSES},
-                              "ranking_overall_on_dwpose_flip_frames": {l: frac(dwflip, f"gt_{l}", f"student_{l}") for l in LOSSES},
+                              "ranking_overall_on_student_flip_frames": {l: frac(flip, f"gt_{l}", f"student_{l}") for l in LOSSES_},
+                              "ranking_legs_on_student_swap_frames": {l: frac(swapf, f"gt_{l}", f"cf_legs_{l}") for l in LOSSES_},
+                              "ranking_overall_on_dwpose_flip_frames": {l: frac(dwflip, f"gt_{l}", f"student_{l}") for l in LOSSES_},
                               "median_rank_s_per_frame": float(np.median([r["rank_s"] for r in results]))}
     mkeys = ["mpjpe_mm", "pa_mpjpe_mm", "pve_mm", "diag_lower_body_mm", "diag_upper_body_mm", "diag_hands_mm"]
     summary["fit"] = fit_block(args, results)
@@ -652,7 +751,7 @@ def main():
     summary["shape_test_frac_pve_better"] = frac(results, "enrollshape_m_pve_mm", "student_m_pve_mm")
     summary["gt_pose_errors"] = {k: float(np.mean([r[f"gt_m_{k}"] for r in results])) for k in mkeys}
     summary["per_track_ranking"] = {
-        t: {lname: frac([r for r in results if r["track"] == t], f"gt_{lname}", f"student_{lname}") for lname in LOSSES}
+        t: {lname: frac([r for r in results if r["track"] == t], f"gt_{lname}", f"student_{lname}") for lname in LOSSES_}
         for t in per_track}
     (args.out / "summary.json").write_text(json.dumps({"summary": summary, "frames": results}, indent=1) + "\n")
     print(json.dumps(summary, indent=1))
