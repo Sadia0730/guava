@@ -267,3 +267,80 @@ before the evaluation is run.
 - **Extra diagnostic** (no training, reported as separate rows, not part of the criterion): (ii) and
   (iii) evaluated with the root rotation kept at the student's prediction. The refiner then updates
   only body joints and camera.
+
+## A4 results (2026-10-12): **NO-GO** under the pre-registered criterion
+
+**Training** (*measured*), 20,000 steps each:
+
+| | No render (ii) | Render (iii) |
+|---|---|---|
+| GPU | 1 (shared) | 6 |
+| Time | 76 min | 71 min |
+| BEDLAM2-val root-relative 22-joint MPJPE (student: 73.3 mm) | 52.3 mm | 52.1 mm |
+| Frames improved | 89.6% | 91.3% |
+
+**Evaluation.** 3DPW validation, all 10,413 frames, GT-keypoint crop, (L-0.1) step 102k in fp32 as
+input; refiners at step 20,000. GPU 6, 146 s. Output `/raid/ubx858/outputs/phase1_task3/a4/eval_val/`
+(`summary.json`, `per_frame.npz`). The student row reproduces (L-0.1)'s standard validation numbers
+(78.95 / 48.96 / 91.30).
+
+| Variant | MPJPE | **PA-MPJPE** | PVE | Lower body | Upper body | Hands |
+|---|---|---|---|---|---|---|
+| (i) student, no refinement | 78.95 | 48.96 | 91.31 | 87.81 | 61.98 | 120.52 |
+| (ii) refiner, no render | 76.71 | 44.07 | 90.19 | 75.77 | 63.44 | 122.26 |
+| **(iii) refiner, with render** | **76.61** | **43.67** | **89.91** | 76.45 | 63.12 | 121.23 |
+| *diagnostic:* (ii), root kept at student's | 78.82 | 44.07 | 93.14 | 82.57 | 63.07 | 124.39 |
+| *diagnostic:* (iii), root kept at student's | 79.13 | 43.67 | 93.51 | 83.23 | 63.35 | 123.55 |
+| *secondary:* (ii) applied twice | 80.70 | 46.32 | 94.22 | 84.58 | 64.67 | 128.36 |
+| *secondary:* (iii) applied twice | 82.32 | 47.14 | 95.28 | 87.44 | 66.38 | 126.95 |
+
+**Pre-registered criterion** (PA-MPJPE primary; paired sequence-bootstrap 95% CIs):
+
+| Condition | Measured | Required | Met? |
+|---|---|---|---|
+| (iii) − (ii), PA-MPJPE | **−0.40 mm** [−0.68, −0.13] | ≤ −1.5 mm, CI excluding 0 | **no** |
+| (iii) − (i), PA-MPJPE | −5.29 mm [−7.01, −3.52] | ≤ −2.0 mm, CI excluding 0 | yes |
+| (iii) − (i), MPJPE | −2.35 mm [−8.76, 4.47] | not worse | yes |
+
+**→ NO-GO.** The render adds a statistically detectable but practically negligible 0.40 mm.
+
+**Other paired differences** (mean [95% CI], mm):
+
+| Comparison | MPJPE | PA-MPJPE | PVE | Lower body |
+|---|---|---|---|---|
+| (ii) − (i) | −2.24 [−7.91, 4.18] | **−4.89 [−6.62, −3.18]** | −1.11 [−5.82, 4.05] | −12.04 [−27.05, 4.09] |
+| (iii) − (ii) | −0.11 [−1.51, 1.20] | −0.40 [−0.68, −0.13] | −0.29 [−1.88, 1.09] | +0.69 [−1.46, 2.52] |
+| (iii) root-fixed − (i) | +0.18 [−1.65, 1.97] | −5.29 | +2.20 [0.15, 4.29] | −4.57 [−11.6, 3.07] |
+
+**What this shows.**
+- **The render is not what helps.** Almost all of the gain over the student, −4.9 mm PA-MPJPE (10%)
+  and −12 mm lower body, comes from the refiner *without* the render. That is a 4.2M-parameter
+  transformer on the frozen student's image tokens and current pose, trained 71–76 min on BEDLAM2 GT
+  with real student errors as starting points. The render's extra contribution is 0.4 mm.
+- **This is a cheap, measurable improvement of the student**, independent of AvatarLoop: 1.2 ms per
+  frame (*measured*, batch 1). Two caveats:
+  - MPJPE improves only by 2.2 mm with a wide CI, and upper body and hands get 1–2 mm *worse*.
+  - It has been evaluated on validation only. (L-0.1)'s best checkpoint was itself chosen on this
+    split, which slightly favours the baseline row, not the refiner.
+- **Root.** The refiner's root-rotation update is net positive for MPJPE (−2.2 mm), but keeping the
+  student's root brings MPJPE back to the student's level and makes PVE 2 mm worse. So the root update
+  helps on average, with high variance across sequences.
+- **Applying the refiner twice hurts** (it was trained for one step), as in the smoke test.
+- **Runtime** (*measured*, batch 1, GPU 6 with no other process):
+
+  | Stage | Time |
+  |---|---|
+  | Student | 7.9 ms |
+  | Body render (PyTorch3D, 128×96) | 12.3 ms |
+  | Refiner | 1.3 ms |
+
+  The 75 ms measured earlier for the render was on a shared GPU.
+
+**Recommendation.**
+- Close the render-and-compare line, as pre-registered.
+- Separately and outside this criterion, the no-render refiner is worth a proper test as a student
+  improvement:
+  1. train it into or alongside the long-run student;
+  2. check it on 3DPW **test** and EHF with the standard evaluators;
+  3. compare it with simply training the student's head longer on GT, which may give the same gain.
+- That needs your decision.
