@@ -6,6 +6,9 @@ given. Everything else is an estimate or a choice, and is labelled that way.
 
 **Question.** Does avatar-based supervision give the student a signal that 2D keypoints don't?
 
+**A0 result (2026-10-11):** no-go for (c) as designed; a narrow leg-swap signal remains. See
+[A0_REPORT.md](A0_REPORT.md).
+
 **Methods.** The student, the adapter and the update schedule are identical in all three; only
 the self-supervised loss differs.
 
