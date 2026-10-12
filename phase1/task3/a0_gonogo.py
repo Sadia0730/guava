@@ -35,6 +35,12 @@ translation, Adam, N steps, objective loss/loss_0 + anchor * sum(offset^2); stan
 before and after.
 
 Shape test: the student's prediction with its body shape replaced by the enrollment shape.
+
+A1 (post-hoc follow-up, not pre-registered): --fit-only --fit-joints upper --no-fit-camera
+--fit-losses sil feat_uf kp_upper feat_uf+kp_upper fits only spine, neck, head, collars, shoulders
+and elbows (root, legs, wrists, fingers and camera fixed at the student's prediction), with
+feat_uf = upper-body + face feature windows, kp_upper = DWPose upper-body (nose, eyes, ears,
+shoulders, elbows, wrists) and face keypoints, and "a+b" = mean of the two normalised losses.
 """
 from __future__ import annotations
 
@@ -91,6 +97,8 @@ PART_JOINTS = {
 }
 PART_DIAG = {"legs": "diag_lower_body_mm", "upper": "diag_upper_body_mm", "hands": "diag_hands_mm"}
 UPPER_JOINTS = [0, 3, 6, 9, 12, 15, 16, 17, 18, 19, 20, 21]
+UPPER_FIT_JOINTS = [3, 6, 9, 12, 13, 14, 15, 16, 17, 18, 19]   # spine x3, neck, collars, head, shoulders, elbows
+KP_UPPER_GROUPS = [[0, 2, 3, 4, 5, 6, 7, 14, 15, 16, 17], list(range(24, 92))]   # upper-body body keypoints; face
 LOSSES = ["sil", "part", "feat_upper", "feat_face", "feat_hands", "feat", "kp"]
 FIT_LOSSES = ["sil", "part", "feat", "kp"]
 
@@ -117,6 +125,10 @@ def parse_args():
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--save-vis", type=int, default=3, help="overlay images per track")
+    p.add_argument("--fit-only", action="store_true", help="only the fit frames, no ranking (A1)")
+    p.add_argument("--fit-joints", choices=("all", "upper"), default="all")
+    p.add_argument("--no-fit-camera", action="store_true")
+    p.add_argument("--fit-losses", nargs="+", default=FIT_LOSSES)
     p.add_argument("--frame-list", type=Path, default=None,
                    help="JSON {track: [frame, ...]}: evaluate exactly these frames (e.g. the student's leg-swap and "
                         "flip frames) instead of evenly spaced ones; tracks not listed are skipped")
@@ -256,7 +268,7 @@ def main():
         return r2 / (r2 + sigma ** 2)
 
     results, per_track = [], {}
-    timings = {k: [] for k in FIT_LOSSES}
+    timings = {k: [] for k in args.fit_losses}
     frame_list = json.loads(args.frame_list.read_text()) if args.frame_list else None
     for track in args.tracks:
         if frame_list is not None and track not in frame_list:
@@ -339,6 +351,8 @@ def main():
         K = np.asarray(seq["cam_intrinsics"], np.float32)
         track_rows = []
         for n_vis, i in enumerate(pick):
+            if args.fit_only and int(i) not in fit_pick:
+                continue
             sample = samples[int(i)]
             item = ds[int(i)]
             affine = item["affine"].numpy().astype(np.float32)
@@ -356,14 +370,18 @@ def main():
 
                 # Sapiens on a 4:3 crop of the full frame around the same box, labels warped into the crop
                 box = ev.gt_keypoint_box(sample.keypoints, frame_rgb.shape[1], frame_rgb.shape[0])
+                need_parser = not args.fit_only or any("part" in l.split("+") for l in args.fit_losses)
                 cx, cy, side = box[0] + box[2] / 2, box[1] + box[3] / 2, max(box[2], box[3])
                 Ap = np.array([[768 / (0.75 * side), 0, 384 - cx * 768 / (0.75 * side)],
                                [0, 1024 / side, 512 - cy * 1024 / side]], np.float32)
                 crop_p = cv2.warpAffine(np.ascontiguousarray(frame_rgb), Ap, (768, 1024), flags=cv2.INTER_LINEAR)
                 xp = (torch.from_numpy(crop_p).permute(2, 0, 1)[None].float().to(device) - sap_mean) / sap_std
-                with torch.autocast("cuda", dtype=torch.bfloat16):
-                    logits = sapiens(xp)
-                lab = F.interpolate(logits.float(), (1024, 768), mode="bilinear").argmax(1)[0].cpu().numpy().astype(np.uint8)
+                if need_parser:
+                    with torch.autocast("cuda", dtype=torch.bfloat16):
+                        logits = sapiens(xp)
+                    lab = F.interpolate(logits.float(), (1024, 768), mode="bilinear").argmax(1)[0].cpu().numpy().astype(np.uint8)
+                else:
+                    lab = np.zeros((1024, 768), np.uint8)
                 M = np.vstack([affine, [0, 0, 1]]) @ np.linalg.inv(np.vstack([Ap, [0, 0, 1]]))
                 lab256 = cv2.warpAffine(lab, M[:2].astype(np.float32), (256, 256), flags=cv2.INTER_NEAREST, borderValue=0)
                 allowed = torch.zeros(1 + len(PARTS), 256, 256, dtype=torch.bool)
@@ -442,18 +460,20 @@ def main():
 
             def all_losses(rv, offset, camd, shape=None, need=("sil", "part", "feat", "kp")):
                 L = {}
-                if any(n in need for n in ("sil", "part", "feat")):
-                    r = render(rv, out, offset, camd, shape, solid_pass="sil" in need or "part" in need, real_pass="feat" in need)
+                want_feat, want_uf = "feat" in need, "feat_uf" in need
+                if any(n in need for n in ("sil", "part", "feat", "feat_uf")):
+                    r = render(rv, out, offset, camd, shape, solid_pass="sil" in need or "part" in need,
+                               real_pass=want_feat or want_uf)
                 if "sil" in need:
                     a = r["alpha_solid"]
                     L["sil"] = 1 - (a * mask).sum() / (a + mask - a * mask).sum().clamp_min(1e-6)
                 if "part" in need:
                     p = torch.cat([(1 - r["alpha_solid"]).clamp(0, 1)[:, None], r["parts"].clamp(0, 1)], 1)[0]
                     L["part"] = -torch.log((p * allowed).sum(0) + 1e-4).mean()
-                if "feat" in need or "kp" in need:
+                if any(n in need for n in ("feat", "feat_uf", "kp", "kp_upper")):
                     j = joints145(rv, out)
                     pj = project_px(j, offset, camd)[0]                                      # (145, 2)
-                if "feat" in need:
+                if want_feat or want_uf:
                     comp = r["rgb"] + (1 - r["alpha"][:, None]) * grey
                     up = pj[UPPER_JOINTS]
                     lo, hi = up.min(0).values, up.max(0).values
@@ -465,27 +485,32 @@ def main():
                     s_hr = ((pj[21] - pj[43]).norm() * 3.0).clamp_min(16.0)
                     c_hl = ((pj[20] + pj[28]) / 2)[None]
                     c_hr = ((pj[21] + pj[43]) / 2)[None]
-                    crops_r = torch.cat([window(comp, c_up, s_up), window(comp, c_face, s_face),
-                                         window(comp, c_hl, s_hl), window(comp, c_hr, s_hr)])
-                    crops_f = torch.cat([window(frame, c_up, s_up), window(frame, c_face, s_face),
-                                         window(frame, c_hl, s_hl), window(frame, c_hr, s_hr)])
+                    wins = [(c_up, s_up), (c_face, s_face)] + ([(c_hl, s_hl), (c_hr, s_hr)] if want_feat else [])
+                    crops_r = torch.cat([window(comp, c, s_) for c, s_ in wins])
+                    crops_f = torch.cat([window(frame, c, s_) for c, s_ in wins])
                     tok = dino_tokens(torch.cat([crops_r, crops_f]))
-                    d = 1 - F.cosine_similarity(tok[:4], tok[4:], dim=-1)                   # (4, 256)
+                    nw = len(wins)
+                    d = 1 - F.cosine_similarity(tok[:nw], tok[nw:], dim=-1)                 # (nw, 256)
                     union = torch.maximum(mask[:, None], r["alpha"][:, None].detach())
                     wu = F.adaptive_avg_pool2d(window(union, c_up, s_up), 16).flatten(1)[0]
                     L["feat_upper"] = (d[0] * wu).sum() / wu.sum().clamp_min(1e-6)
                     L["feat_face"] = d[1].mean()
-                    L["feat_hands"] = (d[2].mean() + d[3].mean()) / 2
-                    L["feat"] = L["feat_upper"] + L["feat_face"] + L["feat_hands"]
-                if "kp" in need:
+                    L["feat_uf"] = L["feat_upper"] + L["feat_face"]
+                    if want_feat:
+                        L["feat_hands"] = (d[2].mean() + d[3].mean()) / 2
+                        L["feat"] = L["feat_upper"] + L["feat_face"] + L["feat_hands"]
+                if "kp" in need or "kp_upper" in need:
                     kp_pred = project_px(smplx_joints_to_dwpose(j)[0], offset, camd)[0]      # (134, 2); returns (kps, weights)
                     r2 = ((kp_pred - kp_xy) / 256.0).pow(2).sum(-1)
-                    terms = []
-                    for g in groups:
-                        w = kp_w[g]
-                        if w.sum() > 0:
-                            terms.append((w * gm(r2[g])).sum() / w.sum())
-                    L["kp"] = torch.stack(terms).mean()
+                    for name, gs in (("kp", groups), ("kp_upper", KP_UPPER_GROUPS)):
+                        if name not in need:
+                            continue
+                        terms = []
+                        for g in gs:
+                            w = kp_w[g]
+                            if w.sum() > 0:
+                                terms.append((w * gm(r2[g])).sum() / w.sum())
+                        L[name] = torch.stack(terms).mean()
                 return L
 
             row = {"track": track, "frame": int(sample.frame), "true_focal_px": cam_true["f"],
@@ -493,13 +518,16 @@ def main():
             with torch.no_grad():
                 # ranking under the true camera (both poses); fitting below uses the student's own camera
                 poses = {"student": (rv_s, o_s_true), "gt": (rv_g, o_g)}
-                for part, idx in PART_JOINTS.items():
+                if args.fit_only:
+                    poses = {"student": (rv_s, o_s_true)}
+                for part, idx in ({} if args.fit_only else PART_JOINTS).items():
                     rv_p = rv_g.clone()
                     rv_p[:, [k + 1 for k in idx]] = rv_s[:, [k + 1 for k in idx]]
                     poses[f"cf_{part}"] = (rv_p, o_g)
                 for pname, (rv_, o_) in poses.items():
-                    L = all_losses(rv_, o_, cam_true)
-                    row.update({f"{pname}_{k}": float(v) for k, v in L.items()})
+                    if not args.fit_only:
+                        L = all_losses(rv_, o_, cam_true)
+                        row.update({f"{pname}_{k}": float(v) for k, v in L.items()})
                     m = metrics(as_output(out, rv_), gt)
                     row.update({f"{pname}_m_{k}": v for k, v in m.items() if "h36m" not in k})
                 m = metrics(as_output(out, rv_s, enroll_shape), gt)
@@ -545,33 +573,41 @@ def main():
                                 np.ascontiguousarray(np.concatenate(tiles, 1)[:, :, ::-1]))
 
             if int(i) in fit_pick:
-                for lname in FIT_LOSSES:
-                    need = ("feat",) if lname == "feat" else (lname,)
+                jmask = torch.zeros(1, 22, 1, device=device)
+                jmask[:, UPPER_FIT_JOINTS if args.fit_joints == "upper" else list(range(22))] = 1.0
+                for lname in args.fit_losses:
+                    comps = lname.split("+")
+                    need = tuple(comps)
                     d_rot = torch.zeros(1, 22, 3, device=device, requires_grad=True)
-                    d_t = torch.zeros(1, 3, device=device, requires_grad=True)
-                    opt = torch.optim.Adam([{"params": [d_rot], "lr": 0.02}, {"params": [d_t], "lr": 0.01}])
+                    d_t = torch.zeros(1, 3, device=device, requires_grad=not args.no_fit_camera)
+                    groups_ = [{"params": [d_rot], "lr": 0.02}] + ([] if args.no_fit_camera else [{"params": [d_t], "lr": 0.01}])
+                    opt = torch.optim.Adam(groups_)
                     scale = torch.tensor([1.0, 1.0, 20.0], device=device)
                     with torch.no_grad():
-                        l0 = float(all_losses(rv_s, o_s, cam_student, need=need)[lname])
+                        L0 = all_losses(rv_s, o_s, cam_student, need=need)
+                        l0 = {c: max(float(L0[c]), 1e-6) for c in comps}
                     torch.cuda.synchronize(device); ts = time.time()
                     for _ in range(args.steps):
-                        rv = torch.cat([rv_s[:, :22] + d_rot, rv_s[:, 22:]], 1)
-                        loss = all_losses(rv, o_s + d_t * scale, cam_student, need=need)[lname] / max(l0, 1e-6) + args.anchor * (d_rot ** 2).sum()
+                        dr = d_rot * jmask
+                        rv = torch.cat([rv_s[:, :22] + dr, rv_s[:, 22:]], 1)
+                        L = all_losses(rv, o_s + d_t * scale, cam_student, need=need)
+                        loss = sum(L[c] / l0[c] for c in comps) / len(comps) + args.anchor * (dr ** 2).sum()
                         opt.zero_grad(); loss.backward(); opt.step()
                     torch.cuda.synchronize(device)
                     timings[lname].append((time.time() - ts) / args.steps * 1000)
                     with torch.no_grad():
-                        rv = torch.cat([rv_s[:, :22] + d_rot, rv_s[:, 22:]], 1)
-                        l1 = float(all_losses(rv, o_s + d_t * scale, cam_student, need=need)[lname])
+                        rv = torch.cat([rv_s[:, :22] + d_rot * jmask, rv_s[:, 22:]], 1)
+                        L1 = all_losses(rv, o_s + d_t * scale, cam_student, need=need)
                         m = metrics(as_output(out, rv), gt)
-                    row.update({f"fit_{lname}_loss0": l0, f"fit_{lname}_loss1": l1,
+                    row.update({"fit_done": True, f"fit_{lname}_loss0": sum(l0.values()) / len(comps),
+                                f"fit_{lname}_ratio": float(np.mean([float(L1[c]) / l0[c] for c in comps])),
                                 **{f"fit_{lname}_m_{k}": v for k, v in m.items() if "h36m" not in k}})
             track_rows.append(row)
             print(json.dumps({k: round(v, 4) if isinstance(v, float) else v for k, v in row.items()
                               if k in ("track", "frame") or k.startswith("fit_") and k.endswith("mpjpe_mm")}), flush=True)
         per_track[track] = {"enroll_frames": len(keys), "source_key": keys[key_idx], "source_face_score": face_score[key_idx],
                             "avatar_build_s": build_s, "gaussians": int(n_gs), "frames": len(track_rows),
-                            "fit_frames": sum(1 for r in track_rows if "fit_kp_m_mpjpe_mm" in r)}
+                            "fit_frames": sum(1 for r in track_rows if r.get("fit_done"))}
         results.extend(track_rows)
 
     # ---------------- summary ----------------
@@ -580,6 +616,9 @@ def main():
 
     summary = {"tracks": per_track, "frames": len(results), "steps": args.steps, "anchor": args.anchor,
                "wall_s": time.time() - gpu_t0, "ms_per_fit_step": {k: float(np.median(v)) if v else None for k, v in timings.items()}}
+    if args.fit_only:
+        write_fit_summary(args, summary, results)
+        return
     rank = {}
     for lname in LOSSES:
         rank[lname] = {"overall": frac(results, f"gt_{lname}", f"student_{lname}"),
@@ -606,13 +645,7 @@ def main():
                               "ranking_overall_on_dwpose_flip_frames": {l: frac(dwflip, f"gt_{l}", f"student_{l}") for l in LOSSES},
                               "median_rank_s_per_frame": float(np.median([r["rank_s"] for r in results]))}
     mkeys = ["mpjpe_mm", "pa_mpjpe_mm", "pve_mm", "diag_lower_body_mm", "diag_upper_body_mm", "diag_hands_mm"]
-    fit_rows = [r for r in results if "fit_kp_m_mpjpe_mm" in r]
-    summary["fit"] = {} if not fit_rows else {"frames": len(fit_rows),
-                      "before": {k: float(np.mean([r[f"student_m_{k}"] for r in fit_rows])) for k in mkeys},
-                      **{lname: {k: float(np.mean([r[f"fit_{lname}_m_{k}"] for r in fit_rows])) for k in mkeys}
-                         for lname in FIT_LOSSES},
-                      "loss_ratio": {lname: float(np.mean([r[f"fit_{lname}_loss1"] / max(r[f"fit_{lname}_loss0"], 1e-9) for r in fit_rows]))
-                                     for lname in FIT_LOSSES}}
+    summary["fit"] = fit_block(args, results)
     summary["shape_test"] = {k: {"student_shape": float(np.mean([r[f"student_m_{k}"] for r in results])),
                                  "enroll_shape": float(np.mean([r[f"enrollshape_m_{k}"] for r in results]))}
                              for k in ("mpjpe_mm", "pa_mpjpe_mm", "pve_mm")}
@@ -621,6 +654,30 @@ def main():
     summary["per_track_ranking"] = {
         t: {lname: frac([r for r in results if r["track"] == t], f"gt_{lname}", f"student_{lname}") for lname in LOSSES}
         for t in per_track}
+    (args.out / "summary.json").write_text(json.dumps({"summary": summary, "frames": results}, indent=1) + "\n")
+    print(json.dumps(summary, indent=1))
+
+
+MKEYS = ["mpjpe_mm", "pa_mpjpe_mm", "pve_mm", "diag_lower_body_mm", "diag_upper_body_mm", "diag_hands_mm"]
+
+
+def fit_block(args, results):
+    fit_rows = [r for r in results if r.get("fit_done")]
+    if not fit_rows:
+        return {}
+    out = {"frames": len(fit_rows), "fit_joints": args.fit_joints, "fit_camera": not args.no_fit_camera,
+           "before": {k: float(np.mean([r[f"student_m_{k}"] for r in fit_rows])) for k in MKEYS}}
+    for lname in args.fit_losses:
+        out[lname] = {k: {"after": float(np.mean([r[f"fit_{lname}_m_{k}"] for r in fit_rows])),
+                          "change": float(np.mean([r[f"fit_{lname}_m_{k}"] - r[f"student_m_{k}"] for r in fit_rows])),
+                          "frac_improved": float(np.mean([r[f"fit_{lname}_m_{k}"] < r[f"student_m_{k}"] for r in fit_rows]))}
+                      for k in MKEYS}
+        out[lname]["loss_ratio"] = float(np.mean([r[f"fit_{lname}_ratio"] for r in fit_rows]))
+    return out
+
+
+def write_fit_summary(args, summary, results):
+    summary["fit"] = fit_block(args, results)
     (args.out / "summary.json").write_text(json.dumps({"summary": summary, "frames": results}, indent=1) + "\n")
     print(json.dumps(summary, indent=1))
 
