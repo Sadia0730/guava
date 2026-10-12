@@ -173,6 +173,22 @@ PEAR's own evaluation. Again, only the author's script can settle this.
 - **Blocked:** the GT meshes need **SMPL-X v1.1** (`SMPLX_NEUTRAL.npz`), which is not on disk. We have
   SMPL-X 2020 and the BEDLAM locked-head variant, neither of which is the model OSX's pseudo-GT was
   fitted with.
+- **Provisional run** (GT meshes from the BEDLAM *locked-head* SMPL-X as a stand-in for v1.1; **not a
+  gate result**; output `/raid/ubx858/outputs/phase2/ubody/*_PROVISIONAL_lockedhead/`):
+
+  | | PA-MPVPE all / hand / face | MPVPE all / hand / face | PA-MPJPE body / hand |
+  |---|---|---|---|
+  | GT as prediction (pipeline check) | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 |
+  | PEAR (released) | 76.5 / **9.0** / 9.2 | 134.0 / 30.2 / 33.6 | 132.4 / 9.0 |
+
+  - Counts: 2,354 items; 2,307 with a hand inside the image; 2,305 with the face inside.
+  - PEAR's hand PA-PVE of 9.0 mm compares with the paper's 9.8 (Table 2). It is within 1 mm, and better,
+    as on EHF (11.0 vs 12.8).
+  - The body numbers are large. These are upper-body videos: OSX's protocol rigidly aligns all 14
+    joints, including legs that are outside the frame and carry only pseudo-GT, then scores only the
+    joints inside the image. That likely explains it, but it is not verified, and these body numbers
+    are not used for any decision.
+  - Final numbers wait for SMPL-X v1.1.
 
 ## Decisions needed
 
