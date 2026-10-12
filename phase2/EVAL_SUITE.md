@@ -151,6 +151,29 @@ Both runs: `/raid/ubx858/outputs/phase2/pck/pear/coco{,_pear_native}/`, 111 s ea
   subset, or a different crop. His script will settle this. Evaluator tests pass 5/5, including a
   bit-for-bit match with HSMR's own `keypoint_pck_accuracy`.
 
+### LSP-Extended PCK (released PEAR checkpoint, 9,428 persons)
+
+**Gate NOT passed.** PEAR scores **0.494 / 0.799** against the paper's 0.55 / 0.81 (−5.6 / −1.1
+points). Both keypoint definitions give identical numbers here, because LSP-Extended is scored only on
+the 19 extra joints, which both definitions take from `SMPL_to_J19`. Output
+`/raid/ubx858/outputs/phase2/pck/pear/lspet_*`, 196 s.
+
+The large @0.05 gap points to a different definition of those 19 joints, or a different crop, in
+PEAR's own evaluation. Again, only the author's script can settle this.
+
+### UBody-intra (in progress)
+
+- **Test subset built** (`phase2/build_ubody_intra_test.py`): 2,354 items with OSX's exact selection.
+  - Every 100th annotation, intra-scene test videos, video name = `file_name.split('/')[-2]` with
+    `_Trim…` stripped.
+  - No test items come from Movie or Speech: their clips are stored as `…_sceneNNN` and OSX's rule
+    never matches them.
+  - Frames are extracted with OSX's own `ffmpeg -r 30` command, only for the needed clips.
+- **Evaluator** (`tools/eval_ubody_standard.py`): OSX's metrics; tests pass 4/4.
+- **Blocked:** the GT meshes need **SMPL-X v1.1** (`SMPLX_NEUTRAL.npz`), which is not on disk. We have
+  SMPL-X 2020 and the BEDLAM locked-head variant, neither of which is the model OSX's pseudo-GT was
+  fitted with.
+
 ## Decisions needed
 
 1. **PoseTrack, AGORA, EMDB:** these need your accounts or applications (see the table). Please start
@@ -163,4 +186,7 @@ Both runs: `/raid/ubx858/outputs/phase2/pck/pear/coco{,_pear_native}/`, 111 s ea
 4. **Disk:** approve deleting the `step_*.pt` files of (L-0.1) and (L-0.05), keeping `best.pt` and
    `latest.pt`.
 5. **PEAR's author's script:** when it arrives, the assumed items above are checked against it
-   before any gate is declared final.
+   before any gate is declared final. Both 2D gates (COCO, LSP-Extended) currently fail under the
+   assumed protocol, so the 2D benchmarks are on hold until then.
+6. **SMPL-X v1.1** (`models_smplx_v1_1.zip` from smpl-x.is.tue.mpg.de, under your existing account):
+   needed for the UBody GT meshes. Please download it, or allow me to fetch it with your login.
