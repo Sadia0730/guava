@@ -117,6 +117,9 @@ def parse_args():
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--save-vis", type=int, default=3, help="overlay images per track")
+    p.add_argument("--frame-list", type=Path, default=None,
+                   help="JSON {track: [frame, ...]}: evaluate exactly these frames (e.g. the student's leg-swap and "
+                        "flip frames) instead of evenly spaced ones; tracks not listed are skipped")
     return p.parse_args()
 
 
@@ -254,7 +257,10 @@ def main():
 
     results, per_track = [], {}
     timings = {k: [] for k in FIT_LOSSES}
+    frame_list = json.loads(args.frame_list.read_text()) if args.frame_list else None
     for track in args.tracks:
+        if frame_list is not None and track not in frame_list:
+            continue
         # ---------------- enrollment: the subject's own avatar ----------------
         tdir = args.enroll_root / track
         dcfg = dict(cfg["DATASET"]); dcfg["data_path"] = str(tdir); cfg.update("DATASET", dcfg)
@@ -323,6 +329,9 @@ def main():
         start = samples_all[0].frame
         samples = [s for s in samples_all if s.frame - start >= args.enroll_seconds * 30]
         pick = np.linspace(0, len(samples) - 1, args.frames_per_track).round().astype(int)
+        if frame_list is not None:
+            wanted = set(int(f) for f in frame_list[track])
+            pick = np.array([k for k, s_ in enumerate(samples) if s_.frame in wanted], dtype=int)
         fit_pick = set(pick[np.linspace(0, len(pick) - 1, args.fit_frames_per_track).round().astype(int)].tolist()) if args.fit_frames_per_track > 0 else set()
         ds = ev.CropDataset(samples, "gt_keypoints", None)
         seq = pickle.load(open(ev.DEFAULT_DATASET.resolve() / "sequenceFiles" / "validation" / f"{track}.pkl", "rb"), encoding="latin1")
