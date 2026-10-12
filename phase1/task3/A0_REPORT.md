@@ -223,3 +223,109 @@ left/right-flip frames are pooled from both passes.
   `outdoors_parcours_00` and `courtyard_hug_00`; two of these are two-person sequences, which need
   instance masks. Otherwise, I recommend closing method (c) and putting the effort into the
   student itself (data and supervision for the legs).
+
+---
+
+## Post-hoc follow-ups A1 and A2 (2026-10-11 evening; NOT part of the pre-registered test)
+
+Both were requested after the A0 result and use the same student (c-vitpose, step 32k) and the
+3DPW validation split. They are exploratory: thresholds and rules were chosen after seeing A0.
+
+### A1 — upper-body-only fitting (same 3 enrolled tracks, same 30 fitting frames as A0)
+
+- **What is fitted.** Only the spine (×3), neck, head, collars, shoulders and elbows. Root, legs,
+  wrists, fingers and the camera translation stay at the student's prediction.
+- **Procedure.** Same as A0: 60 Adam steps, anchor 0.1 on the squared axis-angle offsets,
+  objective = loss / loss₀.
+- **Losses.**
+  - Silhouette.
+  - Features: the upper-body and face DINOv2 windows of A0.
+  - Control: DWPose upper-body keypoints (nose, eyes, ears, shoulders, elbows, wrists) plus face,
+    as two equally weighted groups.
+  - Features + keypoints: the mean of the two normalised losses.
+- **Run.** GPU 6 (shared), 24.6 min (the budget was about 20). Output
+  `/raid/ubx858/outputs/phase1_task3/a1/run1/`, with `run_info.json`.
+
+Change vs the student, mean over 30 frames, with the share of frames that improve in brackets:
+
+| | MPJPE | PA-MPJPE | PVE | Upper body | Hands | Lower body | Loss after / before |
+|---|---|---|---|---|---|---|---|
+| Student (before), mm | 73.3 | 48.1 | 78.4 | 49.7 | 90.3 | 103.3 | — |
+| Silhouette | +25.7 (10%) | +19.9 (13%) | +41.9 (0%) | +21.3 (20%) | +87.0 (10%) | −0.1 (57%) | 0.84 |
+| Features (upper body + face) | +45.7 (0%) | +33.7 (7%) | +67.5 (0%) | +38.6 (3%) | +131.6 (13%) | +0.1 (20%) | 1.27 |
+| DWPose upper body + face (control) | +8.0 (23%) | +3.2 (40%) | +12.5 (20%) | +6.5 (27%) | +26.8 (27%) | −0.0 (53%) | 0.34 |
+| Features + keypoints | +9.4 (17%) | +4.8 (30%) | +14.9 (20%) | +8.0 (33%) | +28.0 (27%) | +0.0 (53%) | 0.74 |
+
+- Medians tell the same story. Upper-body change: silhouette +13.9, features +34.6, keypoints +5.7,
+  combined +4.4 mm.
+- By track, MPJPE / upper-body change:
+
+  | Track | Silhouette | Features | Keypoints | Combined |
+  |---|---|---|---|---|
+  | jumpBench | +32.0 / +28.3 | +50.9 / +43.4 | +11.6 / +9.6 | +16.9 / +13.6 |
+  | golf | +13.4 / +10.6 | +27.3 / +23.0 | +6.9 / +5.7 | +8.4 / +9.7 |
+  | parcours | +31.6 / +25.0 | +58.7 / +49.4 | +5.3 / +4.2 | **+3.0 / +0.7** |
+
+- Time per step: silhouette 127 ms, features 245 ms, keypoints 107 ms, combined 258 ms.
+
+**What this shows.**
+- **Restricting the fit to the upper body does not rescue the avatar losses.** Upper-body error
+  still rises by 21 mm (silhouette) and 39 mm (features), and only 3–20% of frames improve.
+- **The feature loss is not even minimised** (×1.27): its windows move with the pose and make the
+  optimisation unstable.
+- **Hands get much worse in every variant.** Moving the shoulders and elbows carries the wrists
+  away, and nothing in these losses constrains the hands.
+- **Keypoints are the least harmful, but still harmful** (+6.5 mm upper body). Adding features to
+  keypoints does not beat keypoints alone: +8.0 vs +6.5 overall. The single exception is parcours
+  (+0.7 vs +4.2), so it is not consistent.
+- **So per-frame fitting from the student's prediction to image evidence lowers the loss but not
+  the 3D error.** That holds for 2D keypoints too. The upper-body ranking advantage seen in A0
+  (silhouette 94% vs keypoints 80%) does not turn into a better pose under optimisation.
+
+### A2 — leg swaps without an avatar: a causal temporal rule (all 3DPW validation)
+
+- **Two hypotheses per frame:**
+  - H0: legs as predicted;
+  - H1: legs swapped, with left/right hip, knee, ankle and foot rotations exchanged and mirrored
+    (R → M R M, M = diag(−1, 1, 1)).
+- **Rule.** In time order within each track, keep the hypothesis whose knees and ankles
+  (pelvis-centred, camera frame) are closer to the previous frame's **output**. The first frame
+  keeps H0. Variants: a margin (switch only if H1 is closer by more than m mm); comparing with the
+  previous **raw** prediction; resetting at gaps (tracks have gaps of up to 106 frames).
+- **Measures.** Swaps (the A0 definition, ≥ 50 mm) and standard metrics over all 10,413 frames.
+  Before any rule, 59 swaps.
+- **Run.** GPU 1 (shared), 84 s, output `/raid/ubx858/outputs/phase1_task3/a2/c_vitpose_val_gtcrop/`.
+  The variants were recomputed on the CPU from `per_frame.npz`.
+
+| Rule | Frames switched to H1 | Swaps fixed | Swaps created | Swaps after | Lower body, all frames (89.61 before) | MPJPE, all frames (80.94 before) | Lower body on the 59 swap frames (263.3 before) |
+|---|---|---|---|---|---|---|---|
+| Previous output, no margin | 3,680 | 21 | 1,207 | 1,245 | 123.84 | 91.41 | 228.8 |
+| Previous output, margin 50 mm | 1,252 | 20 | 618 | 657 | 102.69 | 85.03 | 229.5 |
+| Previous output, margin 100 mm | 465 | 20 | 265 | 304 | 94.75 | 82.52 | 230.1 |
+| Previous output, reset at gaps | 2,984 | 19 | 960 | 1,000 | 116.32 | — | — |
+| Previous raw prediction | 108 | 9 | 24 | 74 | 89.80 | — | — |
+| *Oracle: per frame, the hypothesis with lower true lower-body error* | 1,618 | 23 | 2 | 38 | 87.60 | 80.36 | 223.2 |
+
+**What this shows.**
+- **No simple temporal rule helps; every variant creates more swaps than it fixes.**
+  - Rules that compare with the previous output lock in: after one wrong switch, the swapped state
+    is "consistent" from then on.
+  - Comparing with the raw previous prediction avoids lock-in. It cannot fix runs of swapped frames,
+    and it still creates more swaps (24) than it fixes (9).
+- **Most "swaps" are not leg swaps.** 23 of the 59 swap frames are whole-body front/back flips
+  (facing angle > 120°): all 21 in `courtyard_dancing_00` and 2 in `outdoors_parcours_00`.
+  Exchanging the legs cannot fix those.
+- **Even a perfect selector between H0 and H1 (the oracle) fixes only 23 of 59.** It is mostly
+  `outdoors_parcours_01`, where the mirrored legs fix 19 of its 30 swap frames. The oracle lowers
+  mean lower-body error by only 2.0 mm (MPJPE −0.6). So the ceiling for any leg-swap selector on
+  this student is small, avatar-based or not.
+
+### Updated conclusion (A0 + A1 + A2)
+
+The A0 recommendation stands: **no-go for avatar losses as an adaptation signal.** The two
+follow-ups remove the remaining hopes for a cheap fix.
+- **A1:** the avatar's upper-body ranking advantage does not survive optimisation.
+- **A2:** leg swaps are rare, a third of them are really whole-body flips, and even an oracle
+  swap-selector gains about 2 mm of lower-body error.
+- **A narrow, verifier-only use of avatar features for leg swaps** (88% vs 38% on 26 frames of one
+  subject, §2) remains untested beyond that track. Its ceiling on this student is the oracle above.
