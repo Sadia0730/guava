@@ -1,7 +1,10 @@
 """Phase 1 Task 3, A4: evaluate the render-and-compare refiner on a 3DPW split (read-only).
 
 (i) the frozen student ((L-0.1) best.pt) as is; (ii) refiner without the render; (iii) refiner with the
-render; each refiner applied once (and twice, secondary). Data path, crop, model loading, GT meshes,
+render; each refiner applied once (and twice, secondary). Diagnostic rows *_rootfixed: the refiner's
+root rotation replaced by the student's (only body joints and camera updated).
+Pre-registered go criterion (A3_A4_REPORT.md): PA-MPJPE (iii) <= (ii) - 1.5 mm and <= (i) - 2.0 mm, each with
+the paired sequence-bootstrap 95% CI excluding 0, and MPJPE (iii) not worse than (i). Data path, crop, model loading, GT meshes,
 SMPLX->SMPL mapping and metrics are the standard evaluator's (tools/eval_3dpw_standard.py, imported
 unchanged); the student runs in fp32 so (i) equals the standard evaluator's numbers. Differences are
 reported with the evaluator's sequence bootstrap on paired per-frame differences.
@@ -78,14 +81,17 @@ def main():
         verts, _ = L.body_mesh(smplx_kin, r, out["body_param"]["shape"].float(), out["body_param"]["exp"].float())
         return renderer(verts, t_from_cam(cam))
 
-    def refine(name, out, feats, iters):
+    def refine(name, out, feats, iters, root_fixed=False):
         rot = L.predicted_rotmats(out)[:, :22]
+        root0 = rot[:, :1]
         cam = cam_from_t(out["pd_cam"][:, :3, 3])
         for _ in range(iters):
             rot, cam = refiners[name](feats, render(out, rot, cam) if name == "render" else None, rot, cam)
+            if root_fixed:
+                rot = torch.cat([root0, rot[:, 1:]], 1)
         return refined_output(out, rot, cam)
 
-    variants = ["student", "norender_x1", "render_x1", "norender_x2", "render_x2"]
+    variants = ["student", "norender_x1", "render_x1", "norender_x1_rootfixed", "render_x1_rootfixed", "norender_x2", "render_x2"]
     per = {v: {k: [] for k in KEYS} for v in variants}
     seqs = []
     for batch in loader:
@@ -103,6 +109,7 @@ def main():
             for name in ("norender", "render"):
                 outs[f"{name}_x1"] = refine(name, out, feats.float(), 1)
                 outs[f"{name}_x2"] = refine(name, out, feats.float(), 2)
+                outs[f"{name}_x1_rootfixed"] = refine(name, out, feats.float(), 1, root_fixed=True)
             for v, o in outs.items():
                 pred = torch.stack([torch.sparse.mm(mapping, x) for x in ev.predicted_smplx_vertices(o, ehm)])
                 if gt is None:
@@ -146,9 +153,18 @@ def main():
            "ms_per_frame_batch1_median": {k: float(np.median(x)) for k, x in timing.items()},
            "differences": {}}
     for a_, b in (("render_x1", "student"), ("render_x1", "norender_x1"), ("norender_x1", "student"),
-                  ("render_x2", "student"), ("render_x2", "norender_x2")):
+                  ("render_x1_rootfixed", "student"), ("render_x1_rootfixed", "norender_x1_rootfixed"),
+                  ("norender_x1_rootfixed", "student"), ("render_x2", "student"), ("render_x2", "norender_x2")):
         res["differences"][f"{a_} - {b}"] = {k: {"mean": float((per[a_][k] - per[b][k]).mean()),
                                                  "ci95": ev.bootstrap_ci(per[a_][k] - per[b][k], seqs)} for k in KEYS}
+    dv = res["differences"]
+    c1, c2 = dv["render_x1 - norender_x1"]["pa_mpjpe_mm"], dv["render_x1 - student"]["pa_mpjpe_mm"]
+    res["go_criterion"] = {
+        "iii_vs_ii_pa": c1, "iii_vs_i_pa": c2, "iii_vs_i_mpjpe": dv["render_x1 - student"]["mpjpe_mm"]["mean"],
+        "cond_iii_vs_ii": bool(c1["mean"] <= -1.5 and c1["ci95"][1] < 0),
+        "cond_iii_vs_i": bool(c2["mean"] <= -2.0 and c2["ci95"][1] < 0),
+        "cond_mpjpe_not_worse": bool(dv["render_x1 - student"]["mpjpe_mm"]["mean"] <= 0.0)}
+    res["go_criterion"]["GO"] = all(res["go_criterion"][k] for k in ("cond_iii_vs_ii", "cond_iii_vs_i", "cond_mpjpe_not_worse"))
     res["seconds"] = time.time() - t0
     (args.out / "summary.json").write_text(json.dumps(res, indent=1) + "\n")
     np.savez(args.out / "per_frame.npz", sequence=seqs, **{f"{v}_{k}": per[v][k] for v in variants for k in KEYS})

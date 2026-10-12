@@ -246,3 +246,24 @@ CUDA_VISIBLE_DEVICES=1 python phase1/task3/a4_eval_3dpw.py \
 test suggests the refiner may improve PA-MPJPE and lower-body error but not MPJPE, i.e. it fixes
 articulation but not global orientation. Please confirm MPJPE as primary, or switch to PA-MPJPE,
 before the evaluation is run.
+
+## A4 decisions (2026-10-12, fixed before any evaluation)
+
+- **Training approved and launched at 13:40.** (ii) no render on GPU 1 (PID 1975190) and (iii) with
+  render on GPU 6 (PID 1975191), 20,000 steps each, exactly as above. Outputs
+  `/raid/ubx858/outputs/phase1_task3/a4/{norender,render}/`. A watcher (`screen/watch_Ldata_A4.py`)
+  reports only problems.
+- **Go criterion** (pre-registered; replaces the proposal in the plan):
+  - **Primary metric:** PA-MPJPE on the full 3DPW validation split (10,413 frames, GT-keypoint
+    crop), one refinement step.
+  - **GO if all three hold:**
+    - (iii) beats (ii) by ≥ 1.5 mm PA-MPJPE;
+    - (iii) beats (i) by ≥ 2.0 mm PA-MPJPE;
+    - MPJPE of (iii) is not worse than (i).
+
+    Each of the two PA-MPJPE improvements must have its paired sequence-bootstrap 95% CI (the
+    evaluator's `bootstrap_ci`, 1,000 resamples over sequences) excluding 0.
+  - **Secondary, reported for all variants:** MPJPE, PVE, lower body, upper body (and hands).
+- **Extra diagnostic** (no training, reported as separate rows, not part of the criterion): (ii) and
+  (iii) evaluated with the root rotation kept at the student's prediction. The refiner then updates
+  only body joints and camera.
