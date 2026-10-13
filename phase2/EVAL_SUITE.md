@@ -255,3 +255,88 @@ Outputs are in `/raid/ubx858/outputs/phase2/author/pear/`.
   (row 3). None of these can be checked without the author.
 - **Verdict:** LSP passes, COCO is at the limit, 3DPW MPJPE is 0.5 mm over (PA passes). The Table-3
   comparison below uses the author's protocol for every row and is to be read with these caveats.
+
+## Table 3 format: evaluation splits, author's protocol (2026-10-13, measured)
+
+Every row uses `tools/eval_author_protocol.py` (evaluator SHA-256 `820ced0a…`). Splits are PEAR's Table-3 evaluation sets:
+- COCO val2017, 4,648 persons;
+- LSP-Extended (hr-lspet), 9,428 persons;
+- 3DPW test, 35,515 person-frames.
+
+All rows are at stride 1, with a strict checkpoint load. Outputs are in `/raid/ubx858/outputs/phase2/author/<row>/`.
+PoseTrack has no images (it needs your PoseTrack access), and the AGORA column is left empty for now. Read the table
+with the gate caveats above: COCO is at the limit and 3DPW MPJPE is 0.5 mm outside.
+
+| Method | COCO @0.05 | COCO @0.1 | LSP-Ext @0.05 | LSP-Ext @0.1 | PoseTrack @0.05 | PoseTrack @0.1 | 3DPW MPJPE ↓ | 3DPW PA-MPJPE ↓ | AGORA Body MVE ↓ | Laptop latency † |
+|---|---|---|---|---|---|---|---|---|---|---|
+| *PEAR, paper (Table 3)* | *0.81* | *0.94* | *0.55* | *0.81* | *0.87* | *0.97* | *71.3* | *45.3* | | |
+| PEAR (released ViT-H) | **0.790** | **0.919** | **0.566** | **0.817** | — | — | 73.78 | 46.73 | | 16.5 ms |
+| Student 235000 | 0.405 | 0.660 | 0.213 | 0.431 | — | — | 121.49 | 74.94 | | not known ‡ |
+| (L-0.1) | 0.727 | 0.897 | 0.463 | 0.738 | — | — | 74.28 | 48.89 | | 5.3 ms |
+| (L-0.1) + refiner (ii) | 0.630 | 0.870 | 0.388 | 0.704 | — | — | 75.65 | 45.62 | | 5.3 ms + refiner (not yet measured on laptop) |
+| Control: (L-0.1) head trained on GT, same compute as (ii) | 0.612 | 0.861 | 0.376 | 0.700 | — | — | 81.67 | 48.34 | | 5.3 ms |
+| L-data | 0.734 | 0.908 | 0.445 | 0.735 | — | — | **72.83** | 48.43 | | 5.3 ms |
+| L-data + refiner | 0.653 | 0.885 | 0.390 | 0.710 | — | — | 75.78 | **44.89** | | 5.3 ms + refiner (not yet measured on laptop) |
+
+† **Laptop latency** (RTX 3080 Laptop, batch 1) are your measurements, not re-measured here: PEAR 16.5 ms, student 5.3 ms. 5.3 ms is
+the ViTPose-S student (single expert), which every student row shares except student 235000.
+‡ Student 235000 has the earlier default backbone, so the ViTPose-S figure does not apply to it.
+
+**Rows.**
+- PEAR: the released Hugging Face checkpoint.
+- Student 235000: `pear_student_v2_phase2/checkpoints/step_0235000.pt`.
+- (L-0.1): `best.pt`, step 102k.
+- L-data: `best.pt`, step 94k.
+- Refiner (ii): the A4 no-render refiner, applied once.
+  - On (L-0.1): `phase1_task3/a4/norender/checkpoints/latest.pt`, step 20,000.
+  - On L-data: `phase2/refiner_Ldata/norender/checkpoints/latest.pt`, step 20,000, SHA-256 `d521ddb9…`. Same recipe as A4 (ii) and seed 20261012; error bank rebuilt from L-data (`error_bank_Ldata_bedlam2val.npz`); PEAR `907827d`; 76 min on an L40S.
+- Control: `phase2/control_headft_L01/run/checkpoints/latest.pt`, step 20,000, SHA-256 `76c60e71…`.
+  - Recipe: (L-0.1)'s head (40.5M parameters) trained with the refiner's GT losses, data, order, seed, steps and batch.
+  - Backbone frozen; LR 1e-4; PEAR `907827d`.
+
+### Changes (points / mm; measured)
+
+| Comparison | COCO @0.05 | COCO @0.1 | LSP @0.05 | LSP @0.1 | MPJPE | PA-MPJPE |
+|---|---|---|---|---|---|---|
+| L-data − (L-0.1) | +0.8 | +1.1 | −1.8 | −0.3 | −1.45 | −0.46 |
+| (L-0.1) + refiner − (L-0.1) | −9.7 | −2.7 | −7.5 | −3.5 | +1.37 | **−3.27** |
+| L-data + refiner − L-data | −8.2 | −2.2 | −5.6 | −2.6 | +2.95 | **−3.54** |
+| Control − (L-0.1) | −11.5 | −3.6 | −8.7 | −3.9 | +7.39 | −0.55 |
+| L-data − PEAR (released) | −5.5 | −1.1 | −12.1 | −8.2 | −0.95 | +1.70 |
+
+**What this shows.**
+- **L-data is the best plain student.** Against (L-0.1) it is slightly better on COCO and 3DPW and slightly worse on LSP.
+  Its 3DPW MPJPE (72.83 mm) is below the released PEAR measured the same way (73.78 mm). Its PA-MPJPE is 1.7 mm above.
+- **The refiner trades 2D alignment and MPJPE for PA-MPJPE**, on both students.
+  - Gain: −3.3 / −3.5 mm PA-MPJPE.
+  - Cost: −8 to −10 pt COCO PCK@0.05 and +1.4 / +3.0 mm MPJPE.
+  - **L-data + refiner (44.89 mm PA-MPJPE)** is below both the released PEAR measured here (46.73) and PEAR's paper value (45.3).
+- **The control separates the two effects.**
+  - Training only the student's head on the same BEDLAM2 GT, with the same compute, loses as much 2D PCK (−11.5 pt) and even more MPJPE (+7.4 mm). It gains only 0.55 mm PA-MPJPE.
+  - So the refiner's PA-MPJPE gain is not just extra GT training.
+  - The 2D loss on real images (COCO, LSP) comes from fine-tuning on BEDLAM2 GT alone. This is a domain effect that both share, not a property of the refiner.
+- **2D gap to PEAR:** −5.5 pt (COCO) and −12 pt (LSP) at @0.05. This is the gap run L-real (real images with 2D keypoints) targets.
+
+### L-data on the standard evaluators (Task 1 protocol, `best.pt` step 94k, measured)
+
+| | MPJPE | PA-MPJPE | PVE | Lower body |
+|---|---|---|---|---|
+| 3DPW test, GT-keypoint crop, fp32 | 73.82 | 48.28 | 85.30 | 92.04 |
+| 3DPW test, detector crop, fp32 | 74.13 | 48.30 | 85.55 | 92.26 |
+| (L-0.1), GT-keypoint crop, fp32 (for reference) | 75.46 | 48.81 | 86.70 | 94.46 |
+| PEAR, GT-keypoint crop (for reference) | 73.56 | 45.65 | 82.28 | 96.87 |
+
+fp16 equals fp32 to within 0.01 mm on 3DPW.
+
+**EHF, L-data:**
+
+| Metric | All | Hands | Face |
+|---|---|---|---|
+| PVE, fp32 | 83.9 | 51.5 | 38.8 |
+| PA-PVE, fp32 | 51.3 | 15.1 | 6.3 |
+
+PA-MPJPE: body 60.8, hands 15.1. fp16 matches to within 0.1.
+
+For reference:
+- (L-0.1): PVE all 85.9; PA-PVE all 52.0 and hands 14.4; PA-MPJPE body 62.0.
+- PEAR: PVE all 66.6; PA-PVE all 47.9; PA-MPJPE body 49.2.
