@@ -163,7 +163,12 @@ def main():
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--precision", choices=("fp32", "fp16", "bf16"), default="fp32",
                    help="model forward under autocast in this dtype (fp32: unchanged path); same as the 3DPW evaluator")
+    p.add_argument("--refiner", type=Path, default=None,
+                   help="optional no-render refiner checkpoint (train_render_refiner.py) applied once, as in "
+                        "tools/eval_author_protocol.py; fp32 only. Without it the path is unchanged.")
     args = p.parse_args()
+    if args.refiner and args.precision != "fp32":
+        raise SystemExit("--refiner is supported with --precision fp32 only")
     t0 = time.time()
     frames = load_frames()
     proto = Protocol()
@@ -177,13 +182,29 @@ def main():
             model, load_report = ev.load_model(args.model, checkpoint, args.student_config, 25, device)
             from models.modules.ehm import EHM_v2
             ehm = EHM_v2("assets/FLAME", "assets/SMPLX").to(device).eval()
+            refiner = None
+            if args.refiner:
+                sys.path.insert(0, str(ev.PEAR_ROOT))
+                from models.render_refiner import RenderRefiner
+                from train_render_refiner import cam_from_t, refined_output
+                import student_gt_losses as L
+                st = torch.load(args.refiner, map_location="cpu", weights_only=False)
+                assert not st["config"]["use_render"], "only the no-render refiner is supported here"
+                refiner = RenderRefiner(use_render=False).to(device).eval()
+                refiner.load_state_dict(st["refiner"], strict=True)
         finally:
             os.chdir(cwd)
         images = torch.stack([crop(f)[0] for f in frames])
         dtype = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}[args.precision]
         with torch.inference_mode():
             for s in range(0, len(frames), 25):
-                if dtype == torch.float32:
+                if refiner is not None:
+                    out, feats = model(images[s:s + 25].to(device).float().div_(255.0), return_features=True)
+                    out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()}
+                               if isinstance(v, dict) else v.float()) for k, v in out.items()}
+                    rot1, cam1 = refiner(feats.float(), None, L.predicted_rotmats(out)[:, :22], cam_from_t(out["pd_cam"][:, :3, 3]))
+                    out = refined_output(out, rot1, cam1)
+                elif dtype == torch.float32:
                     out = model(images[s:s + 25].to(device).float().div_(255.0))
                 else:   # as in eval_3dpw_standard.py: autocast forward, outputs back to fp32
                     with torch.autocast(device_type=device.type, dtype=dtype):
@@ -206,6 +227,8 @@ def main():
     report = {
         "protocol": "Hand4Whole EHF.evaluate (c94908654b81); crop from EHF OpenPose BODY_25 via PEAR get_bbox x1.2 + process_bbox x1.25",
         "model": args.model, "frames": len(rows), "metrics_mm": summary, "precision": args.precision,
+        "refiner": str(args.refiner) if args.refiner else None,
+        "refiner_sha256": ev.sha256(args.refiner) if args.refiner else None,
         "checkpoint": None if args.model == "gt" else str(checkpoint),
         "checkpoint_sha256": None if args.model == "gt" else ev.sha256(checkpoint),
         "assets_sha256": {n: ev.sha256(SMPLX_ASSETS / n) for n in
