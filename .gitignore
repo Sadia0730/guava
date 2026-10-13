@@ -32,3 +32,7 @@ assets/EHF/
 # Hugging Face cache written by EHM-Tracker's StyleMatte on first use (Mask2Former Swin-T COCO-instance
 # weights, ~182 MB); licence recorded in phase1/task3/DESIGN.md
 assets/StyleMatte/
+
+# PEAR author's evaluation script (no permission to redistribute yet): keep untracked
+evaluation_kp.zip
+phase2/reference/
