@@ -206,3 +206,52 @@ PEAR's own evaluation. Again, only the author's script can settle this.
    assumed protocol, so the 2D benchmarks are on hold until then.
 6. **SMPL-X v1.1** (`models_smplx_v1_1.zip` from smpl-x.is.tue.mpg.de, under your existing account):
    needed for the UBody GT meshes. Please download it, or allow me to fetch it with your login.
+
+## PEAR author's evaluation script (received 2026-10-13)
+
+**Source.** `evaluation_kp.zip` (SHA-256 `573b9f5b…`) → `phase2/reference/evaluation_kp/evaluation_kp.py`.
+It stays **untracked** (`.gitignore`) because there is no permission to redistribute it.
+- It imports the author's private code base (`main.evaluation.hsmr_eval`, his `Ehm_Pipeline` and
+  config), so it cannot run as is.
+- Its protocol is ported in **`tools/eval_author_protocol.py`** (tests 5/5; each ported function is
+  checked against HSMR's own code). The joint-index tables are not copied into tracked code; they are
+  parsed with `ast.literal_eval` from the untracked file at run time.
+
+### Every difference between the author's script and our previous evaluators
+
+| # | Item | Author (evaluation_kp.py + HSMR) | Ours before | Effect |
+|---|---|---|---|---|
+| 1 | Crop, 2D sets | HMR2 `ImageDataset` (eval): `bbox_size = expand_to_aspect_ratio(scale·200, [192,256]).max()`, square crop at the npz centre → 256 px | PEAR `process_bbox` ×1.25 of the npz box (square) | ours is about 1.25× looser → COCO +0.8 pt with his crop |
+| 2 | Crop, 3DPW | same HMR2 crop from `3dpw_test.npz` centre/scale | GT-keypoint box ×1.2 → `process_bbox` ×1.25 | different input crops |
+| 3 | Input normalisation | HSMR's data module returns a mean/std-normalised patch; PEAR's pipeline normalises internally | [0, 1] RGB | **assumed** [0, 1] in the port (otherwise PEAR's input would be normalised twice) |
+| 4 | SMPL-X → SMPL | `smplx2smpl.pkl['matrix']` on `vertices[:, :-120]` | the same file and matrix (`SMPLX2SMPL.zip`), `vertices[:10475]` | identical |
+| 5 | SMPL model | `SMPL_NEUTRAL.pkl` (version not stated) J_regressor + smplx `vertex_joint_selector` (45 joints) | our `SMPL_NEUTRAL.npz` J_regressor + the same vertex ids | assumed identical |
+| 6 | COCO keypoints | SPIN `JOINT_MAP`: OpenPose joints from the SMPL kinematic joints + vertex joints, **hips = SMPL kinematic hips (1, 2)**, mid-hip = pelvis | HMR2 mapping: the same indices | identical (the hip mismatch remains in both) |
+| 7 | LSP-Extended (19 GT joints) | SPIN `JOINT_MAP`: limbs = SMPL **kinematic** joints (ankles, knees, wrists, elbows, shoulders); hips, neck, head top, pelvis, thorax, spine, jaw, head from SPIN's 9-joint `J_regressor_extra.npy` | `SMPL_to_J19` for all 19 | the main LSP difference: +7.2 pt @0.05 with his mapping |
+| 8 | PoseTrack keypoints | OpenPose-25 (SMPL) + J19, then his `smpl_to_h36m` reindexing: OpenPose shoulders, hips, mid-hip and right knee taken from J19; the extra right ankle, left knee and left ankle from the OpenPose (kinematic) joints | OpenPose-25 + J19, no reindexing | not measurable yet (no PoseTrack images) |
+| 9 | PCK normalisation and scoring | HMR2 `EvaluatorPCK` (crop-normalised × `box_size / max(scale·200)`, conf > 0.5, mmpose per-keypoint mean) | the same, in image pixels / `max(scale·200)` | identical (algebraically equal; tests) |
+| 10 | 2D projection | `GS_Camera` focal 24 over a 1024 px screen, /1024 − 0.5 | PEAR crop camera → image pixels | equivalent |
+| 11 | 3DPW metric | HMR2 `Evaluator`: GT = J19 3D from `3dpw_test.npz`; prediction = the 44 joints above (reindexed); both centred at joint 39 (J19 MPII pelvis); 14 joints [25..37, 43]; MPJPE and PA-MPJPE (similarity on the 14) | H36M regressor → J14 on predicted and GT meshes (gendered SMPL from the 3DPW pkl), hip-midpoint centring, similarity PA; plus PVE | different joints, centring and GT source |
+| 12 | 3DPW joint sources | through `smpl_to_h36m` the prediction is asymmetric: right knee from J19, left knee and both ankles from SMPL kinematic joints | symmetric | part of #11 |
+| 13 | Pose input to EHM | `pose_type='aa'` (his pipeline outputs axis-angle) | `pose_type='rotmat'` (the released pipeline outputs rotation matrices) | same representation, different format |
+| 14 | Checkpoint | `checkpoints/ehm_model.pt` (his local file) | the released Hugging Face checkpoint | **possibly not the same weights**: unknown |
+
+### Gates with the author's protocol (released PEAR, measured)
+
+| Benchmark | PEAR here | Paper (Table 3) | Difference | Gate (~2 pt / ~2 mm) |
+|---|---|---|---|---|
+| COCO-val PCK @0.05 / @0.1 | 0.790 / 0.919 | 0.81 / 0.94 | −2.0 / −2.1 pt | **borderline**: at the limit |
+| LSP-Extended PCK @0.05 / @0.1 | 0.566 / 0.817 | 0.55 / 0.81 | +1.6 / +0.7 pt | **pass** |
+| PoseTrack-val PCK | — | 0.87 / 0.97 | — | not run (no images; needs your PoseTrack access) |
+| 3DPW-test MPJPE / PA-MPJPE (author's protocol) | 73.78 / 46.73 | 71.3 / 45.3 | +2.5 / +1.4 mm | MPJPE **just outside**, PA pass |
+| 3DPW-test MPJPE / PA-MPJPE (our standard protocol, Task 1) | 73.56 / 45.65 | 71.3 / 45.3 | +2.3 / +0.35 mm | (accepted in Task 1) |
+
+Outputs are in `/raid/ubx858/outputs/phase2/author/pear/`.
+- Our previous protocol gave COCO 0.782 / 0.910 and LSP 0.494 / 0.799.
+- Adopting his crop and his LSP joint definitions closes most of the LSP gap and part of the COCO gap.
+- The COCO hip mismatch is identical in his script, so it is not a protocol difference.
+- The remaining ~2 pt (COCO) and ~2.5 mm (3DPW MPJPE) are consistent with row 14 (his local checkpoint
+  vs the released one), the SMPL-neutral version (row 5) or the input-normalisation assumption
+  (row 3). None of these can be checked without the author.
+- **Verdict:** LSP passes, COCO is at the limit, 3DPW MPJPE is 0.5 mm over (PA passes). The Table-3
+  comparison below uses the author's protocol for every row and is to be read with these caveats.
