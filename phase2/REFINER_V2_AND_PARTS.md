@@ -33,6 +33,23 @@ Both were smoke-tested on the **L-data** student, because L-real is still traini
 3. Train refiner v2. Estimated 1.5–3 h depending on GPU load.
 4. Evaluate L-real + refiner v2: Table-3 rows and EHF.
 
+**Outcome (2026-10-14, measured; details in `phase2/EVAL_SUITE.md`).**
+- **Run:** L-real `best.pt` (step 106k); error bank from L-real (20,000 frames; mean error root 12.1°, body 14.9°); 20,000 steps in 49 min on GPU 2; checkpoint SHA-256 `52955e1e…`.
+- **Validation:** BEDLAM2-val MPJPE (22 joints) 68.2 → 50.8 mm. The real-image 2D val loss ends slightly *below* the student's (0.0346 → 0.0338).
+- **Test**, L-real → L-real + refiner v2 (author's protocol):
+
+  | Benchmark | L-real | L-real + refiner v2 |
+  |---|---|---|
+  | COCO PCK @0.05 / @0.1 | 0.772 / 0.921 | 0.760 / 0.918 |
+  | LSP PCK @0.05 / @0.1 | 0.484 / 0.755 | 0.482 / 0.759 |
+  | 3DPW MPJPE / PA-MPJPE (mm) | 74.51 / 48.75 | 74.96 / 49.04 |
+
+- **EHF:** PA-PVE all 50.6 → **45.8**; PVE all 83.4 → **79.3**; body PA-MPJPE 60.0 → **51.6**; hands unchanged.
+- **Reading:**
+  - The 2D loss removes the old refiner's 2D damage (−1.3 pt COCO @0.05 instead of −8.2).
+  - It also removes the old refiner's 3DPW gain (PA-MPJPE +0.3 mm instead of −3.5).
+  - The gains on BEDLAM2 and EHF remain.
+
 **EHF evaluator.** `tools/eval_ehf_standard.py` gains an optional `--refiner` (fp32), with the same code
 as in `tools/eval_author_protocol.py`.
 - **Unchanged path:** L-data `best.pt` re-evaluated without the refiner matches the stored EHF results per frame (max difference 0.0 over 100 frames).

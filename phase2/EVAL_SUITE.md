@@ -277,6 +277,8 @@ with the gate caveats above: COCO is at the limit and 3DPW MPJPE is 0.5 mm outsi
 | Control: (L-0.1) head trained on GT, same compute as (ii) | 0.612 | 0.861 | 0.376 | 0.700 | — | — | 81.67 | 48.34 | | 5.3 ms |
 | L-data | 0.734 | 0.908 | 0.445 | 0.735 | — | — | **72.83** | 48.43 | | 5.3 ms |
 | L-data + refiner | 0.653 | 0.885 | 0.390 | 0.710 | — | — | 75.78 | **44.89** | | 5.3 ms + refiner (not yet measured on laptop) |
+| L-real (added 2026-10-14) | 0.772 | **0.921** | 0.484 | 0.755 | — | — | 74.51 | 48.75 | | 5.3 ms |
+| L-real + refiner v2 (added 2026-10-14) | 0.760 | 0.918 | 0.482 | 0.759 | — | — | 74.96 | 49.04 | | 5.3 ms + refiner (not yet measured on laptop) |
 
 † **Laptop latency** (RTX 3080 Laptop, batch 1) are your measurements, not re-measured here: PEAR 16.5 ms, student 5.3 ms. 5.3 ms is
 the ViTPose-S student (single expert), which every student row shares except student 235000.
@@ -303,6 +305,9 @@ the ViTPose-S student (single expert), which every student row shares except stu
 | L-data + refiner − L-data | −8.2 | −2.2 | −5.6 | −2.6 | +2.95 | **−3.54** |
 | Control − (L-0.1) | −11.5 | −3.6 | −8.7 | −3.9 | +7.39 | −0.55 |
 | L-data − PEAR (released) | −5.5 | −1.1 | −12.1 | −8.2 | −0.95 | +1.70 |
+| L-real − L-data | **+3.8** | +1.4 | **+3.8** | +2.0 | +1.68 | +0.32 |
+| L-real + refiner v2 − L-real | −1.3 | −0.3 | −0.2 | +0.4 | +0.44 | +0.29 |
+| L-real − PEAR (released) | −1.7 | +0.3 | −8.2 | −6.1 | +0.73 | +2.02 |
 
 **What this shows.**
 - **L-data is the best plain student.** Against (L-0.1) it is slightly better on COCO and 3DPW and slightly worse on LSP.
@@ -316,6 +321,30 @@ the ViTPose-S student (single expert), which every student row shares except stu
   - So the refiner's PA-MPJPE gain is not just extra GT training.
   - The 2D loss on real images (COCO, LSP) comes from fine-tuning on BEDLAM2 GT alone. This is a domain effect that both share, not a property of the refiner.
 - **2D gap to PEAR:** −5.5 pt (COCO) and −12 pt (LSP) at @0.05. This is the gap run L-real (real images with 2D keypoints) targets.
+
+**L-real and refiner v2 (2026-10-14, measured).**
+- **L-real** is the L-data recipe plus 20% COCO/MPII images with a 2D keypoint loss (hip weight 0): `best.pt`, step 106k, SHA-256 `ff23da22…`, 3DPW-val PA-MPJPE 49.66; about 15 h on GPU 2. Against L-data:
+  - 2D PCK@0.05 improves by +3.8 pt on both COCO and LSP, halving the COCO gap to PEAR. COCO @0.1 now matches PEAR.
+  - 3DPW gets slightly worse: MPJPE +1.7 mm, PA-MPJPE +0.3 mm. That is consistent with fewer BEDLAM2 rows per batch (38 instead of 51).
+- **Refiner v2** is the no-render refiner trained on the L-real student with BEDLAM2 GT plus the real-image 2D loss (`phase2/REFINER_V2_AND_PARTS.md`):
+  - `phase2/refiner_v2_Lreal/checkpoints/latest.pt`, step 20,000, SHA-256 `52955e1e…`; PEAR `b3da15f`; 49 min.
+  - **Keeps 2D alignment:** −1.3 pt COCO @0.05, against −8.2 for the old refiner on L-data.
+  - **Loses the old refiner's 3DPW gain:** PA-MPJPE +0.3 mm, against −3.5 mm.
+  - On BEDLAM2 val it still improves strongly (68.2 → 50.8 mm), and on EHF it gives the largest gain of any row (below). The old refiner's 3DPW gain therefore seems to come with the change in 2D alignment; why is not yet known.
+
+### EHF, all students (standard evaluator, fp32, measured)
+
+| | PA-PVE all | PVE all | PA-PVE hands | PA-PVE face | PA-MPJPE body |
+|---|---|---|---|---|---|
+| PEAR (released) | 47.9 | 66.6 | 11.0 | 8.7 | 49.2 |
+| (L-0.1) | 52.0 | 85.9 | 14.4 | 6.2 | 62.0 |
+| L-data | 51.3 | 83.9 | 15.1 | 6.3 | 60.8 |
+| L-data + refiner | 46.9 | 85.5 | 15.1 | 6.3 | 51.3 |
+| L-real | 50.6 | 83.4 | 14.8 | 6.4 | 60.0 |
+| L-real + refiner v2 | **45.8** | **79.3** | 14.8 | 6.3 | 51.6 |
+
+- The refiner rows use the new `--refiner` option of `tools/eval_ehf_standard.py`. Its path without the option is per-frame identical to before (evaluator SHA-256 `d3c6a5e2…` since the option was added).
+- L-real on 3DPW test with the standard evaluator (GT-keypoint crop, fp32): MPJPE 75.83, PA-MPJPE 48.46, PVE 86.6, lower body 97.36. L-data: 73.82 / 48.28 / 85.30 / 92.04.
 
 ### L-data on the standard evaluators (Task 1 protocol, `best.pt` step 94k, measured)
 
