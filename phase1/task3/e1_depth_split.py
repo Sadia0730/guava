@@ -36,21 +36,36 @@ def main():
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--batch-size", type=int, default=64)
+    p.add_argument("--spec", nargs="+", default=None,
+                   help="instead of the default three models: NAME|STUDENT_CKPT|REFINER_CKPT (REFINER optional; "
+                        "students are ViTPose-S, refiners no-render); e.g. 'L-data|/path/best.pt|'")
     args = p.parse_args()
     t0 = time.time()
     spec = importlib.util.spec_from_file_location("guava_eval_3dpw_standard", ROOT / "tools" / "eval_3dpw_standard.py")
     ev = importlib.util.module_from_spec(spec); sys.modules[spec.name] = ev; spec.loader.exec_module(ev)
     device = torch.device(args.device)
     os.chdir(ev.PEAR_ROOT); sys.path.insert(0, str(ev.PEAR_ROOT))
-    pear, _ = ev.load_model("pear", ev.DEFAULT_TEACHER.resolve(), "configs/student_l70_v2.yaml", args.batch_size, device)
-    student, _ = ev.load_model("student_vitpose", args.student, "configs/student_l70_v2.yaml", args.batch_size, device)
     from models.modules.ehm import EHM_v2
     from models.render_refiner import RenderRefiner
     from train_render_refiner import cam_from_t, refined_output
     import student_gt_losses as L
     ehm = EHM_v2("assets/FLAME", "assets/SMPLX").to(device).eval()
-    st = torch.load(args.refiner, map_location="cpu", weights_only=False)
-    refiner = RenderRefiner(use_render=False).to(device).eval(); refiner.load_state_dict(st["refiner"], strict=True)
+
+    def load_refiner(path):
+        st = torch.load(path, map_location="cpu", weights_only=False)
+        r = RenderRefiner(use_render=False).to(device).eval(); r.load_state_dict(st["refiner"], strict=True)
+        return r
+    if args.spec is None:                                    # the original E1 run: PEAR, (L-0.1), (L-0.1) + refiner (ii)
+        pear, _ = ev.load_model("pear", ev.DEFAULT_TEACHER.resolve(), "configs/student_l70_v2.yaml", args.batch_size, device)
+        student, _ = ev.load_model("student_vitpose", args.student, "configs/student_l70_v2.yaml", args.batch_size, device)
+        refiner = load_refiner(args.refiner)
+        specs = [("PEAR", pear, None, None), ("L-0.1", student, None, None), ("L-0.1 + refiner (ii)", student, refiner, None)]
+    else:
+        specs = []
+        for s in args.spec:
+            name, ck, ref = (s.split("|") + [""])[:3]
+            m, _ = ev.load_model("student_vitpose", Path(ck), "configs/student_l70_v2.yaml", args.batch_size, device)
+            specs.append((name, m, load_refiner(ref) if ref else None, {"student": ck, "refiner": ref or None}))
     os.chdir(ROOT)
     h36m = torch.from_numpy(np.load(ev.DEFAULT_H36M_REGRESSOR)).float().to(device)
     mapping = ev.load_smplx_to_smpl(ev.DEFAULT_SMPLX2SMPL).to(device)
@@ -64,7 +79,7 @@ def main():
         j = torch.einsum("jv,bvc->bjc", h36m, verts)[:, ev.H36M_TO_J14]
         return j, ev.hip_centre(j)[:, None]
 
-    acc = {m: {"d": [], "p": []} for m in ("PEAR", "L-0.1", "L-0.1 + refiner (ii)")}
+    acc = {s[0]: {"d": [], "p": []} for s in specs}
     loader = DataLoader(ev.CropDataset(samples, "gt_keypoints", None), batch_size=args.batch_size, num_workers=12, shuffle=False)
     for batch in loader:
         bs = [samples[i] for i in batch["index"].tolist()]
@@ -88,13 +103,20 @@ def main():
             off = torch.from_numpy(np.stack(off)).float().to(device)
             gj, gc = j14(gt)
             ray = torch.nn.functional.normalize(gj + off[:, None], dim=-1)                 # (B, 14, 3)
-            outs = {}
-            o = pear(images); outs["PEAR"] = o
-            o, feats = student(images, return_features=True)
-            o = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float()) for k, v in o.items()}
-            outs["L-0.1"] = o
-            r1, c1 = refiner(feats.float(), None, L.predicted_rotmats(o)[:, :22], cam_from_t(o["pd_cam"][:, :3, 3]))
-            outs["L-0.1 + refiner (ii)"] = refined_output(o, r1, c1)
+            outs, cache = {}, {}
+            for name, model, refiner, _ in specs:
+                if name == "PEAR":
+                    outs[name] = model(images); continue
+                if id(model) not in cache:                       # one forward per student, shared by its refiner rows
+                    o, feats = model(images, return_features=True)
+                    o = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float()) for k, v in o.items()}
+                    cache[id(model)] = (o, feats)
+                o, feats = cache[id(model)]
+                if refiner is None:
+                    outs[name] = o
+                else:
+                    r1, c1 = refiner(feats.float(), None, L.predicted_rotmats(o)[:, :22], cam_from_t(o["pd_cam"][:, :3, 3]))
+                    outs[name] = refined_output(o, r1, c1)
             for name, o in outs.items():
                 pred = torch.stack([torch.sparse.mm(mapping, x.float()) for x in ev.predicted_smplx_vertices(o, ehm)])
                 pj, pc = j14(pred)
@@ -102,7 +124,9 @@ def main():
                 d = (e * ray).sum(-1)
                 pl = (e - d[..., None] * ray).norm(dim=-1)
                 acc[name]["d"].append(d.cpu().numpy()); acc[name]["p"].append(pl.cpu().numpy())
-    res = {"split": args.split, "frames": len(samples), "student": str(args.student), "refiner": str(args.refiner),
+    res = {"split": args.split, "frames": len(samples),
+           **({"student": str(args.student), "refiner": str(args.refiner)} if args.spec is None
+              else {"specs": {s[0]: s[3] for s in specs}}),
            "evaluator_sha256": ev.sha256(ROOT / "tools" / "eval_3dpw_standard.py"), "models": {}}
     for name, a in acc.items():
         d = np.concatenate(a["d"]) * 1000; pl = np.concatenate(a["p"]) * 1000
