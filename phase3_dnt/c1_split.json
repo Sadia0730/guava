@@ -1,0 +1,548 @@
+{
+ "purpose": "C1 live-driving gap: >= 30 held-out UBody identities (official intra-scene TEST list; one clip per identity), source = first tracked frame, future frames >= 2 s (>= 60 frames at 30 fps) later",
+ "selection": "deterministic: seed 20261015, round-robin over scenes, clips 150-450 frames at 30 fps, 720 px high; identity = video name with _Trim stripped (OSX rule)",
+ "caveat": "GUAVA's released weights were trained on undisclosed UBody clips; held-out w.r.t. OUR students (test lists excluded from their training), not provably w.r.t. GUAVA",
+ "identities": 36,
+ "clips": [
+  {
+   "scene": "ConductMusic",
+   "identity": "ConductMusic_S21",
+   "clip": "ConductMusic_S21_Trim8",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S21_Trim8/ConductMusic_S21_Trim8.mp4",
+   "frames": 308,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "fda53d42fb1ec16b97efd0bf35f7eb7e5362640105e4e5dc8724c23ca8a604b2"
+  },
+  {
+   "scene": "Entertainment",
+   "identity": "Entertainment_S4",
+   "clip": "Entertainment_S4_Trim15_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S4_Trim15/Entertainment_S4_Trim15_scene001.mp4",
+   "frames": 195,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "15c8c3e0b9b4851dee8c340add246fa63083fe30996ba8ecb23c29e0141fa2df"
+  },
+  {
+   "scene": "Fitness",
+   "identity": "Fitness_S1",
+   "clip": "Fitness_S1_Trim24",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Fitness/Fitness_S1_Trim24/Fitness_S1_Trim24.mp4",
+   "frames": 315,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "08f3f3dd0c6ef338e3e3c09d3a8bcb50bc4b0aa3c32deee5acea57ed9469a3e1"
+  },
+  {
+   "scene": "Interview",
+   "identity": "Interview_S13",
+   "clip": "Interview_S13_Trim7",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Interview/Interview_S13_Trim7/Interview_S13_Trim7.mp4",
+   "frames": 322,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "0921dee80bb50bbf1af9bbc9a9e35ed3a5bfcf31a7c381d8d35cf2ad9a9c7a93"
+  },
+  {
+   "scene": "LiveVlog",
+   "identity": "LiveVlog_S7",
+   "clip": "LiveVlog_S7_Trim14_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S7_Trim14/LiveVlog_S7_Trim14_scene001.mp4",
+   "frames": 184,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "0ff09dcca280cd05acd80c009b9a8f2a1f0c7968d0c34cb48ef0b367ce6ba980"
+  },
+  {
+   "scene": "Magic_show",
+   "identity": "Magic_show_S2",
+   "clip": "Magic_show_S2_Trim16",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Magic_show/Magic_show_S2_Trim16/Magic_show_S2_Trim16.mp4",
+   "frames": 325,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "68c5b269569f5e30f92ded3d6863198d3050b7a415b890c9e7a2f9f27f25b00f"
+  },
+  {
+   "scene": "Olympic",
+   "identity": "Olympic_S5",
+   "clip": "Olympic_S5_Trim21_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S5_Trim21/Olympic_S5_Trim21_scene002.mp4",
+   "frames": 236,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "3f48f24b5f2491bfc6d098f3254a669e175d6dba866608e2cb47dd414672d71d"
+  },
+  {
+   "scene": "Online_class",
+   "identity": "Online_class_S9",
+   "clip": "Online_class_S9_Trim6",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S9_Trim6/Online_class_S9_Trim6.mp4",
+   "frames": 326,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "255b4ef2ffd201b5665c1a68be3f69a91e0192b5aa90c70f66f20a76a6078c8f"
+  },
+  {
+   "scene": "Singing",
+   "identity": "Singing_S11",
+   "clip": "Singing_S11_Trim4_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S11_Trim4/Singing_S11_Trim4_scene002.mp4",
+   "frames": 164,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "4fdd9132243221ef8452e00bcdc03c159aee922f31f9aed36a11b826f315bf8c"
+  },
+  {
+   "scene": "TalkShow",
+   "identity": "TalkShow_S2",
+   "clip": "TalkShow_S2_Trim1",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/TalkShow/TalkShow_S2_Trim1/TalkShow_S2_Trim1.mp4",
+   "frames": 327,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "ca65a7e68292f4f0d604204bcc60e9a30739100e9ea31a7b9aab998a2fdfe131"
+  },
+  {
+   "scene": "VideoConference",
+   "identity": "VideoConference_S14",
+   "clip": "VideoConference_S14_Trim8",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/VideoConference/YT/VideoConference_S14_Trim8/VideoConference_S14_Trim8.mp4",
+   "frames": 324,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "410bd3f759f1d7f03bff75b8f91f8c1e41fa21fa04a7c08318c38d64d05ec7d0"
+  },
+  {
+   "scene": "ConductMusic",
+   "identity": "ConductMusic_S26",
+   "clip": "ConductMusic_S26_Trim5",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S26_Trim5/ConductMusic_S26_Trim5.mp4",
+   "frames": 318,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "72c26f22b3cdf81f165efa28fe67e5319819fa13f68caf153d347410ef723074"
+  },
+  {
+   "scene": "Entertainment",
+   "identity": "Entertainment_S6",
+   "clip": "Entertainment_S6_Trim2_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S6_Trim2/Entertainment_S6_Trim2_scene002.mp4",
+   "frames": 150,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "7b367b5f959b674d48a316ef7fe6b184fb3b37d5c4b49e390dbc479477c284fc"
+  },
+  {
+   "scene": "Interview",
+   "identity": "Interview_S18",
+   "clip": "Interview_S18_Trim3",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Interview/Interview_S18_Trim3/Interview_S18_Trim3.mp4",
+   "frames": 318,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "7a51028da7cb1d75ef960c9940b448693c05ea6f2f7ffee055a725af6a7422da"
+  },
+  {
+   "scene": "Magic_show",
+   "identity": "Magic_show_S6",
+   "clip": "Magic_show_S6_Trim14",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Magic_show/Magic_show_S6_Trim14/Magic_show_S6_Trim14.mp4",
+   "frames": 211,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "0d69c000738468591132e4b994f06a8e9541aef59768009933ec0cdb9e994d1c"
+  },
+  {
+   "scene": "Olympic",
+   "identity": "Olympic_S8",
+   "clip": "Olympic_S8_Trim11_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S8_Trim11/Olympic_S8_Trim11_scene002.mp4",
+   "frames": 217,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "6d3266dbed89b35133dfda995a58191a4d77f9e836c6363e550ff29c60f87f52"
+  },
+  {
+   "scene": "Online_class",
+   "identity": "Online_class_S4",
+   "clip": "Online_class_S4_Trim12",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S4_Trim12/Online_class_S4_Trim12.mp4",
+   "frames": 325,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "4e8782eea2e5cda5c7b099937b3a2fb93a828f467a5b297753bd705b09963b4b"
+  },
+  {
+   "scene": "Singing",
+   "identity": "Singing_S10",
+   "clip": "Singing_S10_Trim4_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S10_Trim4/Singing_S10_Trim4_scene001.mp4",
+   "frames": 168,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "68ad653789594d1e14bca3079e3d7300154394ad56b31fcc14dc5bf0dfde4403"
+  },
+  {
+   "scene": "TalkShow",
+   "identity": "TalkShow_S5",
+   "clip": "TalkShow_S5_Trim4_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/TalkShow/TalkShow_S5_Trim4/TalkShow_S5_Trim4_scene001.mp4",
+   "frames": 314,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "c827d644f1f86895df9e961d9ea85e3ce851674c7650069348cf9b5929336102"
+  },
+  {
+   "scene": "VideoConference",
+   "identity": "VideoConference_S19",
+   "clip": "VideoConference_S19_Trim14",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/VideoConference/YT/VideoConference_S19_Trim14/VideoConference_S19_Trim14.mp4",
+   "frames": 317,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "2232e6f3162078656c0330469cbd892805d4a39f26aa4bc87a0b801b41ac864f"
+  },
+  {
+   "scene": "ConductMusic",
+   "identity": "ConductMusic_S25",
+   "clip": "ConductMusic_S25_Trim5",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S25_Trim5/ConductMusic_S25_Trim5.mp4",
+   "frames": 317,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "5a2f1d3ab14878b8b86d5bf755430f75520e23f1cef59c122dcb4fab874ad630"
+  },
+  {
+   "scene": "Interview",
+   "identity": "Interview_S20",
+   "clip": "Interview_S20_Trim13",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Interview/Interview_S20_Trim13/Interview_S20_Trim13.mp4",
+   "frames": 324,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "2be60637447816a3dde9b031b99a964535ea5962514ca70897d1dd7b16a3f587"
+  },
+  {
+   "scene": "Olympic",
+   "identity": "Olympic_S2",
+   "clip": "Olympic_S2_Trim2_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S2_Trim2/Olympic_S2_Trim2_scene001.mp4",
+   "frames": 240,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "2aa8b84e9baee32fbf6489a4df85a47fe6cf896e4156019b4303c84c24f3b478"
+  },
+  {
+   "scene": "Online_class",
+   "identity": "Online_class_S1",
+   "clip": "Online_class_S1_Trim31",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S1_Trim31/Online_class_S1_Trim31.mp4",
+   "frames": 330,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "40293e3e26fdc0206c8fc5ea4c2112d8db43fc7a10b939d9546e0efbf14d939d"
+  },
+  {
+   "scene": "VideoConference",
+   "identity": "VideoConference_S16",
+   "clip": "VideoConference_S16_Trim23_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/VideoConference/YT/VideoConference_S16_Trim23/VideoConference_S16_Trim23_scene002.mp4",
+   "frames": 270,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "ee04cdd992eb706e1256a3e679e9f0ebbb8c52a44c6c3ef694a4b5938a5d45d2"
+  },
+  {
+   "scene": "ConductMusic",
+   "identity": "ConductMusic_S35",
+   "clip": "ConductMusic_S35_Trim11",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S35_Trim11/ConductMusic_S35_Trim11.mp4",
+   "frames": 315,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "8ec7a3c8174286b6c81b8428c9871288d30994b2ae46bc2d8e65feef57f9be79"
+  },
+  {
+   "scene": "Interview",
+   "identity": "Interview_S25",
+   "clip": "Interview_S25_Trim9",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Interview/Interview_S25_Trim9/Interview_S25_Trim9.mp4",
+   "frames": 316,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "5eaee329a33e88b87cd12e07ae8cddc9c7ebbc9eda57f83780bbe6bfb49d3fa9"
+  },
+  {
+   "scene": "Olympic",
+   "identity": "Olympic_S14",
+   "clip": "Olympic_S14_Trim4_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S14_Trim4/Olympic_S14_Trim4_scene001.mp4",
+   "frames": 150,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "d92a3bdcceca70c408e33ae47cca75dc967cbefa3c48954948a69ce894a6690f"
+  },
+  {
+   "scene": "VideoConference",
+   "identity": "VideoConference_S17",
+   "clip": "VideoConference_S17_Trim1_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/VideoConference/YT/VideoConference_S17_Trim1/VideoConference_S17_Trim1_scene001.mp4",
+   "frames": 166,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "6fc4a8a964ef5d35d8b16b874ce5663833ae263ebc4148be867bc8c06970cc8b"
+  },
+  {
+   "scene": "ConductMusic",
+   "identity": "ConductMusic_S22",
+   "clip": "ConductMusic_S22_Trim1",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S22_Trim1/ConductMusic_S22_Trim1.mp4",
+   "frames": 306,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "5305315d33232c8a37fc26e0c7a65b6576d797316a5d3c79fa861c6ca41cd538"
+  },
+  {
+   "scene": "Interview",
+   "identity": "Interview_S8",
+   "clip": "Interview_S8_Trim1_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Interview/Interview_S8_Trim1/Interview_S8_Trim1_scene002.mp4",
+   "frames": 172,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "86b1a9da178c80d83dfecd2849b531da38e258767e2d87aed7bde6d76e546bd2"
+  },
+  {
+   "scene": "VideoConference",
+   "identity": "VideoConference_S18",
+   "clip": "VideoConference_S18_Trim6",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/VideoConference/YT/VideoConference_S18_Trim6/VideoConference_S18_Trim6.mp4",
+   "frames": 300,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "61c1832323da3092e75ae0c801f4f34769e90eca9ef74581ee2254f0a9053d61"
+  },
+  {
+   "scene": "ConductMusic",
+   "identity": "ConductMusic_S34",
+   "clip": "ConductMusic_S34_Trim13_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S34_Trim13/ConductMusic_S34_Trim13_scene001.mp4",
+   "frames": 210,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "6582bb58943872012a5f57aa2047d057f9dc83e7da81a81cff94dfb4c777b802"
+  },
+  {
+   "scene": "Interview",
+   "identity": "Interview_S1",
+   "clip": "Interview_S1_Trim2",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Interview/Interview_S1_Trim2/Interview_S1_Trim2.mp4",
+   "frames": 319,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "8a3ab57f20ace8137b88f51803717b0d8919a23a62405ef5bb76c4ca8e659057"
+  },
+  {
+   "scene": "ConductMusic",
+   "identity": "ConductMusic_S15",
+   "clip": "ConductMusic_S15",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/SoundOfPixels/ConductMusic_S15/ConductMusic_S15.mp4",
+   "frames": 301,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "16f2ed89853320d7b369557a7cc8f2ca2c9c52e7471ba058ada9343f0806e3f1"
+  },
+  {
+   "scene": "Interview",
+   "identity": "Interview_S2",
+   "clip": "Interview_S2_Trim1",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Interview/Interview_S2_Trim1/Interview_S2_Trim1.mp4",
+   "frames": 312,
+   "fps": 30,
+   "wh": [
+    1280,
+    720
+   ],
+   "source_frame": 0,
+   "future_from_frame": 60,
+   "sha256": "a366eee8715913db71ab017a282abb16191bc5a2d78745c16bff6d7cb49d789a"
+  }
+ ]
+}
