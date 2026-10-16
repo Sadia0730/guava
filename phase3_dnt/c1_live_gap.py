@@ -41,8 +41,11 @@ DRIVERS = {"P": ("pear", None, None),
            "S": ("student_vitpose", SCREEN / "L_real/checkpoints/best.pt", None),
            "S+R": ("student_vitpose", SCREEN / "L_real/checkpoints/best.pt", Path("/raid/ubx858/outputs/phase2/refiner_v2_Lreal/checkpoints/latest.pt"))}
 PARTS = {"body": (["global_pose", "body_pose"], []), "hands": (["left_hand_pose", "right_hand_pose"], []),
-         "face": (["exp", "head_scale"], ["expression_params", "jaw_params", "pose_params", "eye_pose_params", "eyelid_params"]),
+         "face": (["exp"], ["expression_params", "jaw_params", "pose_params", "eye_pose_params", "eyelid_params"]),
          "cam": (["camera_RT_params"], [])}
+# Head scale belongs to the face part, but GUAVA's loader overwrites every record's smplx head_scale with the clip
+# identity (data_loader._load_one_info). A driver's per-frame head scale is therefore kept beside the record
+# ("_head_scale") and written into the loaded target after loading; records without it (O) keep EHM's identity value.
 METRICS = ("psnr", "ssim", "lpips", "lpips_face", "lpips_hands", "kp_dist", "t_lpips", "flicker")
 
 
@@ -60,6 +63,11 @@ def swap(rec_from, rec_to, part):
         r["smplx_coeffs"][k] = copy.deepcopy(rec_from["smplx_coeffs"][k])
     for k in fk:
         r["flame_coeffs"][k] = copy.deepcopy(rec_from["flame_coeffs"][k])
+    if part == "face":
+        if "_head_scale" in rec_from:
+            r["_head_scale"] = copy.deepcopy(rec_from["_head_scale"])
+        else:
+            r.pop("_head_scale", None)
     return r
 
 
@@ -172,10 +180,10 @@ def main():
         aa = lambda r: roma.rotmat_to_rotvec(r.reshape(-1, 3, 3).float()).cpu().numpy()
         smplx = {"exp": bp["exp"][0].cpu().numpy(), "global_pose": aa(bp["global_pose"])[0], "body_pose": aa(bp["body_pose"]),
                  "left_hand_pose": aa(bp["left_hand_pose"]), "right_hand_pose": aa(bp["right_hand_pose"]),
-                 "head_scale": bp["head_scale"][0].cpu().numpy(), "camera_RT_params": out["pd_cam"][0, :3, :4].cpu().numpy()}
+                 "camera_RT_params": out["pd_cam"][0, :3, :4].cpu().numpy()}
         flame = {k: fp[k][0].cpu().numpy() for k in ("expression_params", "jaw_params", "pose_params", "eye_pose_params", "eyelid_params")}
         flame["neck_pose_params"] = np.zeros(3, np.float32)
-        return smplx, flame, dt
+        return smplx, flame, bp["head_scale"][0].cpu().numpy(), dt
 
     q8 = lambda x: (x.clamp(0, 1) * 255).round() / 255
 
@@ -222,8 +230,8 @@ def main():
                 for k in keys:
                     img = ds._lmdb_engine[f"{k}/body_image"].float()[None].to(device) / 255.0
                     img = F.interpolate(img, size=(256, 256), mode="bilinear", antialias=True, align_corners=False)
-                    smplx, flame, dt = drive(name, img)
-                    r = copy.deepcopy(O[k]); r["smplx_coeffs"].update(smplx); r["flame_coeffs"].update(flame)
+                    smplx, flame, hs, dt = drive(name, img)
+                    r = copy.deepcopy(O[k]); r["smplx_coeffs"].update(smplx); r["flame_coeffs"].update(flame); r["_head_scale"] = hs
                     recs[name][k] = r; times[name].append(dt)
             np.savez(dcache, records=np.array(recs, dtype=object), times=np.array(times, dtype=object))
         variants = {"O": O, **recs}
@@ -248,6 +256,8 @@ def main():
                 ds.traked_data[k] = V[k]
                 with torch.no_grad():
                     tgt_v = ds._load_target_info(vid, k)
+                    if "_head_scale" in V[k]:
+                        tgt_v["smplx_coeffs"]["head_scale"] = torch.as_tensor(V[k]["_head_scale"], dtype=torch.float32, device=device).reshape(1, 3)
                     R = q8(render_model(avatar(tgt_v), tgt_v["render_cam_params"], bg=0.0)["renders"][0:1])
                 d, kpR, scR = masked_metrics(R, G, M, boxes, kpG, scG)
                 # similarity alignment of the render to the real frame (detected keypoints, both confident)
