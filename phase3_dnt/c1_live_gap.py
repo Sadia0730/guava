@@ -97,6 +97,8 @@ def main():
     p.add_argument("--variants", nargs="*", default=None, help="subset of variant names (smoke tests)")
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--check-canonical", action="store_true", help="also render the raw (non-canonical) O records")
+    p.add_argument("--verify-fastpath", action="store_true", help="first evaluated frame: every variant rendered via GUAVA's loader too; assert equal")
+    p.add_argument("--max-eval-frames", type=int, default=0, help="smoke tests: evaluate only the first N future frames")
     args = p.parse_args()
     device = torch.device(args.device)
     torch.manual_seed(0)
@@ -158,16 +160,21 @@ def main():
     det_std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
 
     def keypoints(img512):
-        """(1, 3, 512, 512) in [0, 1] -> (17, 2) px in the 512 frame, (17,) scores."""
+        """(N, 3, 512, 512) in [0, 1] -> (N, 17, 2) px in the 512 frame, (N, 17) scores (N = 1 gives the old shapes squeezed)."""
         x = F.interpolate(img512, size=(256, 256), mode="bilinear", antialias=True, align_corners=False)
         x = ((x - det_mean) / det_std)[:, :, :, 32:-32]
-        with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-            hm = det(pixel_values=x, dataset_index=torch.zeros(1, dtype=torch.long, device=device)).heatmaps.float()[0]
-        K, H, W = hm.shape
-        flat = hm.reshape(K, -1); sc, idx = flat.max(-1)
+        with torch.inference_mode():                                       # fp32: keypoints independent of the batch size
+            hm = det(pixel_values=x, dataset_index=torch.zeros(x.shape[0], dtype=torch.long, device=device)).heatmaps.float()
+        N, K, H, W = hm.shape
+        flat = hm.reshape(N, K, -1); sc, idx = flat.max(-1)
         y, xk = (idx // W).float(), (idx % W).float()
         kp = torch.stack([((xk + 0.5) * 192 / W + 32) * 2, (y + 0.5) * 256 / H * 2], -1)
         return kp.cpu().numpy(), sc.cpu().numpy()
+
+    def lpips_items(x, y):
+        """Per-item LPIPS (the GUAVA module sums over the batch): the module's own feature net and linear heads."""
+        fx, fy = lpips.net(x), lpips.net(y)
+        return torch.stack([l((a - b) ** 2).mean((1, 2, 3)) for a, b, l in zip(fx, fy, lpips.lin)], 0).sum(0)
 
     def drive(name, img256):
         kind, model, refiner = models[name]
@@ -190,26 +197,56 @@ def main():
         return smplx, flame, bp["head_scale"][0].cpu().numpy(), dt
 
     q8 = lambda x: (x.clamp(0, 1) * 255).round() / 255
+    import dataset.data_loader as dl
+    import torch.utils.data._utils.collate as collate
+    from utils.graphics_utils import get_full_proj_matrix
 
-    def masked_metrics(R, G, M, boxes, kpG, scG):
-        """R, G (1,3,512,512), M (1,1,512,512). Returns dict of the per-frame metrics (not temporal) and the render keypoints."""
-        Rm, Gm = R * M, G * M
-        mse = (((Rm - Gm) ** 2).sum() / (M.sum() * 3).clamp_min(1)).item()
-        d = {"psnr": float(10 * np.log10(1.0 / max(mse, 1e-10))), "ssim": float(met.ssim(Rm, Gm)), "lpips": float(lpips(Rm, Gm))}
-        crops = {"lpips_face": [boxes["head"]], "lpips_hands": [boxes["lhand"], boxes["rhand"]]}
-        for key, bl in crops.items():
+    def target_params(ds, rec):
+        """What ds._load_target_info returns for rendering, WITHOUT decoding the frame (data_loader.py 225-246, 258-293):
+        identity merged from id_share, w2c = diag(-1,-1,1,1) @ RT, the 512 px render camera; plus a driver head scale."""
+        ti = copy.deepcopy(rec); ti.pop("_head_scale", None)
+        ids = ds.traked_data_id_share
+        ti["smplx_coeffs"].update({"shape": ids["smplx_shape"][0], "joints_offset": ids["joints_offset"][0],
+                                   "head_scale": ids["head_scale"][0], "hand_scale": ids["hand_scale"][0]})
+        ti["flame_coeffs"].update({"shape_params": ids["flame_shape"][0]})
+        ti = dl.squeeze_params(dl.data_to_tensor(ti))
+        RT_mat = torch.eye(4); RT_mat[:3, :4] = ti["smplx_coeffs"]["camera_RT_params"]
+        w2c = torch.diag(torch.tensor([-1.0, -1.0, 1.0, 1.0])) @ RT_mat
+        c2w = torch.linalg.inv(w2c)
+        view, full = get_full_proj_matrix(w2c, ds.tanfov)
+        ti["render_cam_params"] = {"world_view_transform": view, "full_proj_transform": full, "tanfovx": ds.tanfov, "tanfovy": ds.tanfov,
+                                   "image_height": ds.image_size, "image_width": ds.image_size, "camera_center": c2w[:3, 3]}
+        out = ds._move_to_device(collate.default_collate([ti]), device)
+        if "_head_scale" in rec:
+            out["smplx_coeffs"]["head_scale"] = torch.as_tensor(rec["_head_scale"], dtype=torch.float32, device=device).reshape(1, 3)
+        return out
+
+    def batch_metrics(R, G, M, boxes, kpG, scG):
+        """R (N,3,512,512), G (1,3,512,512), M (1,1,512,512) -> list of N metric dicts, render keypoints / scores."""
+        N = R.shape[0]
+        Rm, Gm = R * M, (G * M).expand(N, -1, -1, -1)
+        mse = (((Rm - Gm) ** 2).sum((1, 2, 3)) / (M.sum() * 3).clamp_min(1)).clamp_min(1e-10)
+        psnr = (10 * torch.log10(1.0 / mse)).cpu().numpy()
+        ss = met.ssim(Rm, Gm, size_average=False).cpu().numpy()
+        lp = lpips_items(Rm, Gm).cpu().numpy()
+        crop_vals = {}
+        for key, bl in {"lpips_face": [boxes["head"]], "lpips_hands": [boxes["lhand"], boxes["rhand"]]}.items():
             vals = []
-            for (l, r_, t, b) in bl:
-                if r_ - l >= 8 and b - t >= 8:
-                    cr = F.interpolate(Rm[:, :, t:b, l:r_], size=(128, 128), mode="bilinear", align_corners=False)
-                    cg = F.interpolate(Gm[:, :, t:b, l:r_], size=(128, 128), mode="bilinear", align_corners=False)
-                    vals.append(float(lpips(cr, cg)))
-            d[key] = float(np.mean(vals)) if vals else float("nan")
+            for (l, r_, t_, b) in bl:
+                if r_ - l >= 8 and b - t_ >= 8:
+                    cr = F.interpolate(Rm[:, :, t_:b, l:r_], size=(128, 128), mode="bilinear", align_corners=False)
+                    cg = F.interpolate(Gm[:, :, t_:b, l:r_], size=(128, 128), mode="bilinear", align_corners=False)
+                    vals.append(lpips_items(cr, cg).cpu().numpy())
+            crop_vals[key] = np.mean(vals, 0) if vals else np.full(N, np.nan)
         kpR, scR = keypoints(Rm)
         ok = scG >= 0.5
         torso = np.linalg.norm((kpG[5] + kpG[6]) / 2 - (kpG[11] + kpG[12]) / 2)
-        d["kp_dist"] = float(np.linalg.norm(kpR[ok] - kpG[ok], axis=1).mean() / max(torso, 1.0)) if ok.sum() >= 4 and torso > 8 else float("nan")
-        return d, kpR, scR
+        out = []
+        for n in range(N):
+            kd = float(np.linalg.norm(kpR[n][ok] - kpG[ok], axis=1).mean() / max(torso, 1.0)) if ok.sum() >= 4 and torso > 8 else float("nan")
+            out.append({"psnr": float(psnr[n]), "ssim": float(ss[n]), "lpips": float(lp[n]), "lpips_face": float(crop_vals["lpips_face"][n]),
+                        "lpips_hands": float(crop_vals["lpips_hands"][n]), "kp_dist": kd})
+        return out, kpR, scR
 
     summary = {"split": str(args.split), "clips": {}, "variants": None}
     args.out.mkdir(parents=True, exist_ok=True)
@@ -293,6 +330,9 @@ def main():
             if part == "cam":
                 variants["S+O:cam"] = {k: place(recs["S"][k], k, nO[k]) for k in keys}
                 variants["O+S:cam"] = {k: place(O[k], k, nS[k]) for k in keys}
+                # descriptive split of the camera part (C2 design): image-plane placement vs depth
+                variants["S+O:ray"] = {k: place(recs["S"][k], k, nO[k] * (nS[k][2] / nO[k][2])) for k in keys}    # O's neck ray, S's depth
+                variants["S+O:depth"] = {k: place(recs["S"][k], k, nS[k] * (nO[k][2] / nS[k][2])) for k in keys}  # S's neck ray, O's depth
             else:
                 variants[f"S+O:{part}"] = {k: place(swap(O[k], recs["S"][k], part), k, nS[k]) for k in keys}
                 variants[f"O+S:{part}"] = {k: place(swap(recs["S"][k], O[k], part), k, nO[k]) for k in keys}
@@ -302,43 +342,66 @@ def main():
         per = {n: {f"{m}{s}": [] for m in METRICS for s in ("", "_aligned")} for n in variants}
         prev = {}; prevG = None; grid = []
         eval_keys = [k for i, k in enumerate(keys) if i >= args.future_from]
+        if args.max_eval_frames:
+            eval_keys = eval_keys[:args.max_eval_frames]
+        t_loop = time.time()
         for i, k in enumerate(eval_keys):
             ds.traked_data[k] = O[k]
             with torch.no_grad():
                 tgt = ds._load_target_info(vid, k)
             M = tgt["mask"][0:1]; G = q8(tgt["image"][0:1] * M)
             boxes = {n: [int(x) for x in tgt[f"{b}_box"][0].tolist()] for n, b in (("head", "head"), ("lhand", "left_hand"), ("rhand", "right_hand"))}
-            kpG, scG = keypoints(G)
-            row = {"gt": G[0]}
-            for name, V in variants.items():
-                ds.traked_data[k] = V[k]
+            kpG, scG = keypoints(G); kpG, scG = kpG[0], scG[0]
+            names = list(variants)
+            Rs = []
+            for name in names:
+                V = variants[name]
                 with torch.no_grad():
-                    tgt_v = ds._load_target_info(vid, k)
-                    if "_head_scale" in V[k]:
-                        tgt_v["smplx_coeffs"]["head_scale"] = torch.as_tensor(V[k]["_head_scale"], dtype=torch.float32, device=device).reshape(1, 3)
+                    tgt_v = target_params(ds, V[k])
                     R = q8(render_model(avatar(tgt_v), tgt_v["render_cam_params"], bg=0.0)["renders"][0:1])
-                d, kpR, scR = masked_metrics(R, G, M, boxes, kpG, scG)
-                # similarity alignment of the render to the real frame (detected keypoints, both confident)
-                ok = (scG >= 0.5) & (scR >= 0.5)
-                if ok.sum() >= 4:
-                    A = umeyama_similarity(kpR[ok], kpG[ok])
-                    Ra = torch.from_numpy(cv2.warpAffine(R[0].permute(1, 2, 0).cpu().numpy(), A, (512, 512), flags=cv2.INTER_LINEAR)).permute(2, 0, 1)[None].to(device)
-                    da, _, _ = masked_metrics(Ra, G, M, boxes, kpG, scG)
-                else:
-                    Ra, da = R, dict(d)
-                for m in d:
-                    per[name][m].append(d[m]); per[name][m + "_aligned"].append(da[m])
-                if name in prev:
-                    pR, pRa = prev[name]
-                    tl, tla = float(lpips(R * M, pR * M)), float(lpips(Ra * M, pRa * M))
+                    if args.verify_fastpath and i == 0:
+                        ds.traked_data[k] = V[k]
+                        tl = ds._load_target_info(vid, k)
+                        if "_head_scale" in V[k]:
+                            tl["smplx_coeffs"]["head_scale"] = torch.as_tensor(V[k]["_head_scale"], dtype=torch.float32, device=device).reshape(1, 3)
+                        R_ref = q8(render_model(avatar(tl), tl["render_cam_params"], bg=0.0)["renders"][0:1])
+                        ds.traked_data[k] = O[k]
+                        dmax = float((R - R_ref).abs().max())
+                        print(f"fastpath check {name}: max |diff| {dmax:.2e}", flush=True)
+                        assert dmax < 1.5 / 255, f"fast path differs for {name}"
+                Rs.append(R)
+            Rb = torch.cat(Rs)
+            with torch.no_grad():
+                ds_raw, kpR, scR = batch_metrics(Rb, G, M, boxes, kpG, scG)
+                # similarity alignment of each render to the real frame (detected keypoints, both confident)
+                Ra_list = []
+                for n in range(len(names)):
+                    ok = (scG >= 0.5) & (scR[n] >= 0.5)
+                    if ok.sum() >= 4:
+                        A = umeyama_similarity(kpR[n][ok], kpG[ok])
+                        Ra_list.append(torch.from_numpy(cv2.warpAffine(Rb[n].permute(1, 2, 0).cpu().numpy(), A, (512, 512), flags=cv2.INTER_LINEAR)).permute(2, 0, 1)[None].to(device))
+                    else:
+                        Ra_list.append(Rb[n:n + 1])
+                Rab = torch.cat(Ra_list)
+                ds_al, _, _ = batch_metrics(Rab, G, M, boxes, kpG, scG)
+                if prev:
+                    pR, pRa = prev["R"], prev["Ra"]
+                    tl = lpips_items(Rb * M, pR * M).cpu().numpy(); tla = lpips_items(Rab * M, pRa * M).cpu().numpy()
                     fg = float((G - prevG).abs().mean())
-                    per[name]["t_lpips"].append(tl); per[name]["t_lpips_aligned"].append(tla)
-                    per[name]["flicker"].append(float((R - pR).abs().mean()) - fg); per[name]["flicker_aligned"].append(float((Ra - pRa).abs().mean()) - fg)
-                prev[name] = (R, Ra)
-                row[name] = R[0]
+                    fl = ((Rb - pR).abs().mean((1, 2, 3)) - fg).cpu().numpy(); fla = ((Rab - pRa).abs().mean((1, 2, 3)) - fg).cpu().numpy()
+            for n, name in enumerate(names):
+                for m in ds_raw[n]:
+                    per[name][m].append(ds_raw[n][m]); per[name][m + "_aligned"].append(ds_al[n][m])
+                if prev:
+                    per[name]["t_lpips"].append(float(tl[n])); per[name]["t_lpips_aligned"].append(float(tla[n]))
+                    per[name]["flicker"].append(float(fl[n])); per[name]["flicker_aligned"].append(float(fla[n]))
+            prev = {"R": Rb, "Ra": Rab}
+            row = {"gt": G[0], **{name: Rb[n] for n, name in enumerate(names)}}
             prevG = G
             if i in {0, len(eval_keys) // 2, len(eval_keys) - 1}:
                 grid.append(torch.cat([row["gt"]] + [row[n] for n in variants], 2))
+        print(f"{clip['clip']}: {len(eval_keys)} frames x {len(variants)} variants in {time.time() - t_loop:.0f} s "
+              f"({(time.time() - t_loop) / max(1, len(eval_keys) * len(variants)):.2f} s per variant-frame)", flush=True)
         for k in keys:
             ds.traked_data[k] = O_raw[k]
         ds._lmdb_engine.close()
