@@ -21,9 +21,21 @@ for tuning or checkpoint selection; checkpoints are selected on 3DPW validation 
 
 **Keypoint regressor (pre-step).** Fitted on BEDLAM2 training renders (ViTPose+ small, COCO expert) against the GT
 meshes; evaluated on BEDLAM2 validation renders against the same detector.
-- **Pass:** mean detector distance (torso units) of the hips and of the shoulders down by **>= 50%** against the current
-  SMPL-X keypoint mapping. If it fails, the 2D loss keeps the current mapping with hip weight 0 (as L-real) and the
-  failure is reported; the run still proceeds.
+- **Pass (original, 2026-10-15):** mean detector distance (torso units) of the hips and of the shoulders down by
+  **>= 50%** against the current SMPL-X keypoint mapping. If it fails, the 2D loss keeps the current mapping with hip
+  weight 0 (as L-real) and the failure is reported; the run still proceeds.
+- **Measured (2026-10-15, BEDLAM2 val, 5,000 rows):** r = 0.12 m / 8 vertices: hips -48%, shoulders -12% (fail);
+  r = 0.20 m / 16 vertices: hips -57% (0.21 -> 0.09 torso units), hip bias ("down") +0.18 -> +0.01, shoulders -14%
+  (0.074 -> 0.063), shoulder bias +0.026 -> +0.005.
+- **AMENDMENT (2026-10-16, approved by the user, written before the smoke test and the full run):** the criterion is
+  replaced by **"hip distance down >= 50% AND hip and shoulder bias (mean signed torso-frame offset) < 0.02 torso
+  units"**. Reason: the shoulders were already at the detector's noise floor before fitting (0.07 torso units ~ 4 px,
+  the same as nose / eyes / wrists), so a 50% cut in their distance is unreachable by any keypoint definition; what a
+  definition can and should remove is the systematic bias, which the regressor removes (+0.026 -> +0.005). The r = 0.20 m,
+  16-vertex regressor meets the amended criterion and is used, with hips re-enabled (hip weight 1.0):
+  `/raid/ubx858/outputs/dnt/regressor_r020/kp_regressor_coco17.npz`.
+- **Checkpoints (2026-10-16, disk rule):** every new run writes only `latest.pt` and `best.pt`
+  (`logging.periodic_checkpoints: false`).
 
 **Primary criterion — "circularity answered":** the PEAR-free student is within
 - **1.0 mm PA-MPJPE** and **2.0 mm MPJPE** of L-real on **3DPW test** (author's protocol, `tools/eval_author_protocol.py`,
