@@ -52,4 +52,32 @@ is reported per metric and no further tuning of the PEAR-free run is done in thi
 
 ## Track B — C1 live-driving gap (G1)
 
-To be registered in this file before B4 runs (after B1–B3 are prepared).
+**Registered 2026-10-16, before B4 (rendering and metrics) runs.** Code: `phase3_dnt/c1_live_gap.py` (guava
+`driven_not_tracked`); split: `/raid/ubx858/outputs/dnt/c1/split.json` (SHA-256 `d760fb86…`, 36 UBody intra-scene test
+identities, one clip each).
+
+- **Setup.** One GUAVA avatar per identity, built from the first tracked frame of its clip (EHM-Tracker source record).
+  Every variant renders the same avatar with the same identity parameters (EHM per-clip shape, FLAME shape, joints
+  offset, hand scale) and the same StyleUNet noise seed; only the per-frame driving parameters differ:
+  O = EHM-Tracker (offline, oracle), S = L-real `best.pt`, S+R = L-real + refiner v2 (`refiner_v2_Lreal/checkpoints/latest.pt`,
+  the only refiner used), P = PEAR released ViT-H; per-part swaps S+O:{body, hands, face, cam} and leave-one-out
+  O+S:{body, hands, face, cam}. Drivers see the same 256 px union-box crop.
+- **Frames.** Future frames only: tracked frames with index >= 60 (>= 2 s at 30 fps) after the source.
+- **Primary metrics.** Masked PSNR and masked LPIPS-VGG (GT upper-body mask = EHM's StyleMatte alpha; both images
+  multiplied by the mask; PSNR over mask pixels), RAW (no alignment), per-identity mean over its future frames.
+- **Statistic.** Paired difference per identity, d_PSNR = PSNR(O) − PSNR(S) and d_LPIPS = LPIPS(S) − LPIPS(O)
+  (positive = O better); mean over identities with a 95% bootstrap CI over identities (1,000 resamples, seed 0).
+- **G1 decision.** **GO** if d_PSNR >= 0.5 dB with its CI excluding 0, **or** d_LPIPS >= 0.01 with its CI excluding 0.
+  Otherwise **NO-GO**.
+- **Interpretation registered in advance.** GO -> the live driver (S) loses a meaningful amount of rendering quality
+  against the offline tracker, so closing the driving gap is worth pursuing; the per-part swaps attribute the gap
+  (descriptive, no threshold). NO-GO -> S already drives GUAVA about as well as the offline tracker on this split, and
+  the remaining quality gap is in the avatar / renderer, not the driver.
+- **Validity conditions.** At least 30 of the 36 identities must have a successful EHM track with >= 60 future frames;
+  otherwise the result is reported as inconclusive and I ask before changing the split. Failed tracks are listed.
+- **Secondary (reported, not gated).** The same statistics after per-frame 2D similarity alignment; SSIM; face-crop and
+  hand-crop LPIPS (EHM head / hand boxes); keypoint distance (ViTPose+ small, COCO expert, render vs real frame,
+  real-frame score >= 0.5, torso units); temporal LPIPS and flicker; S+R and P against O; driver time per frame.
+- **Caveats stated in advance.** O is offline-smoothed and its identity is fitted over the whole clip (non-causal);
+  GUAVA's weights were trained on undisclosed UBody clips, so the split is held out w.r.t. our students, not provably
+  w.r.t. GUAVA; masked PSNR over upper-body framings is dominated by the torso area.
