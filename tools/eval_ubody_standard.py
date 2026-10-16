@@ -58,7 +58,7 @@ class UBodyCrops(Dataset):
         affine = self.ev.box_to_affine(box)
         crop = cv2.cvtColor(cv2.warpAffine(image, affine, (self.ev.IMAGE_SIZE, self.ev.IMAGE_SIZE), flags=cv2.INTER_LINEAR),
                             cv2.COLOR_BGR2RGB)
-        return {"index": i, "image": torch.from_numpy(crop).permute(2, 0, 1).contiguous()}
+        return {"index": i, "image": torch.from_numpy(crop).permute(2, 0, 1).contiguous(), "affine": torch.from_numpy(affine)}
 
 
 def gt_meshes(items, smplx_dir: Path, device):
@@ -131,7 +131,7 @@ def evaluate_one(P, ehf, mesh_out, mesh_gt, cam, wh):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", choices=("pear", "student", "student_vitpose", "gt"), required=True)
+    p.add_argument("--model", choices=("pear", "student", "student_vitpose", "student_vitpose_mq", "student_vitpose_mq_handcrop", "gt"), required=True)
     p.add_argument("--checkpoint", type=Path, default=None)
     p.add_argument("--student-config", default="configs/student_l70_v2.yaml")
     p.add_argument("--smplx-dir", type=Path, required=True, help="folder with SMPLX_NEUTRAL.npz (SMPL-X v1.1)")
@@ -141,6 +141,9 @@ def main():
     p.add_argument("--num-workers", type=int, default=8)
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--max-items", type=int, default=0)
+    p.add_argument("--hand-crops", choices=("input", "fullres", "oracle"), default="fullres",
+                   help="student_vitpose_mq_handcrop only: hand-crop source = the 256 px input, the full-resolution frame "
+                        "around the predicted hands, or the full-resolution frame around the TRUE (pseudo-GT) hands (diagnostic)")
     args = p.parse_args()
     t0 = time.time()
     ev = load_module("guava_eval_3dpw_standard", ROOT / "tools" / "eval_3dpw_standard.py")
@@ -165,13 +168,26 @@ def main():
         for batch in DataLoader(UBodyCrops(ev, items, args.data / "images"), batch_size=args.batch_size,
                                 num_workers=args.num_workers, shuffle=False):
             with torch.inference_mode():
-                out = model(batch["image"].to(device).float() / 255.0)
+                kw = {}
+                if args.model == "student_vitpose_mq_handcrop" and args.hand_crops != "input":
+                    hc = load_module("guava_handcrop_eval_utils", ROOT / "tools" / "handcrop_eval_utils.py")
+                    idx = batch["index"].numpy(); affs = [a.numpy() for a in batch["affine"]]
+                    ims = [cv2.cvtColor(cv2.imread(str(args.data / "images" / items[i]["scene"] / items[i]["file_name"])), cv2.COLOR_BGR2RGB) for i in idx]
+                    kw["hand_source"] = hc.hand_source(ims, affs, device)
+                    if args.hand_crops == "oracle":
+                        def proj(X, cam):
+                            f, c = np.asarray(cam["focal"], np.float64), np.asarray(cam["princpt"], np.float64)
+                            return X[:, :2] / np.maximum(X[:, 2:3], 1e-4) * f + c
+                        kp = np.stack([np.stack([proj(P.hand_reg[s] @ mesh_gt[i], items[i]["cam_param"]) for s in ("left", "right")]) for i in idx])
+                        kw["hand_boxes"] = hc.oracle_boxes(kp, affs).to(device)
+                out = model(batch["image"].to(device).float() / 255.0, **kw)
                 out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float())
                        for k, v in out.items()}
                 mesh_out[batch["index"].numpy()] = ev.predicted_smplx_vertices(out, ehm).cpu().numpy()
     rows = [evaluate_one(P, ehf, mesh_out[i], mesh_gt[i], it["cam_param"], it["img_wh"]) for i, it in enumerate(items)]
     keys = ["pa_mpvpe_all", "pa_mpvpe_hand", "pa_mpvpe_face", "mpvpe_all", "mpvpe_hand", "mpvpe_face", "pa_mpjpe_body", "pa_mpjpe_hand"]
     summary = {"model": args.model, "checkpoint": str(checkpoint) if checkpoint else None, "load_report": load_report,
+               "hand_crops": args.hand_crops if args.model == "student_vitpose_mq_handcrop" else None,
                "items": len(items), "smplx_dir": str(args.smplx_dir),
                "smplx_neutral_sha256": hashlib.sha256((args.smplx_dir / "SMPLX_NEUTRAL.npz").read_bytes()).hexdigest()
                if (args.smplx_dir / "SMPLX_NEUTRAL.npz").exists() else None,

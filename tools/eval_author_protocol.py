@@ -172,7 +172,7 @@ class AuthorJoints:
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dataset", choices=tuple(DATASETS), required=True)
-    p.add_argument("--model", choices=("pear", "student", "student_vitpose"), required=True)
+    p.add_argument("--model", choices=("pear", "student", "student_vitpose", "student_vitpose_mq", "student_vitpose_mq_handcrop"), required=True)
     p.add_argument("--checkpoint", type=Path, default=None)
     p.add_argument("--student-config", default="configs/student_l70_v2.yaml")
     p.add_argument("--refiner", type=Path, default=None, help="optional A4 refiner checkpoint (no-render) applied once")

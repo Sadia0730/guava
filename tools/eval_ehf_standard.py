@@ -144,6 +144,19 @@ def project_gt(frame) -> np.ndarray:
     return np.stack([FOCAL[0] * cam[:, 0] / cam[:, 2] + PRINCPT[0], FOCAL[1] * cam[:, 1] / cam[:, 2] + PRINCPT[1]], -1)
 
 
+def project_points(points_world, frame) -> np.ndarray:
+    """EHF world points -> image px (as project_gt, for any points)."""
+    cam = points_world @ frame["R"].T + CAM_T
+    return np.stack([FOCAL[0] * cam[:, 0] / cam[:, 2] + PRINCPT[0], FOCAL[1] * cam[:, 1] / cam[:, 2] + PRINCPT[1]], -1)
+
+
+def load_by_path_ehf(name, path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec); sys.modules[name] = mod; spec.loader.exec_module(mod)
+    return mod
+
+
 def crop(frame):
     image = cv2.imread(frame["image"])
     h, w = image.shape[:2]
@@ -155,7 +168,7 @@ def crop(frame):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", choices=("pear", "student", "student_vitpose", "gt"), required=True,
+    p.add_argument("--model", choices=("pear", "student", "student_vitpose", "student_vitpose_mq", "student_vitpose_mq_handcrop", "gt"), required=True,
                    help="'gt' feeds the ground truth as the prediction (must give 0 everywhere)")
     p.add_argument("--checkpoint", type=Path, default=None)
     p.add_argument("--student-config", default="configs/student_l70_v2.yaml")
@@ -166,6 +179,9 @@ def main():
     p.add_argument("--refiner", type=Path, default=None,
                    help="optional no-render refiner checkpoint (train_render_refiner.py) applied once, as in "
                         "tools/eval_author_protocol.py; fp32 only. Without it the path is unchanged.")
+    p.add_argument("--hand-crops", choices=("input", "fullres", "oracle"), default="fullres",
+                   help="student_vitpose_mq_handcrop only: hand-crop source = the 256 px input, the full-resolution EHF "
+                        "image around the predicted hands, or the full-resolution image around the TRUE hands (diagnostic)")
     args = p.parse_args()
     if args.refiner and args.precision != "fp32":
         raise SystemExit("--refiner is supported with --precision fp32 only")
@@ -194,7 +210,13 @@ def main():
                 refiner.load_state_dict(st["refiner"], strict=True)
         finally:
             os.chdir(cwd)
-        images = torch.stack([crop(f)[0] for f in frames])
+        crops = [crop(f) for f in frames]
+        images = torch.stack([c[0] for c in crops])
+        handcrop = args.model == "student_vitpose_mq_handcrop"
+        if handcrop:
+            hc = load_by_path_ehf("guava_handcrop_eval_utils", ROOT / "tools" / "handcrop_eval_utils.py")
+            P_ = Protocol()
+            affs = [ev.box_to_affine(c[1]) for c in crops]
         dtype = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}[args.precision]
         with torch.inference_mode():
             for s in range(0, len(frames), 25):
@@ -204,6 +226,16 @@ def main():
                                if isinstance(v, dict) else v.float()) for k, v in out.items()}
                     rot1, cam1 = refiner(feats.float(), None, L.predicted_rotmats(out)[:, :22], cam_from_t(out["pd_cam"][:, :3, 3]))
                     out = refined_output(out, rot1, cam1)
+                elif handcrop and dtype == torch.float32:
+                    x = images[s:s + 25].to(device).float().div_(255.0)
+                    kw = {}
+                    if args.hand_crops != "input":
+                        fr = frames[s:s + 25]
+                        kw["hand_source"] = hc.hand_source([cv2.cvtColor(cv2.imread(f["image"]), cv2.COLOR_BGR2RGB) for f in fr], affs[s:s + 25], device)
+                        if args.hand_crops == "oracle":
+                            kp = np.stack([np.stack([project_points(P_.hand_reg[side] @ f["gt_world"], f) for side in ("left", "right")]) for f in fr])
+                            kw["hand_boxes"] = hc.oracle_boxes(kp, affs[s:s + 25]).to(device)
+                    out = model(x, **kw)
                 elif dtype == torch.float32:
                     out = model(images[s:s + 25].to(device).float().div_(255.0))
                 else:   # as in eval_3dpw_standard.py: autocast forward, outputs back to fp32
@@ -228,6 +260,7 @@ def main():
         "protocol": "Hand4Whole EHF.evaluate (c94908654b81); crop from EHF OpenPose BODY_25 via PEAR get_bbox x1.2 + process_bbox x1.25",
         "model": args.model, "frames": len(rows), "metrics_mm": summary, "precision": args.precision,
         "refiner": str(args.refiner) if args.refiner else None,
+        "hand_crops": args.hand_crops if args.model == "student_vitpose_mq_handcrop" else None,
         "refiner_sha256": ev.sha256(args.refiner) if args.refiner else None,
         "checkpoint": None if args.model == "gt" else str(checkpoint),
         "checkpoint_sha256": None if args.model == "gt" else ev.sha256(checkpoint),

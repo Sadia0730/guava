@@ -330,6 +330,16 @@ def load_model(kind: str, checkpoint: Path, student_config: str, batch_size: int
         state = torch.load(checkpoint, map_location="cpu", weights_only=False)
         model.load_state_dict(state["student"], strict=True)
         load_report = {"strict": True, "step": int(state.get("step", -1))}
+    elif kind in ("student_vitpose_mq", "student_vitpose_mq_handcrop"):
+        # Phase 2 part-wise queries: five-query head (optionally + hand-crop tokens); loader only.
+        import train_pear_student_distill as tpd
+        from models.pipeline.student_pipeline_vitpose_mq import PearStudentViTPoseMQPipeline
+        cfg = tpd.load_config(student_config)
+        tpd.set_config_batch_size(cfg, batch_size, 1)
+        model = PearStudentViTPoseMQPipeline(cfg, hand_crop_tokens=kind.endswith("handcrop"))
+        state = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        model.load_state_dict(state["student"], strict=True)
+        load_report = {"strict": True, "step": int(state.get("step", -1))}
     else:
         from models.pipeline.ehm_pipeline import Ehm_Pipeline
         cfg = add_extra_cfgs(ConfigDict(model_config_path="configs/infer.yaml"))
@@ -382,7 +392,7 @@ def bootstrap_ci(values: np.ndarray, groups: np.ndarray, n: int = 1000, seed: in
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", choices=("pear", "student", "student_vitpose"), required=True)
+    p.add_argument("--model", choices=("pear", "student", "student_vitpose", "student_vitpose_mq", "student_vitpose_mq_handcrop"), required=True)
     p.add_argument("--checkpoint", type=Path, default=None, help="student checkpoint; teacher default is the HF snapshot")
     p.add_argument("--student-config", default="configs/student_l70_v2.yaml")
     p.add_argument("--split", choices=("test", "validation", "train"), default="test")
