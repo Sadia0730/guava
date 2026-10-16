@@ -78,6 +78,13 @@ identities, one clip each).
 - **Secondary (reported, not gated).** The same statistics after per-frame 2D similarity alignment; SSIM; face-crop and
   hand-crop LPIPS (EHM head / hand boxes); keypoint distance (ViTPose+ small, COCO expert, render vs real frame,
   real-frame score >= 0.5, torso units); temporal LPIPS and flicker; S+R and P against O; driver time per frame.
+- **ADDENDUM (2026-10-16 09:50, after 15 of 36 clips were scored, before the remaining 21; not part of the G1 rule):**
+  one clip (Interview_S18_Trim3) showed the oracle far below every learned driver (O 13.9 dB vs S 17.5 dB), i.e. a
+  failed EHM track. The primary G1 analysis stays exactly as registered (all identities). A **sensitivity analysis**
+  is added: identities whose oracle fit is poor by its OWN measure — O's mean keypoint distance (ViTPose+, render vs
+  real frame) **> 0.10 torso lengths** — are excluded and the G1 statistic is recomputed. The threshold is fixed here
+  from the smoke clip (O 0.029) without looking at the other clips' O keypoint distances; flagged clips are listed.
+  EHM frames that GUAVA's loader cannot read (NaN crop boxes) are dropped per clip and counted.
 - **Caveats stated in advance.** O is offline-smoothed and its identity is fitted over the whole clip (non-causal);
   GUAVA's weights were trained on undisclosed UBody clips, so the split is held out w.r.t. our students, not provably
   w.r.t. GUAVA; masked PSNR over upper-body framings is dominated by the torso area.

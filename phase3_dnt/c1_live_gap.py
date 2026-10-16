@@ -250,170 +250,195 @@ def main():
 
     summary = {"split": str(args.split), "clips": {}, "variants": None}
     args.out.mkdir(parents=True, exist_ok=True)
+    def process_clip(clip, cdir, odir):
+            OmegaConf.set_readonly(cfg.DATASET, False); cfg.DATASET.data_path = str(cdir)
+            ds = TrackedData_infer(cfg=cfg, split="test", device=device, test_full=True)
+            vid = list(ds.videos_info.keys())[0]; keys_all = ds.videos_info[vid]["frames_keys"]
+            ds._load_source_info(vid)
+            keys, dropped = [], []
+            for k in keys_all:                                        # EHM frames GUAVA's loader cannot read (NaN crop boxes)
+                try:
+                    ds._load_target_info(vid, k); keys.append(k)
+                except (ValueError, RuntimeError):
+                    dropped.append(k)
+            if dropped:
+                print(f"{clip['clip']}: {len(dropped)} of {len(keys_all)} EHM frames unreadable (NaN boxes), dropped", flush=True)
+            with torch.no_grad():
+                src = ds._load_source_info(vid)
+                vg, ug, _ = infer_model(src)
+                avatar = Ubody_Gaussian(cfg.MODEL, vg, ug, pruning=True); avatar.init_ehm(infer_model.ehm); avatar.eval()
+            O_raw = {k: copy.deepcopy(ds.traked_data[k]) for k in keys}
+            # Canonical camera (needed for clean part swaps): EHM's camera rotation is fitted, PEAR's / the students' is the
+            # fixed R0 = diag(-1,-1,1), and each driver's root orientation compensates its own camera. Every O record is
+            # re-expressed with camera rotation R0: root R_glob -> A R_glob (A = R0^T R), translation t -> t' chosen so the
+            # posed EHM mesh is unchanged in camera space (t' = mean_v(R V1 + t - R0 V2); the spread is logged, ~0 if exact).
+            O, canon_resid = {}, []
+            R0 = np.diag([-1.0, -1.0, 1.0])
+            for k in keys:
+                ds.traked_data[k] = O_raw[k]
+                with torch.no_grad():
+                    tg = ds._load_target_info(vid, k)
+                    sm, fl = tg["smplx_coeffs"], tg["flame_coeffs"]
+                    RT = np.asarray(O_raw[k]["smplx_coeffs"]["camera_RT_params"], np.float64)
+                    R, tt = RT[:, :3], RT[:, 3]
+                    A = R0.T @ R
+                    gp = np.asarray(O_raw[k]["smplx_coeffs"]["global_pose"], np.float64)
+                    Rg = roma.rotvec_to_rotmat(torch.from_numpy(gp.reshape(3))).numpy()
+                    gp_new = roma.rotmat_to_rotvec(torch.from_numpy(A @ Rg)).numpy().reshape(gp.shape)
+                    V1 = infer_model.ehm(sm, fl)["vertices"][0].double().cpu().numpy()
+                    sm2 = dict(sm); sm2["global_pose"] = torch.as_tensor(gp_new, dtype=sm["global_pose"].dtype, device=device).reshape(sm["global_pose"].shape)
+                    V2 = infer_model.ehm(sm2, fl)["vertices"][0].double().cpu().numpy()
+                d = V1 @ R.T + tt - V2 @ R0.T
+                t_new = d.mean(0); canon_resid.append(float(np.abs(d - t_new).max()))
+                r = copy.deepcopy(O_raw[k])
+                r["smplx_coeffs"]["global_pose"] = gp_new.astype(np.asarray(O_raw[k]["smplx_coeffs"]["global_pose"]).dtype)
+                r["smplx_coeffs"]["camera_RT_params"] = np.concatenate([R0, t_new[:, None]], 1).astype(RT.dtype if hasattr(RT, "dtype") else np.float32)
+                O[k] = r
+            print(f"canonical camera: max vertex residual {max(canon_resid) * 1000:.3f} mm", flush=True)
+            # drivers (cached)
+            dcache = odir / "drivers.npz"
+            if dcache.exists():
+                recs = np.load(dcache, allow_pickle=True)["records"].item(); times = np.load(dcache, allow_pickle=True)["times"].item()
+            else:
+                recs, times = {}, {}
+                for name in DRIVERS:
+                    recs[name], times[name] = {}, []
+                    for k in keys:
+                        img = ds._lmdb_engine[f"{k}/body_image"].float()[None].to(device) / 255.0
+                        img = F.interpolate(img, size=(256, 256), mode="bilinear", antialias=True, align_corners=False)
+                        smplx, flame, hs, dt = drive(name, img)
+                        r = copy.deepcopy(O[k]); r["smplx_coeffs"].update(smplx); r["flame_coeffs"].update(flame); r["_head_scale"] = hs
+                        recs[name][k] = r; times[name].append(dt)
+                np.savez(dcache, records=np.array(recs, dtype=object), times=np.array(times, dtype=object))
+            variants = {"O": O, "O_raw": O_raw, **recs} if args.check_canonical else {"O": O, **recs}
+
+            def neck(rec, k):
+                """Camera-space position of the SMPL-X neck joint (12) of a record (identity merged as for rendering)."""
+                ds.traked_data[k] = rec
+                with torch.no_grad():
+                    tg = ds._load_target_info(vid, k)
+                    if "_head_scale" in rec:
+                        tg["smplx_coeffs"]["head_scale"] = torch.as_tensor(rec["_head_scale"], dtype=torch.float32, device=device).reshape(1, 3)
+                    J = infer_model.ehm(tg["smplx_coeffs"], tg["flame_coeffs"])["joints_transform"][0, 12].double().cpu().numpy()
+                RT = np.asarray(rec["smplx_coeffs"]["camera_RT_params"], np.float64)
+                return RT[:, :3] @ J + RT[:, 3]
+
+            def place(rec, k, target):
+                """Shift rec's camera translation so its neck lands at `target` (camera rotation is R0 for every record)."""
+                r = copy.deepcopy(rec)
+                RT = np.asarray(r["smplx_coeffs"]["camera_RT_params"], np.float64).copy()
+                RT[:, 3] += target - neck(rec, k)
+                r["smplx_coeffs"]["camera_RT_params"] = RT.astype(np.float32)
+                return r
+            # Part swaps with the NECK as pivot (the visible anchor in upper-body framing; the pelvis is mostly out of frame
+            # and a pelvis-pivot root swap swings the visible torso by tens of cm): body / hands / face swaps keep the
+            # receiving record's neck position; the cam swap moves the neck to the donor's camera-space position.
+            nO = {k: neck(O[k], k) for k in keys}; nS = {k: neck(recs["S"][k], k) for k in keys}
+            for part in PARTS:
+                if part == "cam":
+                    variants["S+O:cam"] = {k: place(recs["S"][k], k, nO[k]) for k in keys}
+                    variants["O+S:cam"] = {k: place(O[k], k, nS[k]) for k in keys}
+                    # descriptive split of the camera part (C2 design): image-plane placement vs depth
+                    variants["S+O:ray"] = {k: place(recs["S"][k], k, nO[k] * (nS[k][2] / nO[k][2])) for k in keys}    # O's neck ray, S's depth
+                    variants["S+O:depth"] = {k: place(recs["S"][k], k, nS[k] * (nO[k][2] / nS[k][2])) for k in keys}  # S's neck ray, O's depth
+                else:
+                    variants[f"S+O:{part}"] = {k: place(swap(O[k], recs["S"][k], part), k, nS[k]) for k in keys}
+                    variants[f"O+S:{part}"] = {k: place(swap(recs["S"][k], O[k], part), k, nO[k]) for k in keys}
+            if args.variants:
+                variants = {n: v for n, v in variants.items() if n in args.variants}
+            summary["variants"] = list(variants)
+            per = {n: {f"{m}{s}": [] for m in METRICS for s in ("", "_aligned")} for n in variants}
+            prev = {}; prevG = None; grid = []
+            eval_keys = [k for i, k in enumerate(keys) if i >= args.future_from]
+            if args.max_eval_frames:
+                eval_keys = eval_keys[:args.max_eval_frames]
+            t_loop = time.time()
+            for i, k in enumerate(eval_keys):
+                ds.traked_data[k] = O[k]
+                with torch.no_grad():
+                    tgt = ds._load_target_info(vid, k)
+                M = tgt["mask"][0:1]; G = q8(tgt["image"][0:1] * M)
+                boxes = {n: [int(x) for x in tgt[f"{b}_box"][0].tolist()] for n, b in (("head", "head"), ("lhand", "left_hand"), ("rhand", "right_hand"))}
+                kpG, scG = keypoints(G); kpG, scG = kpG[0], scG[0]
+                names = list(variants)
+                Rs = []
+                for name in names:
+                    V = variants[name]
+                    with torch.no_grad():
+                        tgt_v = target_params(ds, V[k])
+                        R = q8(render_model(avatar(tgt_v), tgt_v["render_cam_params"], bg=0.0)["renders"][0:1])
+                        if args.verify_fastpath and i == 0:
+                            ds.traked_data[k] = V[k]
+                            tl = ds._load_target_info(vid, k)
+                            if "_head_scale" in V[k]:
+                                tl["smplx_coeffs"]["head_scale"] = torch.as_tensor(V[k]["_head_scale"], dtype=torch.float32, device=device).reshape(1, 3)
+                            R_ref = q8(render_model(avatar(tl), tl["render_cam_params"], bg=0.0)["renders"][0:1])
+                            ds.traked_data[k] = O[k]
+                            dmax = float((R - R_ref).abs().max())
+                            print(f"fastpath check {name}: max |diff| {dmax:.2e}", flush=True)
+                            assert dmax < 1.5 / 255, f"fast path differs for {name}"
+                    Rs.append(R)
+                Rb = torch.cat(Rs)
+                with torch.no_grad():
+                    ds_raw, kpR, scR = batch_metrics(Rb, G, M, boxes, kpG, scG)
+                    # similarity alignment of each render to the real frame (detected keypoints, both confident)
+                    Ra_list = []
+                    for n in range(len(names)):
+                        ok = (scG >= 0.5) & (scR[n] >= 0.5)
+                        if ok.sum() >= 4:
+                            A = umeyama_similarity(kpR[n][ok], kpG[ok])
+                            Ra_list.append(torch.from_numpy(cv2.warpAffine(Rb[n].permute(1, 2, 0).cpu().numpy(), A, (512, 512), flags=cv2.INTER_LINEAR)).permute(2, 0, 1)[None].to(device))
+                        else:
+                            Ra_list.append(Rb[n:n + 1])
+                    Rab = torch.cat(Ra_list)
+                    ds_al, _, _ = batch_metrics(Rab, G, M, boxes, kpG, scG)
+                    if prev:
+                        pR, pRa = prev["R"], prev["Ra"]
+                        tl = lpips_items(Rb * M, pR * M).cpu().numpy(); tla = lpips_items(Rab * M, pRa * M).cpu().numpy()
+                        fg = float((G - prevG).abs().mean())
+                        fl = ((Rb - pR).abs().mean((1, 2, 3)) - fg).cpu().numpy(); fla = ((Rab - pRa).abs().mean((1, 2, 3)) - fg).cpu().numpy()
+                for n, name in enumerate(names):
+                    for m in ds_raw[n]:
+                        per[name][m].append(ds_raw[n][m]); per[name][m + "_aligned"].append(ds_al[n][m])
+                    if prev:
+                        per[name]["t_lpips"].append(float(tl[n])); per[name]["t_lpips_aligned"].append(float(tla[n]))
+                        per[name]["flicker"].append(float(fl[n])); per[name]["flicker_aligned"].append(float(fla[n]))
+                prev = {"R": Rb, "Ra": Rab}
+                row = {"gt": G[0], **{name: Rb[n] for n, name in enumerate(names)}}
+                prevG = G
+                if i in {0, len(eval_keys) // 2, len(eval_keys) - 1}:
+                    grid.append(torch.cat([row["gt"]] + [row[n] for n in variants], 2))
+            print(f"{clip['clip']}: {len(eval_keys)} frames x {len(variants)} variants in {time.time() - t_loop:.0f} s "
+                  f"({(time.time() - t_loop) / max(1, len(eval_keys) * len(variants)):.2f} s per variant-frame)", flush=True)
+            for k in keys:
+                ds.traked_data[k] = O_raw[k]
+            ds._lmdb_engine.close()
+            import torchvision
+            torchvision.utils.save_image(torch.cat(grid, 1), odir / "compare.jpg")
+            np.savez(odir / "per_frame.npz", **{f"{n}|{m}": np.array(v) for n in variants for m, v in per[n].items()})
+            res = {"identity": clip["identity"], "frames_evaluated": len(eval_keys), "frames_dropped_unreadable": len(dropped), "canonical_camera_max_residual_mm": max(canon_resid) * 1000,
+                   "means": {n: {m: float(np.nanmean(v)) if len(v) else float("nan") for m, v in per[n].items()} for n in variants},
+                   "driver_ms_median": {n: float(np.median(t) * 1000) for n, t in times.items()}}
+            (odir / "summary.json").write_text(json.dumps(res, indent=1) + "\n")
+            summary["clips"][clip["clip"]] = res
+            print(clip["clip"], {n: round(res["means"][n]["psnr"], 2) for n in variants}, flush=True)
+
+    failed_clips = {}
     for clip in clips:
         cdir = args.tracked / clip["clip"]; odir = args.out / clip["clip"]; odir.mkdir(parents=True, exist_ok=True)
-        OmegaConf.set_readonly(cfg.DATASET, False); cfg.DATASET.data_path = str(cdir)
-        ds = TrackedData_infer(cfg=cfg, split="test", device=device, test_full=True)
-        vid = list(ds.videos_info.keys())[0]; keys = ds.videos_info[vid]["frames_keys"]
-        with torch.no_grad():
-            src = ds._load_source_info(vid)
-            vg, ug, _ = infer_model(src)
-            avatar = Ubody_Gaussian(cfg.MODEL, vg, ug, pruning=True); avatar.init_ehm(infer_model.ehm); avatar.eval()
-        O_raw = {k: copy.deepcopy(ds.traked_data[k]) for k in keys}
-        # Canonical camera (needed for clean part swaps): EHM's camera rotation is fitted, PEAR's / the students' is the
-        # fixed R0 = diag(-1,-1,1), and each driver's root orientation compensates its own camera. Every O record is
-        # re-expressed with camera rotation R0: root R_glob -> A R_glob (A = R0^T R), translation t -> t' chosen so the
-        # posed EHM mesh is unchanged in camera space (t' = mean_v(R V1 + t - R0 V2); the spread is logged, ~0 if exact).
-        O, canon_resid = {}, []
-        R0 = np.diag([-1.0, -1.0, 1.0])
-        for k in keys:
-            ds.traked_data[k] = O_raw[k]
-            with torch.no_grad():
-                tg = ds._load_target_info(vid, k)
-                sm, fl = tg["smplx_coeffs"], tg["flame_coeffs"]
-                RT = np.asarray(O_raw[k]["smplx_coeffs"]["camera_RT_params"], np.float64)
-                R, tt = RT[:, :3], RT[:, 3]
-                A = R0.T @ R
-                gp = np.asarray(O_raw[k]["smplx_coeffs"]["global_pose"], np.float64)
-                Rg = roma.rotvec_to_rotmat(torch.from_numpy(gp.reshape(3))).numpy()
-                gp_new = roma.rotmat_to_rotvec(torch.from_numpy(A @ Rg)).numpy().reshape(gp.shape)
-                V1 = infer_model.ehm(sm, fl)["vertices"][0].double().cpu().numpy()
-                sm2 = dict(sm); sm2["global_pose"] = torch.as_tensor(gp_new, dtype=sm["global_pose"].dtype, device=device).reshape(sm["global_pose"].shape)
-                V2 = infer_model.ehm(sm2, fl)["vertices"][0].double().cpu().numpy()
-            d = V1 @ R.T + tt - V2 @ R0.T
-            t_new = d.mean(0); canon_resid.append(float(np.abs(d - t_new).max()))
-            r = copy.deepcopy(O_raw[k])
-            r["smplx_coeffs"]["global_pose"] = gp_new.astype(np.asarray(O_raw[k]["smplx_coeffs"]["global_pose"]).dtype)
-            r["smplx_coeffs"]["camera_RT_params"] = np.concatenate([R0, t_new[:, None]], 1).astype(RT.dtype if hasattr(RT, "dtype") else np.float32)
-            O[k] = r
-        print(f"canonical camera: max vertex residual {max(canon_resid) * 1000:.3f} mm", flush=True)
-        # drivers (cached)
-        dcache = odir / "drivers.npz"
-        if dcache.exists():
-            recs = np.load(dcache, allow_pickle=True)["records"].item(); times = np.load(dcache, allow_pickle=True)["times"].item()
-        else:
-            recs, times = {}, {}
-            for name in DRIVERS:
-                recs[name], times[name] = {}, []
-                for k in keys:
-                    img = ds._lmdb_engine[f"{k}/body_image"].float()[None].to(device) / 255.0
-                    img = F.interpolate(img, size=(256, 256), mode="bilinear", antialias=True, align_corners=False)
-                    smplx, flame, hs, dt = drive(name, img)
-                    r = copy.deepcopy(O[k]); r["smplx_coeffs"].update(smplx); r["flame_coeffs"].update(flame); r["_head_scale"] = hs
-                    recs[name][k] = r; times[name].append(dt)
-            np.savez(dcache, records=np.array(recs, dtype=object), times=np.array(times, dtype=object))
-        variants = {"O": O, "O_raw": O_raw, **recs} if args.check_canonical else {"O": O, **recs}
-
-        def neck(rec, k):
-            """Camera-space position of the SMPL-X neck joint (12) of a record (identity merged as for rendering)."""
-            ds.traked_data[k] = rec
-            with torch.no_grad():
-                tg = ds._load_target_info(vid, k)
-                if "_head_scale" in rec:
-                    tg["smplx_coeffs"]["head_scale"] = torch.as_tensor(rec["_head_scale"], dtype=torch.float32, device=device).reshape(1, 3)
-                J = infer_model.ehm(tg["smplx_coeffs"], tg["flame_coeffs"])["joints_transform"][0, 12].double().cpu().numpy()
-            RT = np.asarray(rec["smplx_coeffs"]["camera_RT_params"], np.float64)
-            return RT[:, :3] @ J + RT[:, 3]
-
-        def place(rec, k, target):
-            """Shift rec's camera translation so its neck lands at `target` (camera rotation is R0 for every record)."""
-            r = copy.deepcopy(rec)
-            RT = np.asarray(r["smplx_coeffs"]["camera_RT_params"], np.float64).copy()
-            RT[:, 3] += target - neck(rec, k)
-            r["smplx_coeffs"]["camera_RT_params"] = RT.astype(np.float32)
-            return r
-        # Part swaps with the NECK as pivot (the visible anchor in upper-body framing; the pelvis is mostly out of frame
-        # and a pelvis-pivot root swap swings the visible torso by tens of cm): body / hands / face swaps keep the
-        # receiving record's neck position; the cam swap moves the neck to the donor's camera-space position.
-        nO = {k: neck(O[k], k) for k in keys}; nS = {k: neck(recs["S"][k], k) for k in keys}
-        for part in PARTS:
-            if part == "cam":
-                variants["S+O:cam"] = {k: place(recs["S"][k], k, nO[k]) for k in keys}
-                variants["O+S:cam"] = {k: place(O[k], k, nS[k]) for k in keys}
-                # descriptive split of the camera part (C2 design): image-plane placement vs depth
-                variants["S+O:ray"] = {k: place(recs["S"][k], k, nO[k] * (nS[k][2] / nO[k][2])) for k in keys}    # O's neck ray, S's depth
-                variants["S+O:depth"] = {k: place(recs["S"][k], k, nS[k] * (nO[k][2] / nS[k][2])) for k in keys}  # S's neck ray, O's depth
-            else:
-                variants[f"S+O:{part}"] = {k: place(swap(O[k], recs["S"][k], part), k, nS[k]) for k in keys}
-                variants[f"O+S:{part}"] = {k: place(swap(recs["S"][k], O[k], part), k, nO[k]) for k in keys}
-        if args.variants:
-            variants = {n: v for n, v in variants.items() if n in args.variants}
-        summary["variants"] = list(variants)
-        per = {n: {f"{m}{s}": [] for m in METRICS for s in ("", "_aligned")} for n in variants}
-        prev = {}; prevG = None; grid = []
-        eval_keys = [k for i, k in enumerate(keys) if i >= args.future_from]
-        if args.max_eval_frames:
-            eval_keys = eval_keys[:args.max_eval_frames]
-        t_loop = time.time()
-        for i, k in enumerate(eval_keys):
-            ds.traked_data[k] = O[k]
-            with torch.no_grad():
-                tgt = ds._load_target_info(vid, k)
-            M = tgt["mask"][0:1]; G = q8(tgt["image"][0:1] * M)
-            boxes = {n: [int(x) for x in tgt[f"{b}_box"][0].tolist()] for n, b in (("head", "head"), ("lhand", "left_hand"), ("rhand", "right_hand"))}
-            kpG, scG = keypoints(G); kpG, scG = kpG[0], scG[0]
-            names = list(variants)
-            Rs = []
-            for name in names:
-                V = variants[name]
-                with torch.no_grad():
-                    tgt_v = target_params(ds, V[k])
-                    R = q8(render_model(avatar(tgt_v), tgt_v["render_cam_params"], bg=0.0)["renders"][0:1])
-                    if args.verify_fastpath and i == 0:
-                        ds.traked_data[k] = V[k]
-                        tl = ds._load_target_info(vid, k)
-                        if "_head_scale" in V[k]:
-                            tl["smplx_coeffs"]["head_scale"] = torch.as_tensor(V[k]["_head_scale"], dtype=torch.float32, device=device).reshape(1, 3)
-                        R_ref = q8(render_model(avatar(tl), tl["render_cam_params"], bg=0.0)["renders"][0:1])
-                        ds.traked_data[k] = O[k]
-                        dmax = float((R - R_ref).abs().max())
-                        print(f"fastpath check {name}: max |diff| {dmax:.2e}", flush=True)
-                        assert dmax < 1.5 / 255, f"fast path differs for {name}"
-                Rs.append(R)
-            Rb = torch.cat(Rs)
-            with torch.no_grad():
-                ds_raw, kpR, scR = batch_metrics(Rb, G, M, boxes, kpG, scG)
-                # similarity alignment of each render to the real frame (detected keypoints, both confident)
-                Ra_list = []
-                for n in range(len(names)):
-                    ok = (scG >= 0.5) & (scR[n] >= 0.5)
-                    if ok.sum() >= 4:
-                        A = umeyama_similarity(kpR[n][ok], kpG[ok])
-                        Ra_list.append(torch.from_numpy(cv2.warpAffine(Rb[n].permute(1, 2, 0).cpu().numpy(), A, (512, 512), flags=cv2.INTER_LINEAR)).permute(2, 0, 1)[None].to(device))
-                    else:
-                        Ra_list.append(Rb[n:n + 1])
-                Rab = torch.cat(Ra_list)
-                ds_al, _, _ = batch_metrics(Rab, G, M, boxes, kpG, scG)
-                if prev:
-                    pR, pRa = prev["R"], prev["Ra"]
-                    tl = lpips_items(Rb * M, pR * M).cpu().numpy(); tla = lpips_items(Rab * M, pRa * M).cpu().numpy()
-                    fg = float((G - prevG).abs().mean())
-                    fl = ((Rb - pR).abs().mean((1, 2, 3)) - fg).cpu().numpy(); fla = ((Rab - pRa).abs().mean((1, 2, 3)) - fg).cpu().numpy()
-            for n, name in enumerate(names):
-                for m in ds_raw[n]:
-                    per[name][m].append(ds_raw[n][m]); per[name][m + "_aligned"].append(ds_al[n][m])
-                if prev:
-                    per[name]["t_lpips"].append(float(tl[n])); per[name]["t_lpips_aligned"].append(float(tla[n]))
-                    per[name]["flicker"].append(float(fl[n])); per[name]["flicker_aligned"].append(float(fla[n]))
-            prev = {"R": Rb, "Ra": Rab}
-            row = {"gt": G[0], **{name: Rb[n] for n, name in enumerate(names)}}
-            prevG = G
-            if i in {0, len(eval_keys) // 2, len(eval_keys) - 1}:
-                grid.append(torch.cat([row["gt"]] + [row[n] for n in variants], 2))
-        print(f"{clip['clip']}: {len(eval_keys)} frames x {len(variants)} variants in {time.time() - t_loop:.0f} s "
-              f"({(time.time() - t_loop) / max(1, len(eval_keys) * len(variants)):.2f} s per variant-frame)", flush=True)
-        for k in keys:
-            ds.traked_data[k] = O_raw[k]
-        ds._lmdb_engine.close()
-        import torchvision
-        torchvision.utils.save_image(torch.cat(grid, 1), odir / "compare.jpg")
-        np.savez(odir / "per_frame.npz", **{f"{n}|{m}": np.array(v) for n in variants for m, v in per[n].items()})
-        res = {"identity": clip["identity"], "frames_evaluated": len(eval_keys), "canonical_camera_max_residual_mm": max(canon_resid) * 1000,
-               "means": {n: {m: float(np.nanmean(v)) if len(v) else float("nan") for m, v in per[n].items()} for n in variants},
-               "driver_ms_median": {n: float(np.median(t) * 1000) for n, t in times.items()}}
-        (odir / "summary.json").write_text(json.dumps(res, indent=1) + "\n")
-        summary["clips"][clip["clip"]] = res
-        print(clip["clip"], {n: round(res["means"][n]["psnr"], 2) for n in variants}, flush=True)
+        if (odir / "summary.json").exists():                          # resume: clip already scored
+            summary["clips"][clip["clip"]] = json.loads((odir / "summary.json").read_text())
+            if summary["variants"] is None:
+                summary["variants"] = list(summary["clips"][clip["clip"]]["means"])
+            print(clip["clip"], "already scored, reused", flush=True)
+            continue
+        try:
+            process_clip(clip, cdir, odir)
+        except Exception as e:  # noqa: BLE001 -- one clip must not stop the split; listed in the summary
+            import traceback; traceback.print_exc()
+            failed_clips[clip["clip"]] = repr(e)
+            print(clip["clip"], "FAILED:", repr(e), flush=True)
+    summary["failed_clips"] = failed_clips
 
     # --- aggregation: bootstrap over identities ---
     names = summary["variants"]; ids = list(summary["clips"])
