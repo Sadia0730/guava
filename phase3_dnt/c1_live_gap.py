@@ -3,8 +3,11 @@
 For every clip of the C1 split (EHM-Tracker output directory per clip): one GUAVA avatar from the first tracked frame,
 then every later frame (>= --future-from) rendered under
   drivers   O = EHM-Tracker (offline, oracle)   S = L-real student   S+R = L-real + refiner v2   P = PEAR (ViT-H)
-  swaps     S with ONE part replaced by O:  body (global + body pose), hands (hand poses), face (FLAME params + head
-            scale), cam (camera)  ->  "S+O:body" ...;  leave-one-out: O with ONE part from S -> "O+S:body" ...
+  swaps     S with ONE part replaced by O:  body (root orientation in the camera frame + body pose), hands (hand poses),
+            face (FLAME params, SMPL-X expression, head scale), cam (camera translation)  ->  "S+O:body" ...;
+            leave-one-out: O with ONE part from S -> "O+S:body" ...  All O records are first re-expressed with the
+            students' fixed camera rotation (mesh unchanged in camera space). Swaps pivot on the NECK joint: body / hands
+            / face swaps keep the receiving record's neck position, the cam swap moves the neck to the donor's position.
 Identity (shape, FLAME shape, joints offset, hand scale) is EHM's per-clip identity for every variant (GUAVA cross-act
 convention); head scale is part of the face. Driver records are cached per clip (drivers.npz) and reused.
 
@@ -93,6 +96,7 @@ def main():
     p.add_argument("--max-clips", type=int, default=0)
     p.add_argument("--variants", nargs="*", default=None, help="subset of variant names (smoke tests)")
     p.add_argument("--device", default="cuda:0")
+    p.add_argument("--check-canonical", action="store_true", help="also render the raw (non-canonical) O records")
     args = p.parse_args()
     device = torch.device(args.device)
     torch.manual_seed(0)
@@ -218,7 +222,34 @@ def main():
             src = ds._load_source_info(vid)
             vg, ug, _ = infer_model(src)
             avatar = Ubody_Gaussian(cfg.MODEL, vg, ug, pruning=True); avatar.init_ehm(infer_model.ehm); avatar.eval()
-        O = {k: copy.deepcopy(ds.traked_data[k]) for k in keys}
+        O_raw = {k: copy.deepcopy(ds.traked_data[k]) for k in keys}
+        # Canonical camera (needed for clean part swaps): EHM's camera rotation is fitted, PEAR's / the students' is the
+        # fixed R0 = diag(-1,-1,1), and each driver's root orientation compensates its own camera. Every O record is
+        # re-expressed with camera rotation R0: root R_glob -> A R_glob (A = R0^T R), translation t -> t' chosen so the
+        # posed EHM mesh is unchanged in camera space (t' = mean_v(R V1 + t - R0 V2); the spread is logged, ~0 if exact).
+        O, canon_resid = {}, []
+        R0 = np.diag([-1.0, -1.0, 1.0])
+        for k in keys:
+            ds.traked_data[k] = O_raw[k]
+            with torch.no_grad():
+                tg = ds._load_target_info(vid, k)
+                sm, fl = tg["smplx_coeffs"], tg["flame_coeffs"]
+                RT = np.asarray(O_raw[k]["smplx_coeffs"]["camera_RT_params"], np.float64)
+                R, tt = RT[:, :3], RT[:, 3]
+                A = R0.T @ R
+                gp = np.asarray(O_raw[k]["smplx_coeffs"]["global_pose"], np.float64)
+                Rg = roma.rotvec_to_rotmat(torch.from_numpy(gp.reshape(3))).numpy()
+                gp_new = roma.rotmat_to_rotvec(torch.from_numpy(A @ Rg)).numpy().reshape(gp.shape)
+                V1 = infer_model.ehm(sm, fl)["vertices"][0].double().cpu().numpy()
+                sm2 = dict(sm); sm2["global_pose"] = torch.as_tensor(gp_new, dtype=sm["global_pose"].dtype, device=device).reshape(sm["global_pose"].shape)
+                V2 = infer_model.ehm(sm2, fl)["vertices"][0].double().cpu().numpy()
+            d = V1 @ R.T + tt - V2 @ R0.T
+            t_new = d.mean(0); canon_resid.append(float(np.abs(d - t_new).max()))
+            r = copy.deepcopy(O_raw[k])
+            r["smplx_coeffs"]["global_pose"] = gp_new.astype(np.asarray(O_raw[k]["smplx_coeffs"]["global_pose"]).dtype)
+            r["smplx_coeffs"]["camera_RT_params"] = np.concatenate([R0, t_new[:, None]], 1).astype(RT.dtype if hasattr(RT, "dtype") else np.float32)
+            O[k] = r
+        print(f"canonical camera: max vertex residual {max(canon_resid) * 1000:.3f} mm", flush=True)
         # drivers (cached)
         dcache = odir / "drivers.npz"
         if dcache.exists():
@@ -234,10 +265,37 @@ def main():
                     r = copy.deepcopy(O[k]); r["smplx_coeffs"].update(smplx); r["flame_coeffs"].update(flame); r["_head_scale"] = hs
                     recs[name][k] = r; times[name].append(dt)
             np.savez(dcache, records=np.array(recs, dtype=object), times=np.array(times, dtype=object))
-        variants = {"O": O, **recs}
+        variants = {"O": O, "O_raw": O_raw, **recs} if args.check_canonical else {"O": O, **recs}
+
+        def neck(rec, k):
+            """Camera-space position of the SMPL-X neck joint (12) of a record (identity merged as for rendering)."""
+            ds.traked_data[k] = rec
+            with torch.no_grad():
+                tg = ds._load_target_info(vid, k)
+                if "_head_scale" in rec:
+                    tg["smplx_coeffs"]["head_scale"] = torch.as_tensor(rec["_head_scale"], dtype=torch.float32, device=device).reshape(1, 3)
+                J = infer_model.ehm(tg["smplx_coeffs"], tg["flame_coeffs"])["joints_transform"][0, 12].double().cpu().numpy()
+            RT = np.asarray(rec["smplx_coeffs"]["camera_RT_params"], np.float64)
+            return RT[:, :3] @ J + RT[:, 3]
+
+        def place(rec, k, target):
+            """Shift rec's camera translation so its neck lands at `target` (camera rotation is R0 for every record)."""
+            r = copy.deepcopy(rec)
+            RT = np.asarray(r["smplx_coeffs"]["camera_RT_params"], np.float64).copy()
+            RT[:, 3] += target - neck(rec, k)
+            r["smplx_coeffs"]["camera_RT_params"] = RT.astype(np.float32)
+            return r
+        # Part swaps with the NECK as pivot (the visible anchor in upper-body framing; the pelvis is mostly out of frame
+        # and a pelvis-pivot root swap swings the visible torso by tens of cm): body / hands / face swaps keep the
+        # receiving record's neck position; the cam swap moves the neck to the donor's camera-space position.
+        nO = {k: neck(O[k], k) for k in keys}; nS = {k: neck(recs["S"][k], k) for k in keys}
         for part in PARTS:
-            variants[f"S+O:{part}"] = {k: swap(O[k], recs["S"][k], part) for k in keys}
-            variants[f"O+S:{part}"] = {k: swap(recs["S"][k], O[k], part) for k in keys}
+            if part == "cam":
+                variants["S+O:cam"] = {k: place(recs["S"][k], k, nO[k]) for k in keys}
+                variants["O+S:cam"] = {k: place(O[k], k, nS[k]) for k in keys}
+            else:
+                variants[f"S+O:{part}"] = {k: place(swap(O[k], recs["S"][k], part), k, nS[k]) for k in keys}
+                variants[f"O+S:{part}"] = {k: place(swap(recs["S"][k], O[k], part), k, nO[k]) for k in keys}
         if args.variants:
             variants = {n: v for n, v in variants.items() if n in args.variants}
         summary["variants"] = list(variants)
@@ -282,12 +340,12 @@ def main():
             if i in {0, len(eval_keys) // 2, len(eval_keys) - 1}:
                 grid.append(torch.cat([row["gt"]] + [row[n] for n in variants], 2))
         for k in keys:
-            ds.traked_data[k] = O[k]
+            ds.traked_data[k] = O_raw[k]
         ds._lmdb_engine.close()
         import torchvision
         torchvision.utils.save_image(torch.cat(grid, 1), odir / "compare.jpg")
         np.savez(odir / "per_frame.npz", **{f"{n}|{m}": np.array(v) for n in variants for m, v in per[n].items()})
-        res = {"identity": clip["identity"], "frames_evaluated": len(eval_keys),
+        res = {"identity": clip["identity"], "frames_evaluated": len(eval_keys), "canonical_camera_max_residual_mm": max(canon_resid) * 1000,
                "means": {n: {m: float(np.nanmean(v)) if len(v) else float("nan") for m, v in per[n].items()} for n in variants},
                "driver_ms_median": {n: float(np.median(t) * 1000) for n, t in times.items()}}
         (odir / "summary.json").write_text(json.dumps(res, indent=1) + "\n")

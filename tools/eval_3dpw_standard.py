@@ -338,8 +338,11 @@ def load_model(kind: str, checkpoint: Path, student_config: str, batch_size: int
         tpd.set_config_batch_size(cfg, batch_size, 1)
         model = PearStudentViTPoseMQPipeline(cfg, hand_crop_tokens=kind.endswith("handcrop"))
         state = torch.load(checkpoint, map_location="cpu", weights_only=False)
-        model.load_state_dict(state["student"], strict=True)
-        load_report = {"strict": True, "step": int(state.get("step", -1))}
+        # Hand-crop checkpoints trained before PEAR's fix carry the helper SMPL-X model's FIXED asset buffers
+        # ("_smplx.*", no learned weights); they are dropped, everything else loads strictly.
+        sd = {k: v for k, v in state["student"].items() if not k.startswith("_smplx.")}
+        model.load_state_dict(sd, strict=True)
+        load_report = {"strict": True, "step": int(state.get("step", -1)), "dropped_fixed_smplx_buffers": len(state["student"]) - len(sd)}
     else:
         from models.pipeline.ehm_pipeline import Ehm_Pipeline
         cfg = add_extra_cfgs(ConfigDict(model_config_path="configs/infer.yaml"))
