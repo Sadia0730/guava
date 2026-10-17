@@ -122,3 +122,26 @@ The neutral-output diagnostic (Track A report) and the smoke test suggest the re
 criterion, so the new data is credited only if **A2 beats A2-ctrl by >= 1.0 mm PA-MPJPE on 3DPW test** (author's
 protocol) **and is not worse on COCO PCK@0.05 by more than 0.005**. Outcomes: primary pass + attribution pass -> the new
 GT data helps; primary pass + attribution fail -> the gain is the regularisers; primary fail -> reported per metric.
+
+## C2 — baselines for closing the live-driving gap (registered 2026-10-17, before the full baseline run)
+
+Code: `phase3_dnt/c1_live_gap.py --c2` (additive; the C1 path is unchanged), C1's split, avatars, frames (>= 60),
+masks, metrics and cached driver outputs (`--drivers-cache` = C1 results, read-only). Driver S = L-real best.pt.
+- **B1, render-space alignment (S:B1):** the S render warped by a per-frame 2D similarity (Umeyama) from its ViTPose+
+  keypoints to the ViTPose+ keypoints of the **unmasked live frame** (both scores >= 0.5, >= 4 points; else no warp).
+  (C1's "aligned" numbers used the GT-masked frame; B1 is the deployable version.)
+- **B2, driver-side camera re-fit (S:B2):** per frame, S's camera translation re-solved (linear least squares, 3
+  unknowns) so the COCO-17 keypoints of S's EHM mesh (vertex regressor fitted to ViTPose+ on BEDLAM2, r = 0.20 m) project
+  onto the live frame's ViTPose+ keypoints (score >= 0.5, >= 4 points, else S's translation); rotation, pose, face, hands
+  unchanged.
+- **B2 + One-Euro (S:B2+OE):** B2's translation through a causal One-Euro filter with the live demo's defaults
+  (min_cutoff 2.0 Hz, beta 0.3, d_cutoff 1.0, 30 fps), applied in (x/z, y/z, log z) so the parameters act on
+  radian-like units as in the demo. No parameter is tuned on these clips.
+- **Primary (descriptive, per baseline):** raw masked PSNR and LPIPS vs S and vs O (raw); gap closed =
+  (B − S) / (O − S) on the identity-mean level, 95 % bootstrap CI over identities (1,000 resamples, seed 0). Secondary:
+  keypoint distance, temporal LPIPS, flicker, face / hand crop LPIPS, the same after C1's alignment, added latency.
+- **Reading rule (registered):** a baseline is "useful" if its PSNR gap-closed CI excludes 0; "strong" if the point
+  estimate is >= 50 %. A baseline that makes things worse is reported as such.
+- **Disclosed before registration:** B1's gap closure computed from C1's stored per-frame data (masked-frame keypoints):
+  47 % [36, 66] PSNR, 43 % LPIPS; and a 1-clip / 20-frame smoke test of all three (RUNLOG 18), which showed B2+OE
+  lagging B2 by ~2 frames. These definitions were fixed after that smoke test and are not changed after the full run.

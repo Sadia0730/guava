@@ -99,6 +99,12 @@ def main():
     p.add_argument("--check-canonical", action="store_true", help="also render the raw (non-canonical) O records")
     p.add_argument("--verify-fastpath", action="store_true", help="first evaluated frame: every variant rendered via GUAVA's loader too; assert equal")
     p.add_argument("--max-eval-frames", type=int, default=0, help="smoke tests: evaluate only the first N future frames")
+    p.add_argument("--c2", action="store_true", help="C2 baselines (additive): S:B1 (render warp to the live frame's keypoints), "
+                   "S:B2 (per-frame camera-translation re-fit to the live frame's keypoints), S:B2+OE (B2 + One-Euro on the translation)")
+    p.add_argument("--drivers-cache", type=Path, default=None, help="read drivers.npz from <dir>/<clip>/ (e.g. the C1 results) instead of re-driving")
+    p.add_argument("--kp-regressor", type=Path, default=Path("/raid/ubx858/outputs/dnt/regressor_r020/kp_regressor_coco17.npz"))
+    p.add_argument("--oe", type=float, nargs=3, default=(2.0, 0.3, 1.0), help="One-Euro min_cutoff, beta, d_cutoff (live demo defaults)")
+    p.add_argument("--fps", type=float, default=30.0)
     args = p.parse_args()
     device = torch.device(args.device)
     torch.manual_seed(0)
@@ -250,6 +256,65 @@ def main():
 
     summary = {"split": str(args.split), "clips": {}, "variants": None}
     args.out.mkdir(parents=True, exist_ok=True)
+    kpW = None
+    if args.c2:
+        kr = np.load(args.kp_regressor); kpW = torch.from_numpy(kr["W"][list(kr["sources"]).index("coco")]).float().to(device)
+        import ast, math
+        _src = (ROOT / "main" / "live_pear_guava.py").read_text()                   # the live demo's OneEuroFilter, verbatim
+        _node = next(n for n in ast.parse(_src).body if isinstance(n, ast.ClassDef) and n.name == "OneEuroFilter")
+        _ns = {"math": math, "torch": torch}; exec(ast.get_source_segment(_src, _node), _ns); OneEuro = _ns["OneEuroFilter"]
+
+    def project_view(Xv, tanfov, size):
+        """3DGS camera: view-space points (x right, y down, z forward) -> pixels of the size x size render."""
+        f = size / (2.0 * tanfov); c = (size - 1) / 2.0
+        return np.stack([f * Xv[:, 0] / Xv[:, 2] + c, f * Xv[:, 1] / Xv[:, 2] + c], 1), f, c
+
+    def c2_variants(ds, vid, keys, S):
+        """B2: per frame, the student's camera translation re-fitted (linear least squares, 3 unknowns) so the COCO-17
+        keypoints of its EHM mesh (vertex regressor fitted to ViTPose+, BEDLAM2) project onto the ViTPose+ keypoints of the
+        unmasked live frame (score >= 0.5, >= 4 points; else S's translation is kept). B2+OE: the re-fitted translation
+        through a causal One-Euro filter (live-demo defaults). Rotation, pose, face and hands stay S's."""
+        D = np.diag([-1.0, -1.0, 1.0]); B2, B2oe, chk, ts = {}, {}, [], []
+        filt = OneEuro(*args.oe)
+        for i, k in enumerate(keys):
+            rec = S[k]
+            with torch.no_grad():
+                tg = target_params(ds, rec)
+                V = infer_model.ehm(tg["smplx_coeffs"], tg["flame_coeffs"])["vertices"][0, :10475].float()
+                X = (kpW @ V).double().cpu().numpy()                                       # (17, 3) body frame
+                ds.traked_data[k] = rec
+                img = ds._load_target_info(vid, k)["image"][0:1].clamp(0, 1)
+                kpL, scL = keypoints(img); kpL, scL = kpL[0], scL[0]
+            RT = np.asarray(rec["smplx_coeffs"]["camera_RT_params"], np.float64); R, t = RT[:, :3], RT[:, 3]
+            P = X @ (D @ R).T                                                              # view space without translation
+            ok = scL >= 0.5
+            if i < 3:                                                                       # projection model check vs the render
+                uv, _, _ = project_view(P + D @ t, ds.tanfov, ds.image_size)
+                chk.append((uv, k))
+            t_new = t.copy()
+            if ok.sum() >= 4:
+                uv, f, c = project_view(P + D @ t, ds.tanfov, ds.image_size)
+                rows, rhs = [], []
+                for j in np.flatnonzero(ok):
+                    for a in (0, 1):
+                        r_ = np.zeros(3); r_[a] = f; r_[2] = -(kpL[j, a] - c)
+                        rows.append(r_); rhs.append((kpL[j, a] - c) * P[j, 2] - f * P[j, a])
+                tv = np.linalg.lstsq(np.array(rows), np.array(rhs), rcond=None)[0]           # view-space translation
+                if P[:, 2].min() + tv[2] > 0.1:
+                    t_new = D @ tv
+            r2 = copy.deepcopy(rec); r2["smplx_coeffs"]["camera_RT_params"] = np.concatenate([R, t_new[:, None]], 1).astype(np.float32)
+            B2[k] = r2
+            # filtered in angle-like units (the live demo's defaults were set for radian-scale parameters): view-space
+            # translation -> (x/z, y/z, log z), One-Euro, back
+            tv_ = D @ t_new; q = np.array([tv_[0] / tv_[2], tv_[1] / tv_[2], np.log(tv_[2])])
+            qf = filt(torch.from_numpy(q), i / args.fps).numpy(); zf = np.exp(qf[2])
+            tf = D @ np.array([qf[0] * zf, qf[1] * zf, zf])
+            r3 = copy.deepcopy(rec); r3["smplx_coeffs"]["camera_RT_params"] = np.concatenate([R, tf[:, None]], 1).astype(np.float32)
+            B2oe[k] = r3
+            ts.append(np.concatenate([t, t_new, tf, [ok.sum()]]))
+        c2_variants.check = chk; c2_variants.ts = np.array(ts)
+        return {"S:B2": B2, "S:B2+OE": B2oe}
+
     def process_clip(clip, cdir, odir):
             OmegaConf.set_readonly(cfg.DATASET, False); cfg.DATASET.data_path = str(cdir)
             ds = TrackedData_infer(cfg=cfg, split="test", device=device, test_full=True)
@@ -297,6 +362,8 @@ def main():
             print(f"canonical camera: max vertex residual {max(canon_resid) * 1000:.3f} mm", flush=True)
             # drivers (cached)
             dcache = odir / "drivers.npz"
+            if args.drivers_cache is not None and (args.drivers_cache / clip["clip"] / "drivers.npz").exists():
+                dcache = args.drivers_cache / clip["clip"] / "drivers.npz"              # read-only reuse of C1's driver outputs
             if dcache.exists():
                 recs = np.load(dcache, allow_pickle=True)["records"].item(); times = np.load(dcache, allow_pickle=True)["times"].item()
             else:
@@ -344,6 +411,9 @@ def main():
                 else:
                     variants[f"S+O:{part}"] = {k: place(swap(O[k], recs["S"][k], part), k, nS[k]) for k in keys}
                     variants[f"O+S:{part}"] = {k: place(swap(recs["S"][k], O[k], part), k, nO[k]) for k in keys}
+            if args.c2:
+                variants.update(c2_variants(ds, vid, keys, recs["S"]))
+                np.save(odir / "c2_translation_series.npy", c2_variants.ts)   # per key: t_S (3), t_B2 (3), t_B2+OE (3), n_kp
             if args.variants:
                 variants = {n: v for n, v in variants.items() if n in args.variants}
             summary["variants"] = list(variants)
@@ -397,13 +467,29 @@ def main():
                         tl = lpips_items(Rb * M, pR * M).cpu().numpy(); tla = lpips_items(Rab * M, pRa * M).cpu().numpy()
                         fg = float((G - prevG).abs().mean())
                         fl = ((Rb - pR).abs().mean((1, 2, 3)) - fg).cpu().numpy(); fla = ((Rab - pRa).abs().mean((1, 2, 3)) - fg).cpu().numpy()
+                if args.c2 and "S" in names:
+                    with torch.no_grad():
+                        kpL, scL = keypoints(tgt["image"][0:1].clamp(0, 1)); kpL, scL = kpL[0], scL[0]     # live frame, unmasked
+                        nS_ = names.index("S"); okb = (scL >= 0.5) & (scR[nS_] >= 0.5)
+                        if okb.sum() >= 4:
+                            Ab = umeyama_similarity(kpR[nS_][okb], kpL[okb])
+                            Rb1 = torch.from_numpy(cv2.warpAffine(Rb[nS_].permute(1, 2, 0).cpu().numpy(), Ab, (512, 512), flags=cv2.INTER_LINEAR)).permute(2, 0, 1)[None].to(device)
+                        else:
+                            Rb1 = Rb[nS_:nS_ + 1]
+                        b1, _, _ = batch_metrics(Rb1, G, M, boxes, kpG, scG)
+                    per.setdefault("S:B1", {f"{m}{s_}": [] for m in METRICS for s_ in ("", "_aligned")})
+                    for m in b1[0]:
+                        per["S:B1"][m].append(b1[0][m])
+                    if prev and "B1" in prev:
+                        per["S:B1"]["t_lpips"].append(float(lpips_items(Rb1 * M, prev["B1"] * M).cpu().numpy()[0]))
+                        per["S:B1"]["flicker"].append(float((Rb1 - prev["B1"]).abs().mean() - (G - prevG).abs().mean()))
                 for n, name in enumerate(names):
                     for m in ds_raw[n]:
                         per[name][m].append(ds_raw[n][m]); per[name][m + "_aligned"].append(ds_al[n][m])
                     if prev:
                         per[name]["t_lpips"].append(float(tl[n])); per[name]["t_lpips_aligned"].append(float(tla[n]))
                         per[name]["flicker"].append(float(fl[n])); per[name]["flicker_aligned"].append(float(fla[n]))
-                prev = {"R": Rb, "Ra": Rab}
+                prev = {"R": Rb, "Ra": Rab, **({"B1": Rb1} if args.c2 and "S" in names else {})}
                 row = {"gt": G[0], **{name: Rb[n] for n, name in enumerate(names)}}
                 prevG = G
                 if i in {0, len(eval_keys) // 2, len(eval_keys) - 1}:
@@ -415,9 +501,9 @@ def main():
             ds._lmdb_engine.close()
             import torchvision
             torchvision.utils.save_image(torch.cat(grid, 1), odir / "compare.jpg")
-            np.savez(odir / "per_frame.npz", **{f"{n}|{m}": np.array(v) for n in variants for m, v in per[n].items()})
+            np.savez(odir / "per_frame.npz", **{f"{n}|{m}": np.array(v) for n in per for m, v in per[n].items()})
             res = {"identity": clip["identity"], "frames_evaluated": len(eval_keys), "frames_dropped_unreadable": len(dropped), "canonical_camera_max_residual_mm": max(canon_resid) * 1000,
-                   "means": {n: {m: float(np.nanmean(v)) if len(v) else float("nan") for m, v in per[n].items()} for n in variants},
+                   "means": {n: {m: float(np.nanmean(v)) if len(v) else float("nan") for m, v in per[n].items()} for n in per},
                    "driver_ms_median": {n: float(np.median(t) * 1000) for n, t in times.items()}}
             (odir / "summary.json").write_text(json.dumps(res, indent=1) + "\n")
             summary["clips"][clip["clip"]] = res
