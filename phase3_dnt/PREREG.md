@@ -88,3 +88,37 @@ identities, one clip each).
 - **Caveats stated in advance.** O is offline-smoothed and its identity is fitted over the whole clip (non-causal);
   GUAVA's weights were trained on undisclosed UBody clips, so the split is held out w.r.t. our students, not provably
   w.r.t. GUAVA; masked PSNR over upper-body framings is dominated by the torso area.
+
+## Track A2 — PEAR-free fine-tune with more SMPL-X GT, plus its control (A2-ctrl)
+
+**Registered 2026-10-17, before either full run.** Code: PEAR `4c49d99` (`train_student_gt.py`, `student_gt_losses.py`),
+guava `b20f17e1` (`tools/eval_3dpw_inloop.py`). Disclosure: one 200-step A2-ctrl smoke test (code check; RUNLOG run 15)
+ran before this entry; its 3DPW-**validation** values were seen (live PA-MPJPE 50.84 at step 200). No test split has
+been evaluated for A2 or A2-ctrl.
+
+- **Both runs.** Initialised from Track A `best.pt` (live weights, step 82k). 32k steps, lr 1e-4 (backbone x0.1), warmup
+  500, cosine to 0.05 x lr; seed 20261009; Track A augmentation, losses and keypoint regressor (r = 0.20 m, 16 vertices);
+  EMA 0.9995; 3DPW-val every 2k steps; only `latest.pt` / `best.pt`. Still **no PEAR anywhere**.
+- **Output regularisers (both runs).** `reg_scale` = mean over {hand_scale, head_scale} of mean((x − 1)^2), weight 0.1;
+  `reg_face` = mean over {body exp, FLAME eye_pose, pose, jaw, eyelid, expression, shape} of mean(x^2), weight 0.1
+  (each group averaged over its own elements). Their means are logged on 3DPW-val at every validation.
+- **A2-ctrl** (`configs/dnt/student_pearfree_A2ctrl.yaml`): batch 38 BEDLAM2 + 13 UBody + 13 COCO/MPII (as Track A).
+- **A2** (`configs/dnt/student_pearfree_A2.yaml`): batch 20 BEDLAM2 + 10 BEDLAM v1 + 8 AGORA + 13 UBody + 13 COCO/MPII.
+  AGORA: training split only (validation held out), persons with box height >= 100 px and occlusion / truncation
+  <= 50 %, kids excluded, converted to the neutral locked-head SMPL-X (16 betas) by a vertex fit, rows with fit error
+  > 15 mm dropped. BEDLAM v1: labels in the BEDLAM2 convention (BEDLAM's locked-head 16-beta processing), 6 fps frames,
+  official training scenes only. GT-mesh overlays (10 crops per dataset) are checked before A2 starts. If the data
+  build changes any of this, the change is added here before A2 runs.
+- **Checkpoint selection (validation only).** As Track A: EMA weights at the best-live-validation step unless their
+  validation PA-MPJPE is worse by > 0.3 mm, else the live weights.
+- **Evaluation.** Table 3 rows under the author's protocol (`tools/eval_author_protocol.py`, SHA `9838287b`: COCO,
+  LSP-Extended, 3DPW test) and EHF (fp32), next to L-real and Track A (`phase3_dnt/trackA_report.py` extended).
+
+**Primary criterion (user-specified), for A2:** A2 closes **>= 50 % of Track A's 3DPW-test PA-MPJPE gap to L-real**
+(Track A 59.61, L-real 48.75 mm -> A2 <= 54.18 mm, author's protocol) **AND** COCO PCK@0.05 **>= 0.74**.
+
+**Attribution (registered secondary, also gating the claim "the new data helps"):** A2-ctrl is evaluated identically.
+The neutral-output diagnostic (Track A report) and the smoke test suggest the regularisers alone may meet the primary
+criterion, so the new data is credited only if **A2 beats A2-ctrl by >= 1.0 mm PA-MPJPE on 3DPW test** (author's
+protocol) **and is not worse on COCO PCK@0.05 by more than 0.005**. Outcomes: primary pass + attribution pass -> the new
+GT data helps; primary pass + attribution fail -> the gain is the regularisers; primary fail -> reported per metric.
