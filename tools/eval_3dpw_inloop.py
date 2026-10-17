@@ -38,7 +38,9 @@ class InLoop3DPW:
         self.smpl_regressor = self.smpl["neutral"].J_regressor.float()
 
     @torch.inference_mode()
-    def evaluate(self, model, ehm) -> dict[str, float]:
+    def evaluate(self, model, ehm, output_stats: bool = False) -> dict[str, float]:
+        """output_stats (DNT A2, additive): also return the means of the EHM / FLAME outputs no label supervises
+        (head / hand scale as signed means, body exp and FLAME groups as mean |x|). The metrics are unchanged."""
         was_training = model.training
         model.eval()
         sums, count = {}, 0
@@ -48,6 +50,14 @@ class InLoop3DPW:
             output = model(images)
             output = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()}
                           if isinstance(v, dict) else v.float()) for k, v in output.items()}
+            if output_stats:
+                bp, fp = output["body_param"], output["flame_param"]
+                stats = {"out_hand_scale": bp["hand_scale"].mean(1), "out_head_scale": bp["head_scale"].mean(1),
+                         "out_body_exp_abs": bp["exp"].abs().mean(1)}
+                stats.update({f"out_flame_{k.replace('_params', '')}_abs": fp[k].abs().mean(1) for k in
+                              ("eye_pose_params", "pose_params", "jaw_params", "eyelid_params", "expression_params", "shape_params")})
+                for k, v in stats.items():
+                    sums[k] = sums.get(k, 0.0) + float(v.double().sum())
             pred_x = ev.predicted_smplx_vertices(output, ehm)
             pred = torch.stack([torch.sparse.mm(self.mapping, v) for v in pred_x])
             gt = torch.empty_like(pred)
