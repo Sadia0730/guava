@@ -145,3 +145,34 @@ masks, metrics and cached driver outputs (`--drivers-cache` = C1 results, read-o
 - **Disclosed before registration:** B1's gap closure computed from C1's stored per-frame data (masked-frame keypoints):
   47 % [36, 66] PSNR, 43 % LPIPS; and a 1-clip / 20-frame smoke test of all three (RUNLOG 18), which showed B2+OE
   lagging B2 by ~2 frames. These definitions were fixed after that smoke test and are not changed after the full run.
+
+## PEAR-free student programme: RUN 1 / RUN 2 / RUN 3 / FINAL (registered 2026-10-18, before RUN 1 starts)
+
+Goal (user): a PEAR-free student that beats released PEAR in real time. **No 3DPW training data in any run; no PEAR
+outputs or features anywhere.** Every run: fine-tune from **A2-ctrl best.pt EMA**, 32k steps, lr 1e-4 (backbone x0.1),
+warmup 500, cosine, seed 20261009, same augmentation, 3DPW-val every 2k; runs differ ONLY in labels / data. Checkpoint
+selection as Track A (validation only: EMA at the best-live step unless > 0.3 mm worse). Only latest.pt / best.pt.
+
+**Evaluation (every run, next to PEAR, L-real, A2-ctrl):** author's protocol (COCO, LSP-Extended, 3DPW test;
+`tools/eval_author_protocol.py`, SHA `9838287b`), EHF fp32 (PA-PVE all / hands / face, body PA-MPJPE),
+COCO-WholeBody val face / hand PCK@0.1 / 0.2 (`tools/eval_wholebody_val.py`), jaw / expression magnitude on the 24
+face-check frames (`phase3_dnt/qual_face.py`), face / hand overlay grids (`tools/fa_overlays.py`).
+
+**RUN 1 "face/hand keypoints"** (`configs/dnt/student_pearfree_Fa.yaml`, PEAR `c50688e`): COCO-WholeBody face (68) + hand
+(2 x 21) 2D through the EHM mesh (weights 1.0 / 1.0); UBody jaw + expression (FLAME jaw 1.0 + expression 0.5, x2.0;
+body exp 0.5, x1.0; SMPL-X -> FLAME map: 0.59 mm mean / 37 % relative displacement error, RUNLOG 21); head crops
+(UBody 2.5-3.5 x head-keypoint box, p 0.55; COCO face 1.4-2.0 x, p 0.6); **hand crops 3-4 x the hand box** (p 0.6);
+~15 % zoomed rows; regularisers only on rows without face / hand labels. Batch 38 BEDLAM2 + 13 UBody + 13 COCO/MPII.
+Disclosed: one 200-step smoke test with 1.6-2.4 x hand crops (RUNLOG 23).
+- *Body guard vs A2-ctrl:* 3DPW-test PA-MPJPE <= 50.97 + 0.5 = 51.47 mm and COCO PCK@0.05 >= 0.758 − 0.005 = 0.753.
+- *Credit vs A2-ctrl:* EHF hand or face PA-PVE better by >= 0.5 mm, or COCO-WholeBody hand or face PCK@0.1 higher by >= 0.03.
+
+**RUN 2 "+ SMPL-X face/hand data"** and **RUN 3 "+ expert labels"**: Run 1 + their data / labels (each defined in its
+own PREREG amendment, with the data audit, before it starts). Criteria **vs RUN 1**: body guard 3DPW-test PA-MPJPE not
+worse by > 0.5 mm and COCO PCK@0.05 not lower by > 0.005; credit if EHF hand or face PA-PVE improves by >= 0.5 mm, or
+COCO-WholeBody hand or face PCK@0.1 by >= 0.03. A run "beats RUN 1" = guard passed AND credit earned.
+
+**FINAL:** RUN 1 + every run that beat RUN 1 (both combined if both did) + AGORA / BEDLAM v1 data if A2 (with AGORA)
+beat A2-ctrl under the A2 PREREG; one 32k fine-tune from A2-ctrl EMA; then the refiner retrained with the v2b recipe on
+the FINAL student (PEAR-free). Reported next to PEAR with the same evaluation, plus laptop latency (fp16, CUDA graph,
+batch 1; target <= 10 ms student + refiner, measured by the user).
