@@ -9,7 +9,10 @@ import importlib.util, json, os, sys
 from pathlib import Path
 import cv2, numpy as np, torch
 
-ROOT = Path(__file__).resolve().parents[1]; OUT = Path("/raid/ubx858/outputs/dnt/qual_face"); OUT.mkdir(parents=True, exist_ok=True)
+import argparse
+_ap = argparse.ArgumentParser(); _ap.add_argument("--extra", action="append", default=[], help="NAME=student checkpoint (added after the four reference models)")
+_ap.add_argument("--out", default="/raid/ubx858/outputs/dnt/qual_face"); _args = _ap.parse_args()
+ROOT = Path(__file__).resolve().parents[1]; OUT = Path(_args.out); OUT.mkdir(parents=True, exist_ok=True)
 sys.argv = sys.argv[:1]
 sys.path.insert(0, str(ROOT / "tools")); import eval_ehf_standard as E; ev = E.ev
 def by_path(name, path):
@@ -62,6 +65,7 @@ face_tris = faces[fmask[faces].all(1)]
 MODELS = {"PEAR": ("pear", None), "L-real": ("student_vitpose", "/raid/ubx858/outputs/phase1_task1/screen/L_real/checkpoints/best.pt"),
           "A2-ctrl EMA": ("student_vitpose", "/raid/ubx858/outputs/dnt/trackA2/eval/ckpt/A2ctrl_best_ema.pt"),
           "Track A": ("student_vitpose", "/raid/ubx858/outputs/dnt/trackA/run/checkpoints/best.pt")}
+MODELS.update({e.split("=", 1)[0]: ("student_vitpose", e.split("=", 1)[1]) for e in _args.extra})
 res, stats = {}, {}
 for name, (kind, ck) in MODELS.items():
     m, _ = ev.load_model(kind, Path(ck).resolve() if ck else ev.DEFAULT_TEACHER.resolve(), "configs/student_l70_v2.yaml", 8, dev)
