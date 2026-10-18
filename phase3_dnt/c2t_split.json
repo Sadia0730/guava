@@ -1,0 +1,1805 @@
+{
+ "rule": "UBody training clips (train manifest, ubody_labels train split, 60-300 frames); min(20, available) per scene, the remaining clips allocated in proportion to each scene's remaining candidates; random (seed 0)",
+ "clips": [
+  {
+   "clip": "ConductMusic_S11",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/SoundOfPixels/ConductMusic_S11/ConductMusic_S11.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 250
+  },
+  {
+   "clip": "ConductMusic_S12",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/SoundOfPixels/ConductMusic_S12/ConductMusic_S12.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 278
+  },
+  {
+   "clip": "ConductMusic_S18",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/SoundOfPixels/ConductMusic_S18/ConductMusic_S18.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 129
+  },
+  {
+   "clip": "ConductMusic_S19",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/SoundOfPixels/ConductMusic_S19/ConductMusic_S19.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 101
+  },
+  {
+   "clip": "ConductMusic_S9",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/SoundOfPixels/ConductMusic_S9/ConductMusic_S9.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 255
+  },
+  {
+   "clip": "ConductMusic_S23_Trim3_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S23_Trim3/ConductMusic_S23_Trim3_scene002.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 253
+  },
+  {
+   "clip": "ConductMusic_S23_Trim5_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S23_Trim5/ConductMusic_S23_Trim5_scene002.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 280
+  },
+  {
+   "clip": "ConductMusic_S24_Trim4_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S24_Trim4/ConductMusic_S24_Trim4_scene002.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 295
+  },
+  {
+   "clip": "ConductMusic_S31_Trim11",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S31_Trim11/ConductMusic_S31_Trim11.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 288
+  },
+  {
+   "clip": "ConductMusic_S31_Trim12",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S31_Trim12/ConductMusic_S31_Trim12.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 288
+  },
+  {
+   "clip": "ConductMusic_S31_Trim13",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S31_Trim13/ConductMusic_S31_Trim13.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 288
+  },
+  {
+   "clip": "ConductMusic_S31_Trim14",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S31_Trim14/ConductMusic_S31_Trim14.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 288
+  },
+  {
+   "clip": "ConductMusic_S31_Trim15",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S31_Trim15/ConductMusic_S31_Trim15.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 288
+  },
+  {
+   "clip": "ConductMusic_S31_Trim16",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S31_Trim16/ConductMusic_S31_Trim16.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 288
+  },
+  {
+   "clip": "ConductMusic_S31_Trim18",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S31_Trim18/ConductMusic_S31_Trim18.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 288
+  },
+  {
+   "clip": "ConductMusic_S31_Trim19",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S31_Trim19/ConductMusic_S31_Trim19.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 288
+  },
+  {
+   "clip": "ConductMusic_S31_Trim22_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S31_Trim22/ConductMusic_S31_Trim22_scene001.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 226
+  },
+  {
+   "clip": "ConductMusic_S32_Trim1_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S32_Trim1/ConductMusic_S32_Trim1_scene002.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 184
+  },
+  {
+   "clip": "ConductMusic_S32_Trim8_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S32_Trim8/ConductMusic_S32_Trim8_scene001.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 60
+  },
+  {
+   "clip": "ConductMusic_S33_Trim1_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S33_Trim1/ConductMusic_S33_Trim1_scene001.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 136
+  },
+  {
+   "clip": "ConductMusic_S33_Trim4_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S33_Trim4/ConductMusic_S33_Trim4_scene002.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 61
+  },
+  {
+   "clip": "ConductMusic_S33_Trim5_scene005",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/ConductMusic/YT/ConductMusic_S33_Trim5/ConductMusic_S33_Trim5_scene005.mp4",
+   "scene": "ConductMusic",
+   "num_frames": 65
+  },
+  {
+   "clip": "Entertainment_S1_Trim3_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S1_Trim3/Entertainment_S1_Trim3_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 218
+  },
+  {
+   "clip": "Entertainment_S2_Trim5_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S2_Trim5/Entertainment_S2_Trim5_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 66
+  },
+  {
+   "clip": "Entertainment_S2_Trim6_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S2_Trim6/Entertainment_S2_Trim6_scene001.mp4",
+   "scene": "Entertainment",
+   "num_frames": 64
+  },
+  {
+   "clip": "Entertainment_S3_Trim1_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim1/Entertainment_S3_Trim1_scene003.mp4",
+   "scene": "Entertainment",
+   "num_frames": 245
+  },
+  {
+   "clip": "Entertainment_S3_Trim15_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim15/Entertainment_S3_Trim15_scene003.mp4",
+   "scene": "Entertainment",
+   "num_frames": 67
+  },
+  {
+   "clip": "Entertainment_S3_Trim16_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim16/Entertainment_S3_Trim16_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 66
+  },
+  {
+   "clip": "Entertainment_S3_Trim16_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim16/Entertainment_S3_Trim16_scene003.mp4",
+   "scene": "Entertainment",
+   "num_frames": 138
+  },
+  {
+   "clip": "Entertainment_S3_Trim19_scene006",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim19/Entertainment_S3_Trim19_scene006.mp4",
+   "scene": "Entertainment",
+   "num_frames": 90
+  },
+  {
+   "clip": "Entertainment_S3_Trim24_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim24/Entertainment_S3_Trim24_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 65
+  },
+  {
+   "clip": "Entertainment_S3_Trim24_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim24/Entertainment_S3_Trim24_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 81
+  },
+  {
+   "clip": "Entertainment_S3_Trim25_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim25/Entertainment_S3_Trim25_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 63
+  },
+  {
+   "clip": "Entertainment_S3_Trim29_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim29/Entertainment_S3_Trim29_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 70
+  },
+  {
+   "clip": "Entertainment_S3_Trim33_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim33/Entertainment_S3_Trim33_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 113
+  },
+  {
+   "clip": "Entertainment_S3_Trim35_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim35/Entertainment_S3_Trim35_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 100
+  },
+  {
+   "clip": "Entertainment_S3_Trim37_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim37/Entertainment_S3_Trim37_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 149
+  },
+  {
+   "clip": "Entertainment_S3_Trim38_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim38/Entertainment_S3_Trim38_scene003.mp4",
+   "scene": "Entertainment",
+   "num_frames": 92
+  },
+  {
+   "clip": "Entertainment_S3_Trim39_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim39/Entertainment_S3_Trim39_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 62
+  },
+  {
+   "clip": "Entertainment_S3_Trim4_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S3_Trim4/Entertainment_S3_Trim4_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 65
+  },
+  {
+   "clip": "Entertainment_S5_Trim20_scene005",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S5_Trim20/Entertainment_S5_Trim20_scene005.mp4",
+   "scene": "Entertainment",
+   "num_frames": 72
+  },
+  {
+   "clip": "Entertainment_S5_Trim21_scene005",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S5_Trim21/Entertainment_S5_Trim21_scene005.mp4",
+   "scene": "Entertainment",
+   "num_frames": 60
+  },
+  {
+   "clip": "Entertainment_S5_Trim23_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S5_Trim23/Entertainment_S5_Trim23_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 154
+  },
+  {
+   "clip": "Entertainment_S5_Trim30_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S5_Trim30/Entertainment_S5_Trim30_scene003.mp4",
+   "scene": "Entertainment",
+   "num_frames": 104
+  },
+  {
+   "clip": "Entertainment_S5_Trim4_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S5_Trim4/Entertainment_S5_Trim4_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 91
+  },
+  {
+   "clip": "Entertainment_S5_Trim7_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S5_Trim7/Entertainment_S5_Trim7_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 81
+  },
+  {
+   "clip": "Entertainment_S5_Trim8_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S5_Trim8/Entertainment_S5_Trim8_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 73
+  },
+  {
+   "clip": "Entertainment_S7_Trim10_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S7_Trim10/Entertainment_S7_Trim10_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 106
+  },
+  {
+   "clip": "Entertainment_S7_Trim11_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S7_Trim11/Entertainment_S7_Trim11_scene001.mp4",
+   "scene": "Entertainment",
+   "num_frames": 151
+  },
+  {
+   "clip": "Entertainment_S7_Trim11_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S7_Trim11/Entertainment_S7_Trim11_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 64
+  },
+  {
+   "clip": "Entertainment_S7_Trim4_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S7_Trim4/Entertainment_S7_Trim4_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 103
+  },
+  {
+   "clip": "Entertainment_S7_Trim6_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S7_Trim6/Entertainment_S7_Trim6_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 143
+  },
+  {
+   "clip": "Entertainment_S7_Trim8_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S7_Trim8/Entertainment_S7_Trim8_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 92
+  },
+  {
+   "clip": "Entertainment_S8_Trim10_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim10/Entertainment_S8_Trim10_scene003.mp4",
+   "scene": "Entertainment",
+   "num_frames": 111
+  },
+  {
+   "clip": "Entertainment_S8_Trim13_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim13/Entertainment_S8_Trim13_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 87
+  },
+  {
+   "clip": "Entertainment_S8_Trim16_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim16/Entertainment_S8_Trim16_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 78
+  },
+  {
+   "clip": "Entertainment_S8_Trim18_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim18/Entertainment_S8_Trim18_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 81
+  },
+  {
+   "clip": "Entertainment_S8_Trim20_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim20/Entertainment_S8_Trim20_scene004.mp4",
+   "scene": "Entertainment",
+   "num_frames": 80
+  },
+  {
+   "clip": "Entertainment_S8_Trim25_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim25/Entertainment_S8_Trim25_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 86
+  },
+  {
+   "clip": "Entertainment_S8_Trim3_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim3/Entertainment_S8_Trim3_scene003.mp4",
+   "scene": "Entertainment",
+   "num_frames": 196
+  },
+  {
+   "clip": "Entertainment_S8_Trim30_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim30/Entertainment_S8_Trim30_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 96
+  },
+  {
+   "clip": "Entertainment_S8_Trim39_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim39/Entertainment_S8_Trim39_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 249
+  },
+  {
+   "clip": "Entertainment_S8_Trim4_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim4/Entertainment_S8_Trim4_scene001.mp4",
+   "scene": "Entertainment",
+   "num_frames": 203
+  },
+  {
+   "clip": "Entertainment_S8_Trim41_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim41/Entertainment_S8_Trim41_scene001.mp4",
+   "scene": "Entertainment",
+   "num_frames": 105
+  },
+  {
+   "clip": "Entertainment_S8_Trim45_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim45/Entertainment_S8_Trim45_scene003.mp4",
+   "scene": "Entertainment",
+   "num_frames": 120
+  },
+  {
+   "clip": "Entertainment_S8_Trim46_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim46/Entertainment_S8_Trim46_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 102
+  },
+  {
+   "clip": "Entertainment_S8_Trim48_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim48/Entertainment_S8_Trim48_scene002.mp4",
+   "scene": "Entertainment",
+   "num_frames": 87
+  },
+  {
+   "clip": "Entertainment_S8_Trim48_scene005",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Entertainment/Entertainment_S8_Trim48/Entertainment_S8_Trim48_scene005.mp4",
+   "scene": "Entertainment",
+   "num_frames": 63
+  },
+  {
+   "clip": "LiveVlog_S5_Trim11_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S5_Trim11/LiveVlog_S5_Trim11_scene001.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 163
+  },
+  {
+   "clip": "LiveVlog_S5_Trim11_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S5_Trim11/LiveVlog_S5_Trim11_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 113
+  },
+  {
+   "clip": "LiveVlog_S5_Trim16_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S5_Trim16/LiveVlog_S5_Trim16_scene001.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 182
+  },
+  {
+   "clip": "LiveVlog_S5_Trim16_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S5_Trim16/LiveVlog_S5_Trim16_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 92
+  },
+  {
+   "clip": "LiveVlog_S5_Trim4_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S5_Trim4/LiveVlog_S5_Trim4_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 79
+  },
+  {
+   "clip": "LiveVlog_S6_Trim14_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim14/LiveVlog_S6_Trim14_scene003.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 65
+  },
+  {
+   "clip": "LiveVlog_S6_Trim18_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim18/LiveVlog_S6_Trim18_scene001.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 84
+  },
+  {
+   "clip": "LiveVlog_S6_Trim19_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim19/LiveVlog_S6_Trim19_scene001.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 93
+  },
+  {
+   "clip": "LiveVlog_S6_Trim19_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim19/LiveVlog_S6_Trim19_scene003.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 102
+  },
+  {
+   "clip": "LiveVlog_S6_Trim2_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim2/LiveVlog_S6_Trim2_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 297
+  },
+  {
+   "clip": "LiveVlog_S6_Trim20_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim20/LiveVlog_S6_Trim20_scene001.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 298
+  },
+  {
+   "clip": "LiveVlog_S6_Trim22_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim22/LiveVlog_S6_Trim22_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 261
+  },
+  {
+   "clip": "LiveVlog_S6_Trim23_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim23/LiveVlog_S6_Trim23_scene001.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 108
+  },
+  {
+   "clip": "LiveVlog_S6_Trim25_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim25/LiveVlog_S6_Trim25_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 72
+  },
+  {
+   "clip": "LiveVlog_S6_Trim25_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S6_Trim25/LiveVlog_S6_Trim25_scene004.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 145
+  },
+  {
+   "clip": "LiveVlog_S8_Trim11_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S8_Trim11/LiveVlog_S8_Trim11_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 66
+  },
+  {
+   "clip": "LiveVlog_S8_Trim13_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S8_Trim13/LiveVlog_S8_Trim13_scene001.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 98
+  },
+  {
+   "clip": "LiveVlog_S8_Trim14_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S8_Trim14/LiveVlog_S8_Trim14_scene001.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 97
+  },
+  {
+   "clip": "LiveVlog_S8_Trim15_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S8_Trim15/LiveVlog_S8_Trim15_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 223
+  },
+  {
+   "clip": "LiveVlog_S8_Trim2_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S8_Trim2/LiveVlog_S8_Trim2_scene001.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 61
+  },
+  {
+   "clip": "LiveVlog_S8_Trim6_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S8_Trim6/LiveVlog_S8_Trim6_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 65
+  },
+  {
+   "clip": "LiveVlog_S8_Trim9_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/LiveVlog/YT/LiveVlog_S8_Trim9/LiveVlog_S8_Trim9_scene002.mp4",
+   "scene": "LiveVlog",
+   "num_frames": 149
+  },
+  {
+   "clip": "Movie_S1_scene011",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene011.mp4",
+   "scene": "Movie",
+   "num_frames": 70
+  },
+  {
+   "clip": "Movie_S1_scene020",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene020.mp4",
+   "scene": "Movie",
+   "num_frames": 195
+  },
+  {
+   "clip": "Movie_S1_scene021",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene021.mp4",
+   "scene": "Movie",
+   "num_frames": 89
+  },
+  {
+   "clip": "Movie_S1_scene022",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene022.mp4",
+   "scene": "Movie",
+   "num_frames": 204
+  },
+  {
+   "clip": "Movie_S1_scene027",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene027.mp4",
+   "scene": "Movie",
+   "num_frames": 119
+  },
+  {
+   "clip": "Movie_S1_scene037",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene037.mp4",
+   "scene": "Movie",
+   "num_frames": 73
+  },
+  {
+   "clip": "Movie_S1_scene038",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene038.mp4",
+   "scene": "Movie",
+   "num_frames": 130
+  },
+  {
+   "clip": "Movie_S1_scene041",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene041.mp4",
+   "scene": "Movie",
+   "num_frames": 262
+  },
+  {
+   "clip": "Movie_S1_scene050",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene050.mp4",
+   "scene": "Movie",
+   "num_frames": 61
+  },
+  {
+   "clip": "Movie_S1_scene054",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene054.mp4",
+   "scene": "Movie",
+   "num_frames": 114
+  },
+  {
+   "clip": "Movie_S1_scene055",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene055.mp4",
+   "scene": "Movie",
+   "num_frames": 231
+  },
+  {
+   "clip": "Movie_S1_scene060",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene060.mp4",
+   "scene": "Movie",
+   "num_frames": 200
+  },
+  {
+   "clip": "Movie_S1_scene122",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene122.mp4",
+   "scene": "Movie",
+   "num_frames": 180
+  },
+  {
+   "clip": "Movie_S1_scene124",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene124.mp4",
+   "scene": "Movie",
+   "num_frames": 174
+  },
+  {
+   "clip": "Movie_S1_scene128",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene128.mp4",
+   "scene": "Movie",
+   "num_frames": 64
+  },
+  {
+   "clip": "Movie_S1_scene138",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene138.mp4",
+   "scene": "Movie",
+   "num_frames": 156
+  },
+  {
+   "clip": "Movie_S1_scene153",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene153.mp4",
+   "scene": "Movie",
+   "num_frames": 68
+  },
+  {
+   "clip": "Movie_S1_scene156",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene156.mp4",
+   "scene": "Movie",
+   "num_frames": 66
+  },
+  {
+   "clip": "Movie_S1_scene175",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene175.mp4",
+   "scene": "Movie",
+   "num_frames": 186
+  },
+  {
+   "clip": "Movie_S1_scene177",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene177.mp4",
+   "scene": "Movie",
+   "num_frames": 68
+  },
+  {
+   "clip": "Movie_S1_scene182",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene182.mp4",
+   "scene": "Movie",
+   "num_frames": 63
+  },
+  {
+   "clip": "Movie_S1_scene197",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene197.mp4",
+   "scene": "Movie",
+   "num_frames": 106
+  },
+  {
+   "clip": "Movie_S1_scene199",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene199.mp4",
+   "scene": "Movie",
+   "num_frames": 96
+  },
+  {
+   "clip": "Movie_S1_scene223",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene223.mp4",
+   "scene": "Movie",
+   "num_frames": 75
+  },
+  {
+   "clip": "Movie_S1_scene238",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene238.mp4",
+   "scene": "Movie",
+   "num_frames": 174
+  },
+  {
+   "clip": "Movie_S1_scene239",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene239.mp4",
+   "scene": "Movie",
+   "num_frames": 172
+  },
+  {
+   "clip": "Movie_S1_scene241",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene241.mp4",
+   "scene": "Movie",
+   "num_frames": 107
+  },
+  {
+   "clip": "Movie_S1_scene242",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene242.mp4",
+   "scene": "Movie",
+   "num_frames": 108
+  },
+  {
+   "clip": "Movie_S1_scene312",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene312.mp4",
+   "scene": "Movie",
+   "num_frames": 65
+  },
+  {
+   "clip": "Movie_S1_scene336",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene336.mp4",
+   "scene": "Movie",
+   "num_frames": 119
+  },
+  {
+   "clip": "Movie_S1_scene337",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene337.mp4",
+   "scene": "Movie",
+   "num_frames": 119
+  },
+  {
+   "clip": "Movie_S1_scene353",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene353.mp4",
+   "scene": "Movie",
+   "num_frames": 70
+  },
+  {
+   "clip": "Movie_S1_scene359",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene359.mp4",
+   "scene": "Movie",
+   "num_frames": 88
+  },
+  {
+   "clip": "Movie_S1_scene364",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene364.mp4",
+   "scene": "Movie",
+   "num_frames": 75
+  },
+  {
+   "clip": "Movie_S1_scene367",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene367.mp4",
+   "scene": "Movie",
+   "num_frames": 96
+  },
+  {
+   "clip": "Movie_S1_scene371",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene371.mp4",
+   "scene": "Movie",
+   "num_frames": 171
+  },
+  {
+   "clip": "Movie_S1_scene372",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene372.mp4",
+   "scene": "Movie",
+   "num_frames": 70
+  },
+  {
+   "clip": "Movie_S1_scene373",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene373.mp4",
+   "scene": "Movie",
+   "num_frames": 69
+  },
+  {
+   "clip": "Movie_S1_scene379",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene379.mp4",
+   "scene": "Movie",
+   "num_frames": 222
+  },
+  {
+   "clip": "Movie_S1_scene383",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene383.mp4",
+   "scene": "Movie",
+   "num_frames": 276
+  },
+  {
+   "clip": "Movie_S1_scene385",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Movie/Movie_S1/Movie_S1_scene385.mp4",
+   "scene": "Movie",
+   "num_frames": 190
+  },
+  {
+   "clip": "Olympic_S10_Trim3",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S10_Trim3/Olympic_S10_Trim3.mp4",
+   "scene": "Olympic",
+   "num_frames": 250
+  },
+  {
+   "clip": "Olympic_S12_Trim10_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S12_Trim10/Olympic_S12_Trim10_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 76
+  },
+  {
+   "clip": "Olympic_S12_Trim12_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S12_Trim12/Olympic_S12_Trim12_scene003.mp4",
+   "scene": "Olympic",
+   "num_frames": 72
+  },
+  {
+   "clip": "Olympic_S12_Trim5_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S12_Trim5/Olympic_S12_Trim5_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 140
+  },
+  {
+   "clip": "Olympic_S12_Trim7_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S12_Trim7/Olympic_S12_Trim7_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 71
+  },
+  {
+   "clip": "Olympic_S12_Trim7_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S12_Trim7/Olympic_S12_Trim7_scene004.mp4",
+   "scene": "Olympic",
+   "num_frames": 61
+  },
+  {
+   "clip": "Olympic_S13_Trim2_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S13_Trim2/Olympic_S13_Trim2_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 66
+  },
+  {
+   "clip": "Olympic_S13_Trim3_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S13_Trim3/Olympic_S13_Trim3_scene003.mp4",
+   "scene": "Olympic",
+   "num_frames": 83
+  },
+  {
+   "clip": "Olympic_S1_Trim1_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S1_Trim1/Olympic_S1_Trim1_scene004.mp4",
+   "scene": "Olympic",
+   "num_frames": 91
+  },
+  {
+   "clip": "Olympic_S1_Trim10_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S1_Trim10/Olympic_S1_Trim10_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 107
+  },
+  {
+   "clip": "Olympic_S1_Trim2_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S1_Trim2/Olympic_S1_Trim2_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 258
+  },
+  {
+   "clip": "Olympic_S1_Trim8_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S1_Trim8/Olympic_S1_Trim8_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 248
+  },
+  {
+   "clip": "Olympic_S4_Trim2_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S4_Trim2/Olympic_S4_Trim2_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 67
+  },
+  {
+   "clip": "Olympic_S4_Trim6_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S4_Trim6/Olympic_S4_Trim6_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 94
+  },
+  {
+   "clip": "Olympic_S4_Trim8_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S4_Trim8/Olympic_S4_Trim8_scene003.mp4",
+   "scene": "Olympic",
+   "num_frames": 97
+  },
+  {
+   "clip": "Olympic_S6_Trim15_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S6_Trim15/Olympic_S6_Trim15_scene003.mp4",
+   "scene": "Olympic",
+   "num_frames": 117
+  },
+  {
+   "clip": "Olympic_S6_Trim18_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S6_Trim18/Olympic_S6_Trim18_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 76
+  },
+  {
+   "clip": "Olympic_S6_Trim20_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S6_Trim20/Olympic_S6_Trim20_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 120
+  },
+  {
+   "clip": "Olympic_S6_Trim23_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S6_Trim23/Olympic_S6_Trim23_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 170
+  },
+  {
+   "clip": "Olympic_S6_Trim5_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S6_Trim5/Olympic_S6_Trim5_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 95
+  },
+  {
+   "clip": "Olympic_S7_Trim1_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim1/Olympic_S7_Trim1_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 60
+  },
+  {
+   "clip": "Olympic_S7_Trim10_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim10/Olympic_S7_Trim10_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 94
+  },
+  {
+   "clip": "Olympic_S7_Trim13_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim13/Olympic_S7_Trim13_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 81
+  },
+  {
+   "clip": "Olympic_S7_Trim14_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim14/Olympic_S7_Trim14_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 144
+  },
+  {
+   "clip": "Olympic_S7_Trim22_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim22/Olympic_S7_Trim22_scene003.mp4",
+   "scene": "Olympic",
+   "num_frames": 87
+  },
+  {
+   "clip": "Olympic_S7_Trim24_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim24/Olympic_S7_Trim24_scene004.mp4",
+   "scene": "Olympic",
+   "num_frames": 137
+  },
+  {
+   "clip": "Olympic_S7_Trim36",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim36/Olympic_S7_Trim36.mp4",
+   "scene": "Olympic",
+   "num_frames": 184
+  },
+  {
+   "clip": "Olympic_S7_Trim37_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim37/Olympic_S7_Trim37_scene004.mp4",
+   "scene": "Olympic",
+   "num_frames": 84
+  },
+  {
+   "clip": "Olympic_S7_Trim38_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim38/Olympic_S7_Trim38_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 67
+  },
+  {
+   "clip": "Olympic_S7_Trim4_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim4/Olympic_S7_Trim4_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 66
+  },
+  {
+   "clip": "Olympic_S7_Trim4_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim4/Olympic_S7_Trim4_scene004.mp4",
+   "scene": "Olympic",
+   "num_frames": 79
+  },
+  {
+   "clip": "Olympic_S7_Trim41_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim41/Olympic_S7_Trim41_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 171
+  },
+  {
+   "clip": "Olympic_S7_Trim43_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim43/Olympic_S7_Trim43_scene004.mp4",
+   "scene": "Olympic",
+   "num_frames": 62
+  },
+  {
+   "clip": "Olympic_S7_Trim6_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S7_Trim6/Olympic_S7_Trim6_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 239
+  },
+  {
+   "clip": "Olympic_S9_Trim10",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S9_Trim10/Olympic_S9_Trim10.mp4",
+   "scene": "Olympic",
+   "num_frames": 151
+  },
+  {
+   "clip": "Olympic_S9_Trim3_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S9_Trim3/Olympic_S9_Trim3_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 272
+  },
+  {
+   "clip": "Olympic_S9_Trim8_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S9_Trim8/Olympic_S9_Trim8_scene001.mp4",
+   "scene": "Olympic",
+   "num_frames": 143
+  },
+  {
+   "clip": "Olympic_S9_Trim9_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Olympic/Olympic_S9_Trim9/Olympic_S9_Trim9_scene002.mp4",
+   "scene": "Olympic",
+   "num_frames": 135
+  },
+  {
+   "clip": "Online_class_S3_Trim8_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S3_Trim8/Online_class_S3_Trim8_scene001.mp4",
+   "scene": "Online_class",
+   "num_frames": 91
+  },
+  {
+   "clip": "Online_class_S3_Trim8_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S3_Trim8/Online_class_S3_Trim8_scene002.mp4",
+   "scene": "Online_class",
+   "num_frames": 237
+  },
+  {
+   "clip": "Online_class_S6_Trim15_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S6_Trim15/Online_class_S6_Trim15_scene002.mp4",
+   "scene": "Online_class",
+   "num_frames": 284
+  },
+  {
+   "clip": "Online_class_S7_Trim1",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim1/Online_class_S7_Trim1.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim10",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim10/Online_class_S7_Trim10.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim11",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim11/Online_class_S7_Trim11.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim12",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim12/Online_class_S7_Trim12.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim13",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim13/Online_class_S7_Trim13.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim14",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim14/Online_class_S7_Trim14.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim15",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim15/Online_class_S7_Trim15.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim2",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim2/Online_class_S7_Trim2.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim4",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim4/Online_class_S7_Trim4.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim5",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim5/Online_class_S7_Trim5.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim6",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim6/Online_class_S7_Trim6.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim7",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim7/Online_class_S7_Trim7.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim8",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim8/Online_class_S7_Trim8.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S7_Trim9",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S7_Trim9/Online_class_S7_Trim9.mp4",
+   "scene": "Online_class",
+   "num_frames": 290
+  },
+  {
+   "clip": "Online_class_S8_Trim11",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S8_Trim11/Online_class_S8_Trim11.mp4",
+   "scene": "Online_class",
+   "num_frames": 202
+  },
+  {
+   "clip": "Online_class_S8_Trim13",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S8_Trim13/Online_class_S8_Trim13.mp4",
+   "scene": "Online_class",
+   "num_frames": 278
+  },
+  {
+   "clip": "Online_class_S8_Trim8",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Online_class/Online_class_S8_Trim8/Online_class_S8_Trim8.mp4",
+   "scene": "Online_class",
+   "num_frames": 202
+  },
+  {
+   "clip": "SignLanguage_S1",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S1/SignLanguage_S1.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 189
+  },
+  {
+   "clip": "SignLanguage_S105",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S105/SignLanguage_S105.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 97
+  },
+  {
+   "clip": "SignLanguage_S116",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S116/SignLanguage_S116.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 157
+  },
+  {
+   "clip": "SignLanguage_S12",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S12/SignLanguage_S12.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 101
+  },
+  {
+   "clip": "SignLanguage_S138",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S138/SignLanguage_S138.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 167
+  },
+  {
+   "clip": "SignLanguage_S158",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S158/SignLanguage_S158.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 148
+  },
+  {
+   "clip": "SignLanguage_S169",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S169/SignLanguage_S169.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 140
+  },
+  {
+   "clip": "SignLanguage_S17",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S17/SignLanguage_S17.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 114
+  },
+  {
+   "clip": "SignLanguage_S177",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S177/SignLanguage_S177.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 243
+  },
+  {
+   "clip": "SignLanguage_S183",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S183/SignLanguage_S183.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 239
+  },
+  {
+   "clip": "SignLanguage_S196",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S196/SignLanguage_S196.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 207
+  },
+  {
+   "clip": "SignLanguage_S208",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S208/SignLanguage_S208.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 101
+  },
+  {
+   "clip": "SignLanguage_S214",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S214/SignLanguage_S214.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 114
+  },
+  {
+   "clip": "SignLanguage_S218",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S218/SignLanguage_S218.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 287
+  },
+  {
+   "clip": "SignLanguage_S224",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S224/SignLanguage_S224.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 147
+  },
+  {
+   "clip": "SignLanguage_S226",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S226/SignLanguage_S226.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 198
+  },
+  {
+   "clip": "SignLanguage_S233",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S233/SignLanguage_S233.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 112
+  },
+  {
+   "clip": "SignLanguage_S241",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S241/SignLanguage_S241.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 137
+  },
+  {
+   "clip": "SignLanguage_S253",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S253/SignLanguage_S253.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 132
+  },
+  {
+   "clip": "SignLanguage_S263",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S263/SignLanguage_S263.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 158
+  },
+  {
+   "clip": "SignLanguage_S270",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S270/SignLanguage_S270.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 277
+  },
+  {
+   "clip": "SignLanguage_S273",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S273/SignLanguage_S273.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 283
+  },
+  {
+   "clip": "SignLanguage_S28",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S28/SignLanguage_S28.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 144
+  },
+  {
+   "clip": "SignLanguage_S29",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S29/SignLanguage_S29.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 173
+  },
+  {
+   "clip": "SignLanguage_S3",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S3/SignLanguage_S3.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 174
+  },
+  {
+   "clip": "SignLanguage_S35",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S35/SignLanguage_S35.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 143
+  },
+  {
+   "clip": "SignLanguage_S62",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S62/SignLanguage_S62.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 113
+  },
+  {
+   "clip": "SignLanguage_S63",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S63/SignLanguage_S63.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 184
+  },
+  {
+   "clip": "SignLanguage_S65",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S65/SignLanguage_S65.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 124
+  },
+  {
+   "clip": "SignLanguage_S66",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S66/SignLanguage_S66.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 147
+  },
+  {
+   "clip": "SignLanguage_S67",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S67/SignLanguage_S67.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 137
+  },
+  {
+   "clip": "SignLanguage_S72",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S72/SignLanguage_S72.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 252
+  },
+  {
+   "clip": "SignLanguage_S77",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S77/SignLanguage_S77.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 219
+  },
+  {
+   "clip": "SignLanguage_S80",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S80/SignLanguage_S80.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 180
+  },
+  {
+   "clip": "SignLanguage_S86",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/SignLanguage/SignLanguage_S86/SignLanguage_S86.mp4",
+   "scene": "SignLanguage",
+   "num_frames": 215
+  },
+  {
+   "clip": "Singing_S1_Trim15_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim15/Singing_S1_Trim15_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 173
+  },
+  {
+   "clip": "Singing_S1_Trim23_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim23/Singing_S1_Trim23_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 100
+  },
+  {
+   "clip": "Singing_S1_Trim26_scene005",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim26/Singing_S1_Trim26_scene005.mp4",
+   "scene": "Singing",
+   "num_frames": 66
+  },
+  {
+   "clip": "Singing_S1_Trim27_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim27/Singing_S1_Trim27_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 80
+  },
+  {
+   "clip": "Singing_S1_Trim28_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim28/Singing_S1_Trim28_scene004.mp4",
+   "scene": "Singing",
+   "num_frames": 60
+  },
+  {
+   "clip": "Singing_S1_Trim28_scene005",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim28/Singing_S1_Trim28_scene005.mp4",
+   "scene": "Singing",
+   "num_frames": 62
+  },
+  {
+   "clip": "Singing_S1_Trim3_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim3/Singing_S1_Trim3_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 156
+  },
+  {
+   "clip": "Singing_S1_Trim33_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim33/Singing_S1_Trim33_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 127
+  },
+  {
+   "clip": "Singing_S1_Trim33_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim33/Singing_S1_Trim33_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 126
+  },
+  {
+   "clip": "Singing_S1_Trim37_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim37/Singing_S1_Trim37_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 88
+  },
+  {
+   "clip": "Singing_S1_Trim4_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim4/Singing_S1_Trim4_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 84
+  },
+  {
+   "clip": "Singing_S1_Trim41_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim41/Singing_S1_Trim41_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 60
+  },
+  {
+   "clip": "Singing_S1_Trim46_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim46/Singing_S1_Trim46_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 90
+  },
+  {
+   "clip": "Singing_S1_Trim6_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S1_Trim6/Singing_S1_Trim6_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 107
+  },
+  {
+   "clip": "Singing_S2_Trim11_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S2_Trim11/Singing_S2_Trim11_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 96
+  },
+  {
+   "clip": "Singing_S2_Trim13_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S2_Trim13/Singing_S2_Trim13_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 93
+  },
+  {
+   "clip": "Singing_S2_Trim14_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S2_Trim14/Singing_S2_Trim14_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 66
+  },
+  {
+   "clip": "Singing_S2_Trim17_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S2_Trim17/Singing_S2_Trim17_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 116
+  },
+  {
+   "clip": "Singing_S2_Trim3_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S2_Trim3/Singing_S2_Trim3_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 72
+  },
+  {
+   "clip": "Singing_S2_Trim7_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S2_Trim7/Singing_S2_Trim7_scene004.mp4",
+   "scene": "Singing",
+   "num_frames": 131
+  },
+  {
+   "clip": "Singing_S2_Trim9_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S2_Trim9/Singing_S2_Trim9_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 197
+  },
+  {
+   "clip": "Singing_S3_Trim11_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S3_Trim11/Singing_S3_Trim11_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 71
+  },
+  {
+   "clip": "Singing_S3_Trim14_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S3_Trim14/Singing_S3_Trim14_scene004.mp4",
+   "scene": "Singing",
+   "num_frames": 86
+  },
+  {
+   "clip": "Singing_S3_Trim6_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S3_Trim6/Singing_S3_Trim6_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 94
+  },
+  {
+   "clip": "Singing_S5_Trim1_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S5_Trim1/Singing_S5_Trim1_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 66
+  },
+  {
+   "clip": "Singing_S5_Trim4_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S5_Trim4/Singing_S5_Trim4_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 134
+  },
+  {
+   "clip": "Singing_S5_Trim7_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S5_Trim7/Singing_S5_Trim7_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 99
+  },
+  {
+   "clip": "Singing_S5_Trim9_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S5_Trim9/Singing_S5_Trim9_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 140
+  },
+  {
+   "clip": "Singing_S6_Trim1_scene007",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S6_Trim1/Singing_S6_Trim1_scene007.mp4",
+   "scene": "Singing",
+   "num_frames": 76
+  },
+  {
+   "clip": "Singing_S6_Trim13_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S6_Trim13/Singing_S6_Trim13_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 142
+  },
+  {
+   "clip": "Singing_S6_Trim14_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S6_Trim14/Singing_S6_Trim14_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 82
+  },
+  {
+   "clip": "Singing_S6_Trim2_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S6_Trim2/Singing_S6_Trim2_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 80
+  },
+  {
+   "clip": "Singing_S6_Trim3_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S6_Trim3/Singing_S6_Trim3_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 106
+  },
+  {
+   "clip": "Singing_S6_Trim5_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S6_Trim5/Singing_S6_Trim5_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 98
+  },
+  {
+   "clip": "Singing_S7_Trim11_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S7_Trim11/Singing_S7_Trim11_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 216
+  },
+  {
+   "clip": "Singing_S7_Trim4_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S7_Trim4/Singing_S7_Trim4_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 81
+  },
+  {
+   "clip": "Singing_S7_Trim7_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S7_Trim7/Singing_S7_Trim7_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 102
+  },
+  {
+   "clip": "Singing_S7_Trim8_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S7_Trim8/Singing_S7_Trim8_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 142
+  },
+  {
+   "clip": "Singing_S8_Trim12_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S8_Trim12/Singing_S8_Trim12_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 70
+  },
+  {
+   "clip": "Singing_S8_Trim13_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S8_Trim13/Singing_S8_Trim13_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 81
+  },
+  {
+   "clip": "Singing_S8_Trim4_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S8_Trim4/Singing_S8_Trim4_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 64
+  },
+  {
+   "clip": "Singing_S8_Trim7_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S8_Trim7/Singing_S8_Trim7_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 72
+  },
+  {
+   "clip": "Singing_S8_Trim8_scene005",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S8_Trim8/Singing_S8_Trim8_scene005.mp4",
+   "scene": "Singing",
+   "num_frames": 60
+  },
+  {
+   "clip": "Singing_S9_Trim1_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S9_Trim1/Singing_S9_Trim1_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 75
+  },
+  {
+   "clip": "Singing_S9_Trim11_scene003",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S9_Trim11/Singing_S9_Trim11_scene003.mp4",
+   "scene": "Singing",
+   "num_frames": 64
+  },
+  {
+   "clip": "Singing_S9_Trim18_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S9_Trim18/Singing_S9_Trim18_scene004.mp4",
+   "scene": "Singing",
+   "num_frames": 84
+  },
+  {
+   "clip": "Singing_S9_Trim21_scene002",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S9_Trim21/Singing_S9_Trim21_scene002.mp4",
+   "scene": "Singing",
+   "num_frames": 81
+  },
+  {
+   "clip": "Singing_S9_Trim24_scene001",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Singing/Singing_S9_Trim24/Singing_S9_Trim24_scene001.mp4",
+   "scene": "Singing",
+   "num_frames": 75
+  },
+  {
+   "clip": "Speech_S1_scene020",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S1/Speech_S1_scene020.mp4",
+   "scene": "Speech",
+   "num_frames": 200
+  },
+  {
+   "clip": "Speech_S1_scene021",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S1/Speech_S1_scene021.mp4",
+   "scene": "Speech",
+   "num_frames": 228
+  },
+  {
+   "clip": "Speech_S1_scene026",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S1/Speech_S1_scene026.mp4",
+   "scene": "Speech",
+   "num_frames": 62
+  },
+  {
+   "clip": "Speech_S1_scene036",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S1/Speech_S1_scene036.mp4",
+   "scene": "Speech",
+   "num_frames": 178
+  },
+  {
+   "clip": "Speech_S1_scene038",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S1/Speech_S1_scene038.mp4",
+   "scene": "Speech",
+   "num_frames": 165
+  },
+  {
+   "clip": "Speech_S1_scene046",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S1/Speech_S1_scene046.mp4",
+   "scene": "Speech",
+   "num_frames": 178
+  },
+  {
+   "clip": "Speech_S1_scene052",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S1/Speech_S1_scene052.mp4",
+   "scene": "Speech",
+   "num_frames": 164
+  },
+  {
+   "clip": "Speech_S2_scene004",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene004.mp4",
+   "scene": "Speech",
+   "num_frames": 255
+  },
+  {
+   "clip": "Speech_S2_scene005",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene005.mp4",
+   "scene": "Speech",
+   "num_frames": 136
+  },
+  {
+   "clip": "Speech_S2_scene010",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene010.mp4",
+   "scene": "Speech",
+   "num_frames": 282
+  },
+  {
+   "clip": "Speech_S2_scene011",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene011.mp4",
+   "scene": "Speech",
+   "num_frames": 110
+  },
+  {
+   "clip": "Speech_S2_scene027",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene027.mp4",
+   "scene": "Speech",
+   "num_frames": 128
+  },
+  {
+   "clip": "Speech_S2_scene029",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene029.mp4",
+   "scene": "Speech",
+   "num_frames": 292
+  },
+  {
+   "clip": "Speech_S2_scene045",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene045.mp4",
+   "scene": "Speech",
+   "num_frames": 125
+  },
+  {
+   "clip": "Speech_S2_scene047",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene047.mp4",
+   "scene": "Speech",
+   "num_frames": 154
+  },
+  {
+   "clip": "Speech_S2_scene052",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene052.mp4",
+   "scene": "Speech",
+   "num_frames": 225
+  },
+  {
+   "clip": "Speech_S2_scene064",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S2/Speech_S2_scene064.mp4",
+   "scene": "Speech",
+   "num_frames": 90
+  },
+  {
+   "clip": "Speech_S3_scene005",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene005.mp4",
+   "scene": "Speech",
+   "num_frames": 159
+  },
+  {
+   "clip": "Speech_S3_scene007",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene007.mp4",
+   "scene": "Speech",
+   "num_frames": 127
+  },
+  {
+   "clip": "Speech_S3_scene009",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene009.mp4",
+   "scene": "Speech",
+   "num_frames": 189
+  },
+  {
+   "clip": "Speech_S3_scene019",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene019.mp4",
+   "scene": "Speech",
+   "num_frames": 62
+  },
+  {
+   "clip": "Speech_S3_scene025",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene025.mp4",
+   "scene": "Speech",
+   "num_frames": 226
+  },
+  {
+   "clip": "Speech_S3_scene027",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene027.mp4",
+   "scene": "Speech",
+   "num_frames": 97
+  },
+  {
+   "clip": "Speech_S3_scene032",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene032.mp4",
+   "scene": "Speech",
+   "num_frames": 222
+  },
+  {
+   "clip": "Speech_S3_scene035",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene035.mp4",
+   "scene": "Speech",
+   "num_frames": 214
+  },
+  {
+   "clip": "Speech_S3_scene039",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene039.mp4",
+   "scene": "Speech",
+   "num_frames": 147
+  },
+  {
+   "clip": "Speech_S3_scene042",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene042.mp4",
+   "scene": "Speech",
+   "num_frames": 77
+  },
+  {
+   "clip": "Speech_S3_scene045",
+   "path": "/raid/ubx858/datasets/expanded/UBody/videos/Speech/Speech_S3/Speech_S3_scene045.mp4",
+   "scene": "Speech",
+   "num_frames": 63
+  }
+ ]
+}
