@@ -1,0 +1,16 @@
+{
+ "eager": {
+  "deform_ms": 7.321845779418945,
+  "refiner_ms": 8.225527019500733,
+  "frame_ms": 16.247418212890626
+ },
+ "compile_seconds": 82.03594255447388,
+ "compiled": {
+  "deform_ms": 4.923781099319458,
+  "refiner_ms": 3.370617594718933,
+  "frame_ms": 11.012485122680664,
+  "deform_max_abs_diff_m": 1.3113021850585938e-06,
+  "refiner_max_abs_diff": 0.0038887858390808105,
+  "refiner_psnr_vs_eager_db": 83.79083251953125
+ }
+}

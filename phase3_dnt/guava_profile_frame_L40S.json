@@ -1,0 +1,168 @@
+{
+ "deform": {
+  "wall_ms": 7.458078746795654,
+  "gpu_kernel_ms": 2.68985,
+  "kernels_per_call": 1503.05,
+  "top_ops": [
+   [
+    "aten::bmm",
+    0.523
+   ],
+   [
+    "aten::index",
+    0.16
+   ],
+   [
+    "void at::native::index_elementwise_kernel<128, 4, at::native",
+    0.154
+   ],
+   [
+    "void gemv2T_kernel_val<long, long, float, float, float, floa",
+    0.139
+   ],
+   [
+    "aten::mm",
+    0.131
+   ],
+   [
+    "std::enable_if<!(false), void>::type internal::gemvx::kernel",
+    0.121
+   ],
+   [
+    "std::enable_if<!(false), void>::type internal::gemvx::kernel",
+    0.115
+   ],
+   [
+    "std::enable_if<!(false), void>::type internal::gemvx::kernel",
+    0.114
+   ]
+  ]
+ },
+ "raster": {
+  "wall_ms": 2.539162850379944,
+  "gpu_kernel_ms": 4.7316,
+  "kernels_per_call": 53.0,
+  "top_ops": [
+   [
+    "_RasterizeGaussians",
+    2.235
+   ],
+   [
+    "void renderCUDA<32u>(uint2 const*, unsigned int const*, int,",
+    2.089
+   ],
+   [
+    "Memcpy DtoD (Device -> Device)",
+    0.091
+   ],
+   [
+    "aten::copy_",
+    0.069
+   ],
+   [
+    "void cub::CUB_200700_890_NS::DeviceRadixSortOnesweepKernel<c",
+    0.062
+   ],
+   [
+    "void preprocessCUDA<32>(int, int, int, float const*, glm::ve",
+    0.04
+   ],
+   [
+    "aten::fill_",
+    0.036
+   ],
+   [
+    "void at::native::vectorized_elementwise_kernel<4, at::native",
+    0.035
+   ]
+  ]
+ },
+ "refiner": {
+  "wall_ms": 6.586268796920776,
+  "gpu_kernel_ms": 8.415600000000001,
+  "kernels_per_call": 1091.1,
+  "top_ops": [
+   [
+    "aten::cudnn_convolution",
+    2.349
+   ],
+   [
+    "aten::upsample_bilinear2d",
+    0.935
+   ],
+   [
+    "void at::native::(anonymous namespace)::upsample_bilinear2d_",
+    0.935
+   ],
+   [
+    "cudnn_infer_ampere_scudnn_winograd_128x128_ldg1_ldg4_relu_ti",
+    0.657
+   ],
+   [
+    "cudnn_infer_ampere_scudnn_128x32_relu_small_nn_v1",
+    0.501
+   ],
+   [
+    "void at::native::elementwise_kernel<128, 2, at::native::gpu_",
+    0.311
+   ],
+   [
+    "void cudnn::ops::nchwToNhwcKernel<float, float, float, false",
+    0.253
+   ],
+   [
+    "aten::add_",
+    0.245
+   ]
+  ]
+ },
+ "frame": {
+  "wall_ms": 14.118000659942627,
+  "gpu_kernel_ms": 15.5774,
+  "kernels_per_call": 2050.25,
+  "top_ops": [
+   [
+    "aten::cudnn_convolution",
+    2.341
+   ],
+   [
+    "_RasterizeGaussians",
+    2.236
+   ],
+   [
+    "void renderCUDA<32u>(uint2 const*, unsigned int const*, int,",
+    2.089
+   ],
+   [
+    "aten::upsample_bilinear2d",
+    0.936
+   ],
+   [
+    "void at::native::(anonymous namespace)::upsample_bilinear2d_",
+    0.936
+   ],
+   [
+    "cudnn_infer_ampere_scudnn_winograd_128x128_ldg1_ldg4_relu_ti",
+    0.663
+   ],
+   [
+    "aten::bmm",
+    0.502
+   ],
+   [
+    "cudnn_infer_ampere_scudnn_128x32_relu_small_nn_v1",
+    0.501
+   ]
+  ]
+ },
+ "refiner_fp16": {
+  "wall_ms": 9.76409215927124,
+  "max_abs_diff": NaN,
+  "psnr_vs_fp32_db": NaN
+ },
+ "refiner_bf16": {
+  "wall_ms": 9.961677436828614,
+  "max_abs_diff": 0.03258740156888962,
+  "psnr_vs_fp32_db": 61.0091552734375
+ }
+}
