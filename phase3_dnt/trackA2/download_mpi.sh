@@ -10,7 +10,10 @@ TMP=$(mktemp -d); chmod 700 "$TMP"; trap 'rm -rf "$TMP"' EXIT
 printf 'username=%s&password=%s' "$(urle "$U")" "$(urle "$P")" > "$TMP/post"; unset U P
 mkdir -p "$DEST"
 while read -r dom f; do
-  out="$DEST/$(basename "$f")"
+  # KEEP_DIRS (env, default 0): keep that many parent folders of the remote path (ARCTIC reuses file names across
+  # subjects: s01/box_grab_01.zip vs s02/box_grab_01.zip -- saving by basename appended them onto each other).
+  if [ "${KEEP_DIRS:-0}" -gt 0 ]; then out="$DEST/$(echo "$f" | awk -F/ -v k="${KEEP_DIRS}" '{s=$NF; for(i=1;i<=k;i++) s=$(NF-i)"/"s; print s}')"; else out="$DEST/$(basename "$f")"; fi
+  mkdir -p "$(dirname "$out")"
   need=$(awk -F'\t' -v d="$dom" -v f="$f" '$1==d && $2==f {print $3}' "$HERE/sizes.tsv")
   have=$( [ -f "$out" ] && stat -c %s "$out" || echo 0 )
   [ -n "$need" ] && [ "$have" = "$need" ] && { echo "$(date '+%T') have $f"; continue; }
