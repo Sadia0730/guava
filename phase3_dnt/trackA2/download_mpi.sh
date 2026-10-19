@@ -16,6 +16,7 @@ while read -r dom f; do
   [ -n "$need" ] && [ "$have" = "$need" ] && { echo "$(date '+%T') have $f"; continue; }
   free=$(df -B1 --output=avail /raid | tail -1)
   if [ -n "$need" ] && [ $(( free - (need - have) )) -lt 30000000000 ]; then echo "STOP_DISK before $f (free $((free/1000000000)) GB)"; exit 3; fi
+  if [ -z "$need" ] && [ "$free" -lt 40000000000 ]; then echo "STOP_DISK before $f (size unknown, free $((free/1000000000)) GB < 40)"; exit 3; fi
   wget -q --continue --post-file="$TMP/post" -O "$out" "https://download.is.tue.mpg.de/download.php?domain=$dom&resume=1&sfile=$f"
   got=$(stat -c %s "$out" 2>/dev/null || echo 0)
   if [ -n "$need" ] && [ "$got" != "$need" ]; then echo "SIZE_MISMATCH $f got $got want $need"; else echo "$(date '+%T') ok $f $got"; fi
