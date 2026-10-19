@@ -1,0 +1,27 @@
+{
+ "expression_map": {
+  "basis_relative_residual": 0.5256161414447302,
+  "frames": 2000,
+  "face_vertex_err_mm": {
+   "mean": 1.783795714378357,
+   "median": 1.4577794075012207,
+   "p95": 4.08934690952301
+  },
+  "face_displacement_mm": {
+   "mean": 2.5952534675598145,
+   "p95": 7.748257637023926
+  },
+  "relative_err": {
+   "mean": 0.6196749210357666,
+   "median": 0.627214789390564
+  },
+  "flame_jaw_deg_mean": 3.065929889678955,
+  "flame_expr_norm_mean": 18.40828514099121,
+  "eyelid_abs_mean": 0.10409309715032578
+ },
+ "identity": {
+  "clips": 269,
+  "vertex_err_mm_mean_over_clips": 0.8354727418520811,
+  "vertex_err_mm_max_over_clips": 35.209329287384264
+ }
+}

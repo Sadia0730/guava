@@ -176,3 +176,30 @@ COCO-WholeBody hand or face PCK@0.1 by >= 0.03. A run "beats RUN 1" = guard pass
 beat A2-ctrl under the A2 PREREG; one 32k fine-tune from A2-ctrl EMA; then the refiner retrained with the v2b recipe on
 the FINAL student (PEAR-free). Reported next to PEAR with the same evaluation, plus laptop latency (fp16, CUDA graph,
 batch 1; target <= 10 ms student + refiner, measured by the user).
+
+## GUAVA variants for the two pipelines (registered 2026-10-19, before the full fine-tunes)
+
+User decision: **pipeline A ("pure SMPL-X") = Student A + GUAVA (a); pipeline B ("FLAME face") = Student B + GUAVA (b).**
+Code: `phase3_dnt/guava_finetune.py`, conversion `phase3_dnt/guava_a_conversion.py`. No SMPL-X-based GUAVA checkpoint
+exists (only the released EHM / FLAME `best_160000.pt`), so both variants are fine-tuned from it.
+- **GUAVA (b):** EHM (SMPL-X body + FLAME head) with the EHM-only identity extras off: head_scale = hand_scale = 1, joint
+  offsets = 0, for every training / test frame.
+- **GUAVA (a):** no FLAME; locked-head SMPL-X head (template + 300 shape + 50 expression blend shapes replace the SMPL-X
+  2020 rows of EHM's buffers; teeth rows kept), driven by SMPL-X expression + jaw + eye rotations; no head / hand scale,
+  no joint offsets. Training-data conversion (measured, `guava_a_conversion_report.json`): tracker FLAME expression ->
+  locked-head expression by a least-squares map (basis residual 53 %; on 2,000 tracked frames the face displacement error
+  is 1.78 mm mean vs 2.60 mm displacement, i.e. 62 % relative: the SMPL-X head reproduces ~38 % of the FLAME face motion;
+  100 components would give 47 % basis residual, not used); per-clip identity betas fitted to the tracker identity
+  (0.84 mm mean vertex error). Eyelids have no SMPL-X counterpart.
+- **Data:** the 269 EHM-tracked UBody TRAINING clips (C2-T); 10 clips held out (seed 0) for validation / checkpoint
+  selection; the C1 test identities are never used for training or selection.
+- **Schedule (both identical):** GUAVA's loss and optimiser groups, Adam (0, 0.99), lr 5e-5 linearly to 0.1 x over 20k
+  iterations, batch 6, iteration counter offset 160k (late-training loss schedule), seed 0; validation every 2k
+  (frame 0 source, every 4th frame target, GUAVA metrics); best.pt by validation SSIM (as GUAVA's trainer) + latest.pt.
+- **Smoke tests (disclosed):** 60 iterations each on 12 clips (b: 0.93 it/s, a: 0.84 it/s, 23.8 GB).
+- **Evaluation (descriptive, the user's table):** C1 test split (33 tracked identities), GUAVA's own protocol (main/test.py
+  semantics: frame 0 = source, every later frame = target, GT x mask on black; main/metrics.py metrics PSNR / L1 / SSIM /
+  LPIPS-VGG on the full image), FPS (per-frame animation + rendering) and reconstruction time (avatar creation) with
+  `phase3_dnt/guava_timing.py`; extra: face / hand crop LPIPS, keypoint distance, temporal LPIPS. Rows: released GUAVA,
+  GUAVA (a), GUAVA (b), each driven by the EHM tracker (upper bound) and by its pipeline's student (A -> a, B -> b);
+  cross cells (A -> b, B -> a) optional. No IPS (user).
