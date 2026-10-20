@@ -203,3 +203,31 @@ exists (only the released EHM / FLAME `best_160000.pt`), so both variants are fi
   `phase3_dnt/guava_timing.py`; extra: face / hand crop LPIPS, keypoint distance, temporal LPIPS. Rows: released GUAVA,
   GUAVA (a), GUAVA (b), each driven by the EHM tracker (upper bound) and by its pipeline's student (A -> a, B -> b);
   cross cells (A -> b, B -> a) optional. No IPS (user).
+
+## RUN A ("dataset labels") vs RUN B ("expert labels") — registered 2026-10-19, before either full run
+
+User design: two runs that differ ONLY in the source of the face and hand labels; Run 1 is the reference. No PEAR, no 3DPW
+training data. Configs `configs/dnt/student_pearfree_Run{A,B}.yaml` (PEAR `724656e`): identical except the label
+paths. Pipelines (user): **A = Student A -> GUAVA (a) "pure SMPL-X"; B = Student B -> GUAVA (b) "FLAME face"**.
+- **Training (identical):** from A2-ctrl best.pt EMA; 32k steps, lr 1e-4 (backbone x0.1), warmup 500, cosine, seed 20261009,
+  Run 1 augmentation; batch 64 = BEDLAM2 20 (fixed 400k-row subset, seed 0, shared by both runs and the experts) + AGORA 6
+  (62,569 rows) + ARCTIC 6 (27,364 rows) + Motion-X 12 (366,300 rows) + UBody 8 + COCO/MPII 12; COCO-WholeBody face / hand
+  2D, head crops and hand crops (3-4 x box), ~8 % zoomed rows; regularisers only on rows without face / hand labels;
+  **the UBody hand-mean fix in both** (UBody hand poses are relative to SMPL-X's mean hand; earlier runs used them as
+  absolute). Selection on 3DPW-val as before (EMA at the best-live step unless > 0.3 mm worse).
+- **Run A labels:** hands = each dataset's own (BEDLAM2, AGORA, ARCTIC, Motion-X, UBody); face = SMPL-X expression (10, v1.1 /
+  locked-head basis) + jaw of UBody, Motion-X and AGORA (body-side expression directly; FLAME via the SMPL-X -> FLAME map:
+  0.59 mm / 37 % relative error); BEDLAM2 / ARCTIC / COCO: no 3D face / hand labels beyond the hands above.
+- **Run B labels:** the datasets' own face / hand labels are not used. Hands = HaMeR + WiLoR on every hand crop of the same
+  rows (GT-mesh boxes on the BEDLAM2-format roots, annotated keypoints on UBody / COCO), kept where they agree (< 15 mm
+  root-aligned 3D AND < 8 px 2D), label = their rotation mean, left hands mirrored back; disagreeing hands masked. Face =
+  SMIRK FLAME expression / jaw / eyelids on every face crop, kept if MediaPipe finds the face and reprojection < 2 x the
+  dataset median; no body-side expression. Body labels unchanged.
+- **Disclosed:** Run A 200-step smoke test (3DPW-val PA-MPJPE 47.06 at step 200).
+- **Evaluation (Run 1, A, B, A2-ctrl, L-real, PEAR):** author's protocol (COCO, LSP, 3DPW test), EHF (all / body / hands /
+  face), COCO-WholeBody face / hand PCK@0.1 / 0.2, jaw / expression magnitude on the 24 face-check frames, overlay grids.
+- **Choice rule:** body guard = 3DPW-test PA-MPJPE within 0.5 mm of the better of A / B AND COCO PCK@0.05 within 0.005 of the
+  better; among runs passing it, the higher **S = WB_hand_PCK@0.1 + WB_face_PCK@0.1 − EHF_hand_PA-PVE[mm] / 20** wins
+  (1 mm of EHF hand error = 0.05 PCK). Then the refiner (v2b recipe) is retrained on the chosen student.
+- **Avatar table (descriptive):** C1 test split with GUAVA's protocol; rows released GUAVA / GUAVA (a) / GUAVA (b), driven by the
+  tracker and by their pipeline's student (see "GUAVA variants" above).
