@@ -231,3 +231,9 @@ paths. Pipelines (user): **A = Student A -> GUAVA (a) "pure SMPL-X"; B = Student
   (1 mm of EHF hand error = 0.05 PCK). Then the refiner (v2b recipe) is retrained on the chosen student.
 - **Avatar table (descriptive):** C1 test split with GUAVA's protocol; rows released GUAVA / GUAVA (a) / GUAVA (b), driven by the
   tracker and by their pipeline's student (see "GUAVA variants" above).
+
+## RUN A vs RUN B — decision (2026-10-21, user)
+Both runs failed the registered body guard (A: 3DPW-test PA-MPJPE 48.95 > 48.81; B: COCO PCK@0.05 0.7469 < 0.7496), a case
+the rule did not define (AB_REPORT.md). **User decision: RUN A** (S −0.010 vs −0.065; dataset labels). Pipeline A (Student A
++ GUAVA (a)) is the student line taken forward; the next steps (refiner retrain, pose / orientation / shape improvements) start
+from RUN A `best.pt` EMA (step 32k).
