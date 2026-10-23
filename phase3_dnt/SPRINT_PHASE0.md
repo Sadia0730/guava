@@ -35,3 +35,12 @@ NeuralAnnot cameras use virtual focal lengths (4-10k px): losses on those rows u
 | ARCTIC (no ego view) | 1 | 1.6 % | 0.13M | 7.8 | 3D mocap: root/body/hands (own validity), shape, camera, 2D |
 Augmentation: rotation_mix [[0.4, 30], [0.15, 90], [0.25, 180]] (~20 % no rotation), flip 0.5. MOYO (if registered) would
 take 2 rows from COCO + MPII.
+
+## Decisions (user, 2026-10-23)
+- **NeuralAnnot:** OK for research use only. Cite: G. Moon, H. Choi, K. M. Lee, "NeuralAnnot: Neural Annotator for 3D Human
+  Mesh Training Sets", CVPRW 2022 (labels from the NeuralAnnot_RELEASE / Hand4Whole_RELEASE pages). **No licence is stated
+  for the labels; never use them, or a model trained on them, in anything commercial.**
+- **MOYO:** option B (train takes 221004 Supported Headstand -b, 221004 Supported Shoulderstand -a, 221004 Feathered Peacock
+  -d, 220923 Camel -c; 18.1 GB). MOYO val split never used for training. MOYO licence: non-commercial research only.
+- **Batch mix (64 rows):** BEDLAM2 30, COCO + MPII 10, MOYO 2 (COCO + MPII 12 until MOYO is ready), UBody 5, UBody-EHM 4
+  (hand losses at weight 0.5), Motion-X 7, AGORA v2 3, ARCTIC 3. Pilot control mix: BEDLAM2 38 (the table above).
