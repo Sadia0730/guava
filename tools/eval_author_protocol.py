@@ -181,11 +181,14 @@ def main():
     p.add_argument("--num-workers", type=int, default=12)
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--stride", type=int, default=1)
+    p.add_argument("--head", choices=("ehm", "smplx"), default="ehm",
+                   help="evaluated mesh head (eval_3dpw_standard.HEADS): ehm (FLAME head, default) or smplx (plain SMPL-X); PEAR: ehm")
     args = p.parse_args()
     t0 = time.time()
     ev = load_module("guava_eval_3dpw_standard", ROOT / "tools" / "eval_3dpw_standard.py")
     pck_mod = load_module("guava_eval_pck_hmr2", ROOT / "tools" / "eval_pck_hmr2.py")
     tables = reference_tables()
+    head = ev.effective_head(args.model, args.head)
     device = torch.device(args.device)
     npz, img_root, task = DATASETS[args.dataset]
     labels = EVAL_ROOT / "hmr2_evaluation_data" / npz
@@ -223,11 +226,11 @@ def main():
             if refiner is not None:
                 rot1, cam1 = refiner(feats.float(), None, L.predicted_rotmats(out)[:, :22], cam_from_t(out["pd_cam"][:, :3, 3]))
                 out = refined_output(out, rot1, cam1)
-            v = torch.stack([torch.sparse.mm(mapping, x.float()) for x in ev.predicted_smplx_vertices(out, ehm)])
+            v = torch.stack([torch.sparse.mm(mapping, x.float()) for x in ev.predicted_smplx_vertices(out, ehm, head)])
             j = joints(v, args.dataset)
             px = ev.project_to_image(j, out["pd_cam"], batch["affine"].to(device).float())       # image pixels
         pred2d[idx] = px.cpu().numpy(); pred3d[idx] = j.cpu().numpy()
-    res = {"dataset": args.dataset, "persons": len(ds), "stride": args.stride, "model": args.model,
+    res = {"dataset": args.dataset, "persons": len(ds), "stride": args.stride, "model": args.model, "head": head,
            "checkpoint": str(checkpoint), "load_report": load_report, "refiner": str(args.refiner) if args.refiner else None,
            "labels": str(labels), "labels_sha256": hashlib.sha256(labels.read_bytes()).hexdigest(),
            "reference_script_sha256": hashlib.sha256(REFERENCE.read_bytes()).hexdigest(),

@@ -182,7 +182,10 @@ def main():
     p.add_argument("--hand-crops", choices=("input", "fullres", "oracle"), default="fullres",
                    help="student_vitpose_mq_handcrop only: hand-crop source = the 256 px input, the full-resolution EHF "
                         "image around the predicted hands, or the full-resolution image around the TRUE hands (diagnostic)")
+    p.add_argument("--head", choices=ev.HEADS, default="ehm",
+                   help="evaluated mesh head: ehm (SMPL-X body + FLAME head, default) or smplx (plain SMPL-X 2020); PEAR: ehm")
     args = p.parse_args()
+    head = "gt" if args.model == "gt" else ev.effective_head(args.model, args.head)
     if args.refiner and args.precision != "fp32":
         raise SystemExit("--refiner is supported with --precision fp32 only")
     t0 = time.time()
@@ -243,7 +246,7 @@ def main():
                         out = model(images[s:s + 25].to(device).float().div_(255.0))
                     out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()}
                                if isinstance(v, dict) else v.float()) for k, v in out.items()}
-                verts = ev.predicted_smplx_vertices(out, ehm).double().cpu().numpy()
+                verts = ev.predicted_smplx_vertices(out, ehm, head).double().cpu().numpy()
                 for j, v in enumerate(verts):
                     preds[frames[s + j]["id"]] = v
     rows = []
@@ -258,7 +261,7 @@ def main():
         w = csv.DictWriter(handle, fieldnames=["frame", *keys]); w.writeheader(); w.writerows(rows)
     report = {
         "protocol": "Hand4Whole EHF.evaluate (c94908654b81); crop from EHF OpenPose BODY_25 via PEAR get_bbox x1.2 + process_bbox x1.25",
-        "model": args.model, "frames": len(rows), "metrics_mm": summary, "precision": args.precision,
+        "model": args.model, "head": head, "frames": len(rows), "metrics_mm": summary, "precision": args.precision,
         "refiner": str(args.refiner) if args.refiner else None,
         "hand_crops": args.hand_crops if args.model == "student_vitpose_mq_handcrop" else None,
         "refiner_sha256": ev.sha256(args.refiner) if args.refiner else None,

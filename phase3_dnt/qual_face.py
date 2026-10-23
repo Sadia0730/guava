@@ -11,7 +11,9 @@ import cv2, numpy as np, torch
 
 import argparse
 _ap = argparse.ArgumentParser(); _ap.add_argument("--extra", action="append", default=[], help="NAME=student checkpoint (added after the four reference models)")
-_ap.add_argument("--out", default="/raid/ubx858/outputs/dnt/qual_face"); _args = _ap.parse_args()
+_ap.add_argument("--out", default="/raid/ubx858/outputs/dnt/qual_face")
+_ap.add_argument("--head", choices=("ehm", "smplx"), default="ehm", help="mesh head of the --extra models (eval_3dpw_standard.HEADS); "
+                 "the four reference models keep their EHM (FLAME) head"); _args = _ap.parse_args()
 ROOT = Path(__file__).resolve().parents[1]; OUT = Path(_args.out); OUT.mkdir(parents=True, exist_ok=True)
 sys.argv = sys.argv[:1]
 sys.path.insert(0, str(ROOT / "tools")); import eval_ehf_standard as E; ev = E.ev
@@ -66,6 +68,7 @@ MODELS = {"PEAR": ("pear", None), "L-real": ("student_vitpose", "/raid/ubx858/ou
           "A2-ctrl EMA": ("student_vitpose", "/raid/ubx858/outputs/dnt/trackA2/eval/ckpt/A2ctrl_best_ema.pt"),
           "Track A": ("student_vitpose", "/raid/ubx858/outputs/dnt/trackA/run/checkpoints/best.pt")}
 MODELS.update({e.split("=", 1)[0]: ("student_vitpose", e.split("=", 1)[1]) for e in _args.extra})
+HEAD = {n: (ev.effective_head(MODELS[n][0], _args.head) if n in {e.split("=", 1)[0] for e in _args.extra} else "ehm") for n in MODELS}
 res, stats = {}, {}
 for name, (kind, ck) in MODELS.items():
     m, _ = ev.load_model(kind, Path(ck).resolve() if ck else ev.DEFAULT_TEACHER.resolve(), "configs/student_l70_v2.yaml", 8, dev)
@@ -73,7 +76,7 @@ for name, (kind, ck) in MODELS.items():
     with torch.inference_mode():
         for s in range(0, len(frames), 8):
             o = m(imgs[s:s + 8]); o = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float()) for k, v in o.items()}
-            mesh = ehm(o["body_param"], o["flame_param"], pose_type="rotmat")
+            mesh = ev.predicted_mesh(o, ehm, HEAD[name])
             cam = o["pd_cam"]
             def proj(P):
                 c = torch.einsum("bij,bkj->bki", cam[:, :3, :3], P) + cam[:, None, :3, 3]
@@ -123,7 +126,7 @@ for fi, (tag, img, info) in enumerate(frames):
     g = np.concatenate([np.concatenate(top, 1), np.concatenate(bot, 1)], 0)
     cv2.imwrite(str(OUT / f"{fi:02d}_{tag}.jpg"), cv2.cvtColor(g, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])
     rows_all.append(g)
-json.dump({"frames": [{"tag": f[0], **f[2]} for f in frames], "stats": stats,
+json.dump({"frames": [{"tag": f[0], **f[2]} for f in frames], "stats": stats, "head": HEAD,
            "per_frame": {n: [{k: v for k, v in o.items() if k not in ("uv", "z", "lm")} for o in res[n]] for n in MODELS}},
           open(OUT / "summary.json", "w"), indent=1)
 print("QUAL_FACE_DONE", flush=True)

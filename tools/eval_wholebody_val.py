@@ -17,7 +17,8 @@ p.add_argument("--model", required=True, choices=("pear", "student_vitpose")); p
 p.add_argument("--student-config", default="configs/student_l70_v2.yaml"); p.add_argument("--output-dir", type=Path, required=True)
 p.add_argument("--wholebody", type=Path, default=Path("/raid/ubx858/datasets/train2d/coco_wholebody/coco_wholebody_val_v1.0.json"))
 p.add_argument("--images", type=Path, default=Path("/raid/ubx858/datasets/eval_suite/coco/val2017")); p.add_argument("--device", default="cuda:0")
-a = p.parse_args(); t0 = time.time(); dev = torch.device(a.device)
+p.add_argument("--head", choices=ev.HEADS, default="ehm", help="evaluated mesh head: ehm (FLAME head, default) or smplx (plain SMPL-X 2020); PEAR: ehm")
+a = p.parse_args(); t0 = time.time(); dev = torch.device(a.device); head = ev.effective_head(a.model, a.head)
 W = json.loads(a.wholebody.read_text()); imgs = {im["id"]: im for im in W["images"]}
 items = []
 for an in W["annotations"]:
@@ -42,7 +43,7 @@ for s in range(0, len(items), 32):
     x = torch.from_numpy(np.stack(crops)).permute(0, 3, 1, 2).to(dev).float() / 255.0
     with torch.inference_mode():
         o = model(x); o = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float()) for k, v in o.items()}
-        dw = smplx_joints_to_dwpose(ehm(o["body_param"], o["flame_param"], pose_type="rotmat")["joints"])[0][..., :3]
+        dw = smplx_joints_to_dwpose(ev.predicted_mesh(o, ehm, head)["joints"])[0][..., :3]
         uv = (tpd.project_joints(o["pd_cam"], dw) * ev.IMAGE_SIZE).cpu().numpy()            # crop px
     for b, (fn, box, parts) in enumerate(batch):
         Ainv = cv2.invertAffineTransform(np.asarray(affs[b], np.float64)); P = uv[b] @ Ainv[:, :2].T + Ainv[:, 2]
@@ -52,7 +53,7 @@ for s in range(0, len(items), 32):
             key = "face" if k == "face" else "hands"
             for al in (0.1, 0.2): hits[key][al].extend((d <= al).tolist())
             nme[key].append(float(d.mean()))
-summ = {"model": a.model, "checkpoint": str(a.checkpoint), "load_report": rep, "persons": len(items),
+summ = {"model": a.model, "head": head, "checkpoint": str(a.checkpoint), "load_report": rep, "persons": len(items),
         "parts": {k: len(v) for k, v in nme.items()}, **{f"pck{int(al*100):02d}_{k}": float(np.mean(hits[k][al])) for k in hits for al in (0.1, 0.2)},
         **{f"nme_{k}": float(np.mean(v)) for k, v in nme.items()}, "seconds": time.time() - t0, "evaluator": "tools/eval_wholebody_val.py"}
 a.output_dir.mkdir(parents=True, exist_ok=True); (a.output_dir / "summary.json").write_text(json.dumps(summ, indent=1)); print(json.dumps(summ, indent=1))

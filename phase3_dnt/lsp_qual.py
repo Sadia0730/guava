@@ -10,7 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import eval_author_protocol as eap
 ap = argparse.ArgumentParser(); ap.add_argument("--model", action="append", required=True); ap.add_argument("--out", type=Path, required=True)
-ap.add_argument("--size", type=int, default=512); a = ap.parse_args()
+ap.add_argument("--size", type=int, default=512)
+ap.add_argument("--head", choices=("ehm", "smplx"), default="ehm", help="mesh head of the student models (PEAR: ehm)"); a = ap.parse_args()
 ev = eap.load_module("guava_eval_3dpw_standard", ROOT / "tools" / "eval_3dpw_standard.py")
 npz, img_root, _ = eap.DATASETS["LSP-EXTENDED"]
 ds = eap.HMR2Crops(ev, eap.EVAL_ROOT / "hmr2_evaluation_data" / npz, img_root)
@@ -64,7 +65,7 @@ for spec in a.model:
     with torch.inference_mode():
         out = model(x)
         out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float()) for k, v in out.items()}
-        v = ev.predicted_smplx_vertices(out, ehm).cpu().numpy(); rt = out["pd_cam"].cpu().numpy()
+        v = ev.predicted_smplx_vertices(out, ehm, ev.effective_head(kind, a.head)).cpu().numpy(); rt = out["pd_cam"].cpu().numpy()
     cols.append((name, [overlay(base[k], v[k], rt[k]) for k in range(len(order))]))
     del model; torch.cuda.empty_cache(); print("rendered", name, flush=True)
 os.chdir(cwd); a.out.mkdir(parents=True, exist_ok=True)
@@ -74,5 +75,6 @@ for s in range(0, len(order), 6):
     for k in range(s, min(s + 6, len(order))):
         rows.append(np.concatenate([np.pad(im[k], ((2, 2), (2, 2), (0, 0)), constant_values=255) [2:-2, 2:-2] for _, im in cols], 1))
     cv2.imwrite(str(a.out / f"lsp_qual_{s // 6}.jpg"), cv2.cvtColor(np.concatenate(rows, 0), cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 90])
-json.dump({"selection": sel, "images": [ds.imgname[i] for i in order], "models": a.model}, open(a.out / "selection.json", "w"), indent=1)
+json.dump({"selection": sel, "images": [ds.imgname[i] for i in order], "models": a.model,
+           "head": {s.split("=", 1)[0]: ev.effective_head(s.split("=", 1)[1].split(":", 1)[0], a.head) for s in a.model}}, open(a.out / "selection.json", "w"), indent=1)
 print("done", a.out)

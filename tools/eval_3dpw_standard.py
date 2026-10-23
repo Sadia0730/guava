@@ -358,13 +358,83 @@ def load_model(kind: str, checkpoint: Path, student_config: str, batch_size: int
     return model.to(device).eval(), load_report
 
 
-def predicted_smplx_vertices(model_output, ehm) -> torch.Tensor:
-    """EHM-s vertices (SMPL-X topology) in OpenCV camera axes, metres.
+# Evaluated-mesh head. "ehm" (default, the original behaviour): EHM-s = SMPL-X body + FLAME head (EHM_v2).
+# "smplx" (SPRINT): the plain SMPL-X 2020 layer (third_party/PEAR/models/smplx/SMPLXV2.py, SMPLX_NEUTRAL_2020.npz,
+# n_shape 300 with the model's 200 shape values zero-padded, first 50 expression components) driven by the model's
+# body_param only: root / body / hand rotations, shape, body expression `exp`, jaw = body_param["jaw_pose"] (when the
+# model predicts it; otherwise the FLAME jaw rotation flame_param["jaw_params"], the only jaw these heads have), eye pose
+# body_param["eye_pose"] or identity; no FLAME vertices, no eyelids, head / hand scale 1, no joint offsets.
+# PEAR (kind "pear") always uses the EHM head (it has a FLAME head): see effective_head().
+HEADS = ("ehm", "smplx")
+# EHM_v2 replaces only these entries of SMPLXV2.source_idxs (knees, neck, head, shoulders, elbows, wrists) with the
+# SMPLX_to_J14 regressor joints; the pure SMPL-X joints use the same rule so joint definitions match the EHM path.
+EHM_J14_REPLACE = (2, 3, 6, 7, 8, 9, 10, 11, 12, 13)
+_PURE_SMPLX = {}
+
+
+def effective_head(kind: str, head: str) -> str:
+    if head not in HEADS:
+        raise ValueError(f"head must be one of {HEADS}, got {head!r}")
+    return "ehm" if kind == "pear" else head
+
+
+def pure_smplx_layer(device):
+    key = str(device)
+    if key not in _PURE_SMPLX:
+        if str(PEAR_ROOT) not in sys.path:
+            sys.path.insert(0, str(PEAR_ROOT))
+        from models.smplx.SMPLXV2 import SMPLX
+        layer = SMPLX(str(PEAR_ROOT / "assets" / "SMPLX"), n_shape=300, n_exp=50).to(device).eval()
+        layer.use_joint_regressor = False          # J14 replacement done below with EHM's subset
+        for prm in layer.parameters():
+            prm.requires_grad_(False)
+        _PURE_SMPLX[key] = layer
+    return _PURE_SMPLX[key]
+
+
+def pure_smplx_mesh(model_output) -> dict:
+    """Plain SMPL-X 2020 mesh of the model output: {"vertices" (B, 10475, 3), "joints" (B, 145, 3)} with EHM_v2's joint
+    layout (55 kinematic, 68 landmarks, 22 extra; EHM's J14 replacement subset)."""
+    bp = model_output["body_param"]
+    fp = model_output.get("flame_param") or {}
+    shape = bp["shape"].float()
+    b = shape.shape[0]
+    layer = pure_smplx_layer(shape.device)
+    jaw = bp.get("jaw_pose")
+    if jaw is None and fp.get("jaw_params") is not None:
+        from pytorch3d.transforms import axis_angle_to_matrix
+        jaw = axis_angle_to_matrix(fp["jaw_params"].float().reshape(b, 3))[:, None]
+    exp = bp.get("exp")
+    exp = shape.new_zeros(b, 50) if exp is None else exp.float()[:, :50]
+    params = {"global_pose": bp["global_pose"].float(), "body_pose": bp["body_pose"].float(),
+              "left_hand_pose": bp["left_hand_pose"].float(), "right_hand_pose": bp["right_hand_pose"].float(),
+              "shape": shape, "exp": exp, "jaw_pose": None if jaw is None else jaw.float().reshape(b, 1, 3, 3),
+              "eye_pose": None if bp.get("eye_pose") is None else bp["eye_pose"].float().reshape(b, 2, 3, 3),
+              "body_cam": shape.new_tensor([[1.0, 0.0, 0.0]]).expand(b, 3)}
+    out = layer(params, pose_type="rotmat")
+    verts, joints = out["vertices"], out["joints"].clone()
+    reg = torch.einsum("ji,bik->bjk", layer.extra_joint_regressor, verts)
+    sel = torch.tensor(EHM_J14_REPLACE, device=verts.device)
+    joints[:, layer.source_idxs[sel].long()] = reg[:, layer.target_idxs[sel].long()]
+    return {"vertices": verts, "joints": joints}
+
+
+def predicted_mesh(model_output, ehm, head: str = "ehm") -> dict:
+    """Body-model output of a model prediction; head "ehm" returns EHM_v2's dict unchanged."""
+    if head == "ehm":
+        return ehm(model_output["body_param"], model_output["flame_param"], pose_type="rotmat")
+    if head == "smplx":
+        return pure_smplx_mesh(model_output)
+    raise ValueError(f"head must be one of {HEADS}, got {head!r}")
+
+
+def predicted_smplx_vertices(model_output, ehm, head: str = "ehm") -> torch.Tensor:
+    """EHM-s vertices (SMPL-X topology) in OpenCV camera axes, metres (head "smplx": plain SMPL-X, see HEADS).
 
     PEAR's camera is R = diag(-1, -1, 1) (PyTorch3D axes); converting PyTorch3D to OpenCV
     multiplies x and y by -1 again, so body-model coordinates are already OpenCV camera
     axes up to translation, which every metric here removes."""
-    mesh = ehm(model_output["body_param"], model_output["flame_param"], pose_type="rotmat")
+    mesh = predicted_mesh(model_output, ehm, head)
     return mesh["vertices"][:, :10475]
 
 
@@ -414,6 +484,9 @@ def parse_args():
     p.add_argument("--precision", choices=("fp32", "fp16", "bf16"), default="fp32")
     p.add_argument("--stride", type=int, default=1, help="evaluate every Nth sample (smoke tests only)")
     p.add_argument("--save-overlays", type=int, default=0, help="save N 2D reprojection overlays")
+    p.add_argument("--head", choices=HEADS, default="ehm",
+                   help="evaluated mesh head: ehm (SMPL-X body + FLAME head, default) or smplx (plain SMPL-X 2020, no FLAME, "
+                        "head / hand scale 1); PEAR always uses ehm")
     return p.parse_args()
 
 
@@ -483,6 +556,7 @@ def main():
     finally:
         os.chdir(cwd)
 
+    head = effective_head(args.model, args.head)
     h36m = torch.from_numpy(np.load(args.h36m_regressor)).float().to(device)
     mapping = load_smplx_to_smpl(args.smplx2smpl).to(device)
     smpl = {g: build_smpl(args.smpl_dir, g, device) for g in ("male", "female", "neutral")}
@@ -503,7 +577,7 @@ def main():
                 output = model(images)
             output = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()}
                           if isinstance(v, dict) else v.float()) for k, v in output.items()}
-            pred_x = predicted_smplx_vertices(output, ehm)
+            pred_x = predicted_smplx_vertices(output, ehm, head)
             pred = torch.stack([torch.sparse.mm(mapping, v) for v in pred_x])
             gt = torch.empty_like(pred)
             pose = torch.from_numpy(np.stack([s.pose for s in batch_samples])).to(device)
@@ -551,7 +625,7 @@ def main():
             "split": args.split, "person_frames": len(rows), "stride": args.stride,
             "crop": args.crop, "precision": args.precision,
             "gt": "gendered SMPL (poses, 10 betas) rotated by cam_poses into camera frame",
-            "pred": "EHM-s vertices[:10475] -> SMPL topology via fixed SMPLX2SMPL correspondence",
+            "pred": ("EHM-s" if head == "ehm" else "plain SMPL-X 2020 (--head smplx)") + " vertices[:10475] -> SMPL topology via fixed SMPLX2SMPL correspondence",
             "joints": "Human3.6M regressor -> 14 LSP joints (H36M_TO_J14)",
             "centring": "hip midpoint of the 14 joints (indices 2, 3)",
             "pa": "per-frame similarity Procrustes on the 14 joints",
@@ -560,7 +634,7 @@ def main():
                            "neutral SMPL regressor on both meshes (NON-STANDARD)",
             "detector_misses": int(sum(r["detector_miss"] for r in rows)),
         },
-        "model": args.model, "checkpoint": str(checkpoint), "checkpoint_sha256": sha256(checkpoint),
+        "model": args.model, "head": head, "checkpoint": str(checkpoint), "checkpoint_sha256": sha256(checkpoint),
         "load_report": load_report,
         "assets": {
             "h36m_regressor_sha256": sha256(args.h36m_regressor), "smplx2smpl_zip_sha256": sha256(args.smplx2smpl),
