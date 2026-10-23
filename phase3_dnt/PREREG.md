@@ -237,3 +237,23 @@ Both runs failed the registered body guard (A: 3DPW-test PA-MPJPE 48.95 > 48.81;
 the rule did not define (AB_REPORT.md). **User decision: RUN A** (S −0.010 vs −0.065; dataset labels). Pipeline A (Student A
 + GUAVA (a)) is the student line taken forward; the next steps (refiner retrain, pose / orientation / shape improvements) start
 from RUN A `best.pt` EMA (step 32k).
+
+## SPRINT Phase 2 pilots (registered 2026-10-23, before the runs; validation only, no test set)
+Code PEAR ca826b1, configs `configs/sprint/sprint_pilot{,_ctrl,_b38}.yaml`. All: 16k steps from Run A best.pt EMA, lr 1e-4
+(backbone x0.1), warmup 500, cosine, bf16, EMA 0.9995, seed 20261023, best/latest only; pure SMPL-X head (SMPLX_NEUTRAL_2020,
+200 shape, 50 expression; face labels converted to SMPL-X 2020, `sprint/data/face_conversion_report.json`); Phase 0 data
+(AGORA v2, ARCTIC fixed, BEDLAM2 full + tilt repeats, NeuralAnnot COCO / MPII, UBody-EHM with hand weight 0.5, rotation_mix
+[[0.4,30],[0.15,90],[0.25,180]], shape_fix). MOYO is not in the pilots (download in progress); COCO + MPII take its 2 rows.
+- **P1:** batch BEDLAM2 30 / AGORA 3 / ARCTIC 3 / Motion-X 7 / UBody-EHM 4 / UBody 5 / COCO+MPII 12; ingredients ON: shape token
+  (p 0.6, noise 0.05), camera input + full-frame 2D loss (1.0), TALS (tau 0.01), orientation bins (CE 0.1), face-visibility aux (0.1),
+  dense-keypoint aux (1.0, BEDLAM2 + AGORA).
+- **P2 (control):** P1's data and batch, ingredients OFF.
+- **P3 (mix control):** P1's ingredients, batch BEDLAM2 38 / AGORA 2 / ARCTIC 1 / Motion-X 4 / UBody-EHM 3 / UBody 4 / COCO+MPII 12.
+- **Validation (every 2k, EMA):** 3DPW-val PA-MPJPE / MPJPE; held-out sources never trained on (`sprint/data/val_holdout/holdout.json`):
+  BEDLAM2 val jobs, ARCTIC subject s10, 8 of 75 UBody-EHM identities: PA-MPJPE (22 body joints), upper-body PA, MPJPE, root and
+  hand rotation error. Overfitting flag: a source whose held-out error rises by > 5 % from its best while 3DPW-val does not.
+- **Decision rule (reported to the user before Phase 3):** the ingredient package is kept if P1 is not worse than P2 on 3DPW-val
+  PA-MPJPE (best EMA, tolerance 0.3 mm) and not worse on the held-out sources' PA-MPJPE (tolerance 5 %). Ingredients that can be
+  switched at inference without retraining (orientation bins: pred vs raw; shape token: given vs none on holdouts) are also
+  reported separately; single-ingredient ablation runs are not part of this pilot (offered to the user). The batch mix is chosen
+  between P1 and P3 by the same rule.
