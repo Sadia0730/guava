@@ -214,6 +214,7 @@ class Sample:
     cam_rotation: np.ndarray  # (3, 3) world -> camera
     keypoints: np.ndarray  # (18, 3) OpenPose
     image: str
+    cam_K: np.ndarray | None = None   # (3, 3) sequence intrinsics (SPRINT camera input)
 
 
 def load_samples(dataset_root: Path, split: str) -> list[Sample]:
@@ -232,6 +233,7 @@ def load_samples(dataset_root: Path, split: str) -> list[Sample]:
                     cam_rotation=np.asarray(seq["cam_poses"][frame], dtype=np.float32)[:3, :3],
                     keypoints=np.asarray(seq["poses2d"][person][frame], dtype=np.float32).T,
                     image=str(dataset_root / "imageFiles" / path.stem / f"image_{frame:05d}.jpg"),
+                    cam_K=np.asarray(seq["cam_intrinsics"], dtype=np.float32) if "cam_intrinsics" in seq else None,
                 ))
     return samples
 
@@ -265,12 +267,18 @@ class CropDataset(Dataset):
         affine = box_to_affine(box)
         crop = cv2.warpAffine(image, affine, (IMAGE_SIZE, IMAGE_SIZE), flags=cv2.INTER_LINEAR)
         crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-        return {
+        out = {
             "index": index,
             "image": torch.from_numpy(crop).permute(2, 0, 1).contiguous(),
             "affine": torch.from_numpy(affine),
             "detector_miss": miss,
         }
+        if getattr(sample, "cam_K", None) is not None:      # SPRINT camera input (real 3DPW intrinsics)
+            import math
+            net = np.vstack([affine, [0, 0, 1]]); c = np.linalg.inv(net) @ np.array([IMAGE_SIZE / 2, IMAGE_SIZE / 2, 1.0])
+            b = IMAGE_SIZE / math.sqrt(abs(np.linalg.det(net[:2, :2]))); f = float(sample.cam_K[0, 0])
+            out["cam_feat"] = torch.tensor([(c[0] - width / 2) / f, (c[1] - height / 2) / f, b / f, math.log(f / width), 1.0], dtype=torch.float32)
+        return out
 
 
 # ---------------------------------------------------------------------------

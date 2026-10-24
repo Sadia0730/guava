@@ -38,7 +38,7 @@ class InLoop3DPW:
         self.smpl_regressor = self.smpl["neutral"].J_regressor.float()
 
     @torch.inference_mode()
-    def evaluate(self, model, ehm, output_stats: bool = False) -> dict[str, float]:
+    def evaluate(self, model, ehm, output_stats: bool = False, camera: bool = False, head: str = "ehm") -> dict[str, float]:
         """output_stats (DNT A2, additive): also return the means of the EHM / FLAME outputs no label supervises
         (head / hand scale as signed means, body exp and FLAME groups as mean |x|). The metrics are unchanged."""
         was_training = model.training
@@ -47,7 +47,7 @@ class InLoop3DPW:
         for batch in self.loader:
             bs = [self.samples[i] for i in batch["index"].tolist()]
             images = batch["image"].to(self.device, non_blocking=True).float().div_(255.0)
-            output = model(images)
+            output = model(images, cond={"cam": batch["cam_feat"].to(self.device).float()}) if camera else model(images)
             output = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()}
                           if isinstance(v, dict) else v.float()) for k, v in output.items()}
             if output_stats:
@@ -58,7 +58,7 @@ class InLoop3DPW:
                               ("eye_pose_params", "pose_params", "jaw_params", "eyelid_params", "expression_params", "shape_params")})
                 for k, v in stats.items():
                     sums[k] = sums.get(k, 0.0) + float(v.double().sum())
-            pred_x = ev.predicted_smplx_vertices(output, ehm)
+            pred_x = ev.predicted_smplx_vertices(output, ehm, head)
             pred = torch.stack([torch.sparse.mm(self.mapping, v) for v in pred_x])
             gt = torch.empty_like(pred)
             pose = torch.from_numpy(np.stack([s.pose for s in bs])).to(self.device)

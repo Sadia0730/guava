@@ -257,3 +257,20 @@ Code PEAR ca826b1, configs `configs/sprint/sprint_pilot{,_ctrl,_b38}.yaml`. All:
   switched at inference without retraining (orientation bins: pred vs raw; shape token: given vs none on holdouts) are also
   reported separately; single-ingredient ablation runs are not part of this pilot (offered to the user). The batch mix is chosen
   between P1 and P3 by the same rule.
+
+## SPRINT round-2 pilots (registered 2026-10-24, before the runs; user decisions after round 1; validation only)
+Round 1 result: ingredient package rejected (P1 vs P2: 3DPW-val +1.7 mm, ARCTIC held out +5.2 %); orientation bins dropped
+(argmax snapping +6 mm MPJPE). Labels: SMPL-X only (no FLAME anywhere; UBody-EHM removed from training and validation; face labels
+from UBody / Motion-X / AGORA / NeuralAnnot converted to SMPL-X 2020). Batch: BEDLAM2 30 / COCO+MPII 10 / MOYO 2 / UBody 9 /
+Motion-X 8 / AGORA v2 3 / ARCTIC 2. All runs: 16k from Run A best.pt EMA, seed 20261023, lr 1e-4 (backbone x0.1), warmup 500,
+cosine, bf16, EMA 0.9995, only best.pt kept at the end. Configs PEAR 4d33978 configs/sprint/pilot2_*.yaml.
+- base: no ingredients, rotation_mix [[0.4,30],[0.15,90],[0.25,180]] (12.6 % of samples rotated > 90 deg).
+- (a) base + shape token (SMPL-X shape, p 0.6, noise 0.05); (b) base + camera input + full-frame 2D loss (the 3DPW in-loop
+  validator now passes camera input from the 3DPW intrinsics); (c) base + TALS (tau 0.01) + training-only face-visibility (0.1) /
+  dense-keypoint (1.0) heads; (d) base with rotation_mix [[0.5,30],[0.2,90],[0.08,180]] (4.1 % > 90 deg).
+- Validation (EMA, every 2k): 3DPW-val (pure SMPL-X mesh) and the **hard-pose validation set** = BEDLAM2-val rows tilted > 90 deg
+  (4,489 rows, in-loop) + MOYO val split (2 supported-headstand takes; built after launch, evaluated on best.pt); BEDLAM2-val and
+  ARCTIC s10 held out also reported.
+- Rule: an ingredient (a, b, c) is kept only if, versus base, it is not worse on 3DPW-val PA-MPJPE (tolerance 0.3 mm, best EMA)
+  AND not worse on the hard-pose set (BEDLAM2-val-tilt90 and MOYO-val PA-MPJPE, tolerance 3 %). (d) replaces the base mix if it is
+  better on 3DPW-val and not worse than the tolerance on the hard-pose set. ARCTIC s10 is watched (overfitting flag: > 5 % rise).
