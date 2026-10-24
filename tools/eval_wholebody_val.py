@@ -13,7 +13,7 @@ import cv2, numpy as np, torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools")); import eval_3dpw_standard as ev
 p = argparse.ArgumentParser(description=__doc__)
-p.add_argument("--model", required=True, choices=("pear", "student_vitpose")); p.add_argument("--checkpoint", type=Path, default=None)
+p.add_argument("--model", required=True, choices=("pear", "student_vitpose", "sprint", "sprint_raw")); p.add_argument("--checkpoint", type=Path, default=None)
 p.add_argument("--student-config", default="configs/student_l70_v2.yaml"); p.add_argument("--output-dir", type=Path, required=True)
 p.add_argument("--wholebody", type=Path, default=Path("/raid/ubx858/datasets/train2d/coco_wholebody/coco_wholebody_val_v1.0.json"))
 p.add_argument("--images", type=Path, default=Path("/raid/ubx858/datasets/eval_suite/coco/val2017")); p.add_argument("--device", default="cuda:0")

@@ -165,7 +165,7 @@ def table(dirs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", choices=("pear", "student", "student_vitpose", "student_vitpose_mq", "student_vitpose_mq_handcrop"))
+    p.add_argument("--model", choices=("pear", "student", "student_vitpose", "student_vitpose_mq", "student_vitpose_mq_handcrop", "sprint", "sprint_raw"))
     p.add_argument("--checkpoint", type=Path, default=None)
     p.add_argument("--student-config", default="configs/student_l70_v2.yaml")
     p.add_argument("--head", choices=("ehm", "smplx"), default="ehm")

@@ -330,6 +330,18 @@ def load_model(kind: str, checkpoint: Path, student_config: str, batch_size: int
         state = torch.load(checkpoint, map_location="cpu", weights_only=False)
         model.load_state_dict(state["student"], strict=True)
         load_report = {"strict": True, "step": int(state.get("step", -1))}
+    elif kind in ("sprint", "sprint_raw"):
+        # SPRINT (models/pipeline/sprint_pipeline.py): "sprint" = orientation bins applied (argmax), "sprint_raw" = raw
+        # rotation. No shape / camera condition is passed here ("no shape" benchmark mode; camera token empty).
+        import train_pear_student_distill as tpd
+        from models.pipeline.sprint_pipeline import SPRINTPipeline
+        cfg = tpd.load_config(student_config)
+        tpd.set_config_batch_size(cfg, batch_size, 1)
+        state = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        n_dense = int((state.get("config") or {}).get("sprint", {}).get("n_dense", 64))
+        model = SPRINTPipeline(cfg, n_dense=n_dense, orient_bins=(kind == "sprint"))
+        model.load_state_dict(state["student"], strict=True)
+        load_report = {"strict": True, "step": int(state.get("step", -1)), "orient_bins": kind == "sprint"}
     elif kind in ("student_vitpose_mq", "student_vitpose_mq_handcrop"):
         # Phase 2 part-wise queries: five-query head (optionally + hand-crop tokens); loader only.
         import train_pear_student_distill as tpd
