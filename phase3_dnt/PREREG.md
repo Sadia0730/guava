@@ -274,3 +274,17 @@ cosine, bf16, EMA 0.9995, only best.pt kept at the end. Configs PEAR 4d33978 con
 - Rule: an ingredient (a, b, c) is kept only if, versus base, it is not worse on 3DPW-val PA-MPJPE (tolerance 0.3 mm, best EMA)
   AND not worse on the hard-pose set (BEDLAM2-val-tilt90 and MOYO-val PA-MPJPE, tolerance 3 %). (d) replaces the base mix if it is
   better on 3DPW-val and not worse than the tolerance on the hard-pose set. ARCTIC s10 is watched (overfitting flag: > 5 % rise).
+
+## GUAVA (a20) (registered 2026-10-24, before the full fine-tune; user decision: re-fine-tune GUAVA (a) on the SMPL-X 2020 head)
+"Pure SMPL-X" on the ONE model shared by SPRINT, GUAVA and the evaluators (SMPLX_NEUTRAL_2020.npz): EHM's own SMPL-X 2020 head
+(no FLAME; EHM's FLAME-template insertion undone; smplx_only_forward), driven by the tracker's smplx_shape (200, no refit), 50
+expression + jaw (per-row LBS refit of the tracker's FLAME expression / jaw / eyelids = the SPRINT UBody-EHM face labels; 101
+truncated frames refit the same way) and copied eye rotations (eye joints agree to 0.71 mm); no eyelids, head / hand scale 1, no
+joint offsets. From the released best_160000.pt. Code phase3_dnt/guava_finetune.py --variant a20, guava_a20_conversion.py,
+guava_a20_check.py. Measured vs EHM's FLAME head (300 frames): face 2.61 mm (identity 2.55, expression + jaw 0.58 vs 3.78 motion),
+body 0.03 mm. Data: the 269 tracked UBody training clips minus the 56 dropped by the UBody-EHM label filter (training AND validation):
+203 training clips (28,420 frames); validation = (a)/(b)'s seed-0 draw minus 2 dropped clips, replaced by the same seeded RNG
+(SignLanguage_S62, LiveVlog_S6_Trim19_scene003): 10 clips, 347 frames. Schedule identical to (a)/(b) (20k iterations, lr 5e-5 ->
+0.1x, batch 6, best.pt by validation SSIM; latest.pt deleted after a successful run). Disclosed: 200-iteration smoke (val PSNR /
+SSIM / LPIPS 23.08 / 0.809 / 0.165 -> 24.32 / 0.820 / 0.158); (a) / (b) unchanged by the edit (identical step-1 losses). Evaluation:
+C1 test split, GUAVA protocol, driven by the tracker (converted the same way) and by SPRINT.
