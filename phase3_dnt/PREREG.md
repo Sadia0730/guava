@@ -314,3 +314,18 @@ warmup 1500, cosine, bf16, EMA 0.9995). Validation every 2k: 3DPW-val (camera in
 tilt > 90, MOYO val), BEDLAM2-val, ARCTIC s10; best.pt by live 3DPW-val; reported weights: EMA at the best live step unless worse by
 > 0.3 mm (as before); only best.pt kept. Benchmarks afterwards WITHOUT a reference shape (fair vs PEAR) as registered in the SPRINT
 brief (author protocol COCO / LSP, 3DPW test, EHF, COCO-WholeBody, orientation evaluation), next to PEAR, L-real, Run A.
+
+## SPRINT-ft insurance run and PEAR-arch baseline (registered 2026-10-24, before launch; user decisions)
+- **SPRINT-ft** (PEAR 7e9917b configs/sprint/sprint_ft.yaml, GPU 2): the exact final SPRINT recipe (data, labels, ingredients, validation,
+  seed) fine-tuned from Run A best.pt EMA for 48k steps (lr 1e-4, backbone x0.1, warmup 500, cosine, EMA 0.9995); only best.pt kept.
+- **Final-model rule:** the final SPRINT model is whichever of SPRINT (from scratch, 128k) and SPRINT-ft is better on 3DPW-val
+  (PA-MPJPE, the reported weights per the usual EMA / live rule) AND not worse on the hard-pose set (BEDLAM2-val tilt > 90 and MOYO
+  val PA-MPJPE, tolerance 3 %). Both are reported. If neither satisfies both conditions over the other, both are reported and the
+  user decides.
+- **PEAR-arch, "PEAR architecture trained with our recipe"** (PEAR 7e9917b configs/sprint/pear_arch_final.yaml, GPU 1): PEAR's network
+  architecture (ViT-H/16, 631 M, backbone from the original public ViTPose+-H weights usyd-community/vitpose-plus-huge @ 9f36d7ae,
+  COCO expert folded into the plain ViT; decoder = PEAR's decoder + SPRINT tokens / heads, random init; no PEAR weights; drop-path
+  0.55 as PEAR's released config), trained with exactly SPRINT's data, labels, ingredients, schedule (128k from scratch) and
+  evaluation; no pixel-level renderer loss. The like-for-like comparison with PEAR-arch always uses SPRINT from scratch.
+- Monitoring: the final run is reported every ~16k steps and flagged if 3DPW-val EMA is not below ~55 mm by 48k steps. GPU 0 is
+  left free (shared).
