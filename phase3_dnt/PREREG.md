@@ -288,3 +288,20 @@ body 0.03 mm. Data: the 269 tracked UBody training clips minus the 56 dropped by
 0.1x, batch 6, best.pt by validation SSIM; latest.pt deleted after a successful run). Disclosed: 200-iteration smoke (val PSNR /
 SSIM / LPIPS 23.08 / 0.809 / 0.165 -> 24.32 / 0.820 / 0.158); (a) / (b) unchanged by the edit (identical step-1 losses). Evaluation:
 C1 test split, GUAVA protocol, driven by the tracker (converted the same way) and by SPRINT.
+
+### Round-2 pilot results and decision (2026-10-24, applying the registered rule)
+EMA weights; 3DPW-val = best EMA over the run (registered criterion); hard-pose set and held-out sources on best.pt (best live
+3DPW-val step; MOYO val scored post hoc). PA-MPJPE mm.
+| run | 3DPW-val best EMA | 3DPW-val EMA at best.pt | BEDLAM2-val tilt>90 | MOYO val | BEDLAM2-val | ARCTIC s10 |
+|---|---|---|---|---|---|---|
+| Run A (reference) | 47.6-47.8 | — | 47.8 | 51.4 | 29.2 | 19.1 |
+| base | 47.87 | 49.28 | 48.5 | 32.3 | 29.8 | 22.8 |
+| (a) shape token | 47.81 | 49.29 | 48.7 | 32.0 | 30.0 | 23.7 |
+| (b) camera input + full-frame 2D | **46.50** | **46.61** | 48.3 | **30.9** | 29.9 | 24.6 |
+| (c) TALS + aux heads | 47.85 | 49.01 | 48.4 | 32.6 | 29.8 | 23.0 |
+| (d) gentler rotation | 47.89 | 48.44 | 47.7 | 35.9 | 29.3 | 21.6 |
+Decision: (a) KEEP (not worse on either set); (b) KEEP (better on both; ARCTIC s10 +7.9 % vs base: overfitting flag);
+(c) KEEP (not worse within tolerance; small effect); (d) NOT adopted (3DPW-val not better than base; MOYO val +11 %).
+Caveats: MOYO val is the same subject and studio as MOYO train (in-domain); BEDLAM2-val tilt > 90 does not improve over Run A in
+any run; all runs except (b) lose 3DPW-val after ~2k steps (best EMA at 2k), (b) keeps improving. Ingredients (a)+(b)+(c) were not
+yet tested together (round 1's combined run also had orientation bins and no camera input in its 3DPW validator).
