@@ -305,3 +305,12 @@ Decision: (a) KEEP (not worse on either set); (b) KEEP (better on both; ARCTIC s
 Caveats: MOYO val is the same subject and studio as MOYO train (in-domain); BEDLAM2-val tilt > 90 does not improve over Run A in
 any run; all runs except (b) lose 3DPW-val after ~2k steps (best EMA at 2k), (b) keeps improving. Ingredients (a)+(b)+(c) were not
 yet tested together (round 1's combined run also had orientation bins and no camera input in its 3DPW validator).
+
+## SPRINT final run (registered 2026-10-24 at launch; user decision "start the final SPRINT run now")
+PEAR 073af06 configs/sprint/sprint_final.yaml, GPU 3: 128k steps from scratch (ViTPose+-S HF backbone, decoder random, no PEAR weights),
+shape token + camera input + full-frame 2D loss + TALS + training-only heads, no orientation bins, pure SMPL-X 2020 head; batch
+BEDLAM2 30 / COCO+MPII 10 / UBody 9 / Motion-X 9 / AGORA v2 3 / ARCTIC 1 / MOYO 2; L-real's schedule (AdamW 3e-4, backbone x0.1,
+warmup 1500, cosine, bf16, EMA 0.9995). Validation every 2k: 3DPW-val (camera input, pure SMPL-X mesh), hard-pose set (BEDLAM2-val
+tilt > 90, MOYO val), BEDLAM2-val, ARCTIC s10; best.pt by live 3DPW-val; reported weights: EMA at the best live step unless worse by
+> 0.3 mm (as before); only best.pt kept. Benchmarks afterwards WITHOUT a reference shape (fair vs PEAR) as registered in the SPRINT
+brief (author protocol COCO / LSP, 3DPW test, EHF, COCO-WholeBody, orientation evaluation), next to PEAR, L-real, Run A.
