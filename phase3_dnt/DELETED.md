@@ -26,3 +26,4 @@ runs, every dataset / crop root used by SPRINT.
 **Total freed: ~101 GB** (sum of the sizes above); /raid free 29.9 GB -> 124 GB (2026-10-23, after deletion; other users'
 writes continue).
 | MOYO image zips, 4 option-B train takes (crops built and checked: /raid/ubx858/datasets/processed/moyo_gt, 11,872 rows; user-approved) | 18.1 GB | `python -I phase3_dnt/sprint/moyo_download.py --out /raid/ubx858/datasets/raw/moyo --get /raid/ubx858/datasets/raw/moyo/subset_B_urls.txt`, then `tools/build_moyo_gt_crops.py` (PEAR 667ef2c) |
+| MOYO val image zips (2 supported-headstand takes; val crops built and checked: /raid/ubx858/datasets/processed/moyo_gt_val; user-approved) | 11.0 GB | `python -I phase3_dnt/sprint/moyo_download.py --out /raid/ubx858/datasets/raw/moyo --get /raid/ubx858/datasets/raw/moyo/val_headstand_urls.txt`, then `tools/build_moyo_gt_crops.py --split val --stride 2 --subset-rows 1500` (PEAR 3bae9c0) |

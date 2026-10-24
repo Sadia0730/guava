@@ -26,3 +26,4 @@ To regenerate (identical layout <job>/mp4/seq_NNNNNN.mp4):
 - MOYO image zips (4 train takes, 18.1 GB): deleted after the crops are built and checked (user-approved). Re-download:
   `python -I phase3_dnt/sprint/moyo_download.py --out /raid/ubx858/datasets/raw/moyo --get /raid/ubx858/datasets/raw/moyo/subset_B_urls.txt`
   (login read from ~/.mpi_credentials; URL list = the 4 option-B lines of moyo_toolkit's images_train.txt).
+- MOYO val zips (2 takes, 11 GB) deleted 2026-10-24 after the val crops were checked. Re-download: `python -I phase3_dnt/sprint/moyo_download.py --out /raid/ubx858/datasets/raw/moyo --get /raid/ubx858/datasets/raw/moyo/val_headstand_urls.txt` (lines from moyo_toolkit images_val.txt); rebuild: `tools/build_moyo_gt_crops.py --split val --stride 2 --subset-rows 1500`.
