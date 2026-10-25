@@ -19,6 +19,7 @@ p.add_argument("--wholebody", type=Path, default=Path("/raid/ubx858/datasets/tra
 p.add_argument("--images", type=Path, default=Path("/raid/ubx858/datasets/eval_suite/coco/val2017")); p.add_argument("--device", default="cuda:0")
 p.add_argument("--head", choices=ev.HEADS, default="ehm", help="evaluated mesh head: ehm (FLAME head, default) or smplx (plain SMPL-X 2020); PEAR: ehm")
 p.add_argument("--camera", action="store_true", help="SPRINT models only: pass cond={'cam': ...} (f = image width, real 0). Default off")
+p.add_argument("--camera-width-only", action="store_true", help="accepted for a uniform CLI; this evaluator always uses f = image width, real 0")
 a = p.parse_args(); t0 = time.time(); dev = torch.device(a.device); head = ev.effective_head(a.model, a.head)
 W = json.loads(a.wholebody.read_text()); imgs = {im["id"]: im for im in W["images"]}
 items = []

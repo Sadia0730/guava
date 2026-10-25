@@ -177,6 +177,7 @@ def main():
     p.add_argument("--camera", action="store_true",
                    help="SPRINT models only: pass cond={'cam': ...} (f = image width, real 0; eval_author_protocol.HMR2Crops). "
                         "Ignored for other models. Default off (unchanged outputs).")
+    p.add_argument("--camera-width-only", action="store_true", help="accepted for a uniform CLI; LSP / COCO always use f = image width, real 0")
     p.add_argument("--gt-only", action="store_true", help="write the GT rules / subsets only (no model)")
     p.add_argument("--table", nargs="+", default=None, help="print a markdown table of these output dirs and exit")
     a = p.parse_args()

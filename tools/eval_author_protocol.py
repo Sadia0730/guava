@@ -204,6 +204,8 @@ def main():
     p.add_argument("--camera", action="store_true",
                    help="SPRINT models only: pass cond={'cam': ev.cam_feat} (3DPW: sequence intrinsics, real 1; COCO / LSP: "
                         "f = image width, real 0). Ignored for other models. Default off (unchanged outputs).")
+    p.add_argument("--camera-width-only", action="store_true",
+                   help="with --camera: no extra information, focal = image width and real 0 for EVERY dataset (incl. 3DPW)")
     args = p.parse_args()
     t0 = time.time()
     ev = load_module("guava_eval_3dpw_standard", ROOT / "tools" / "eval_3dpw_standard.py")
@@ -216,7 +218,7 @@ def main():
     ds = HMR2Crops(ev, labels, img_root, args.stride)
     if args.camera:
         ds.camera = True
-        ds.focals = pw3d_focals(ds.imgname) if args.dataset == "3DPW-TEST" else None
+        ds.focals = pw3d_focals(ds.imgname) if (args.dataset == "3DPW-TEST" and not args.camera_width_only) else None
     checkpoint = (args.checkpoint or ev.DEFAULT_TEACHER).resolve()
     cwd = Path.cwd(); os.chdir(ev.PEAR_ROOT)
     try:

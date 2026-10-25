@@ -8,7 +8,7 @@
 #           scale 1; tools/eval_3dpw_standard.py HEADS). The FA overlays (third_party/PEAR/tools/fa_overlays.py) are EHM-only
 #           and are skipped for HEAD=smplx.
 #   ORIENT = 0 (default) | 1: also tools/eval_orientation_hard.py (LSP hard subset / flips / torso direction) -> <NAME>/orientation
-#   CAMERA = 0 (default, unchanged commands) | 1: pass --camera (SPRINT camera input cond={"cam": ...}; ignored by non-SPRINT models)
+#   CAMERA = 0 (default, unchanged commands) | 2: --camera --camera-width-only (focal = width for every dataset) | 1: pass --camera (SPRINT camera input cond={"cam": ...}; ignored by non-SPRINT models)
 #   MODEL  = student_vitpose (default) | sprint | sprint_raw: the evaluators' --model (qual_face: --extra-model)
 set -uo pipefail
 NAME=$1; RUN=$2; WHICH=$3; GPU=$4; HEAD=${5:-ehm}; ORIENT=${6:-0}; CAMERA=${7:-0}; MODEL=${8:-student_vitpose}; O=/raid/ubx858/outputs/dnt/eval_programme/$NAME; P=/home/ubx858/miniconda3/envs/guava/bin/python
@@ -18,6 +18,7 @@ step() { echo "$(date '+%F %T') $*"; }; fail() { step "FAILED: $*"; exit 1; }
 CK=$RUN/checkpoints/best.pt
 HA=(); [ "$HEAD" = ehm ] || HA=(--head "$HEAD")
 [ "$CAMERA" = 1 ] && HA+=(--camera)
+[ "$CAMERA" = 2 ] && HA+=(--camera --camera-width-only)   # no extra information: focal = image width everywhere
 QA=(); [ "$MODEL" = student_vitpose ] || QA=(--extra-model "$MODEL")
 [ "$WHICH" = ckpt ] && CK=$RUN
 if [ "$WHICH" = ema ]; then

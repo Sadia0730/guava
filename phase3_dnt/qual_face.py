@@ -17,6 +17,7 @@ _ap.add_argument("--head", choices=("ehm", "smplx"), default="ehm", help="mesh h
 _ap.add_argument("--extra-model", default="student_vitpose", choices=("student_vitpose", "sprint", "sprint_raw"), help="model kind of the --extra checkpoints")
 _ap.add_argument("--camera", action="store_true", help="SPRINT --extra models only: cond={'cam': ...} for UBody (f = image width, real 0) and "
                  "EHF (EHF camera, real 1) frames; C1 driver frames (no original-image geometry) keep the empty camera token. Default off")
+_ap.add_argument("--camera-width-only", action="store_true", help="with --camera: EHF frames also use focal = image width, real 0")
 _args = _ap.parse_args()
 ROOT = Path(__file__).resolve().parents[1]; OUT = Path(_args.out); OUT.mkdir(parents=True, exist_ok=True)
 sys.argv = sys.argv[:1]
@@ -49,7 +50,7 @@ for j in np.linspace(0, len(ehf) - 1, 6).round().astype(int):
     img, _box = E.crop(ehf[j]); frames.append(("ehf", img.permute(1, 2, 0).numpy() if torch.is_tensor(img) else img, {"id": ehf[j]["id"]}))
     if _args.camera:
         _h, _w = cv2.imread(ehf[j]["image"]).shape[:2]
-        frames[-1][2]["_cam"] = ev.cam_feat(ev.box_to_affine(_box), _w, _h, E.FOCAL[0], 1.0)
+        frames[-1][2]["_cam"] = ev.cam_feat(ev.box_to_affine(_box), _w, _h, *((_w, 0.0) if _args.camera_width_only else (E.FOCAL[0], 1.0)))
 split = json.loads(Path("/raid/ubx858/outputs/dnt/c1/split.json").read_text())["clips"]
 n = 0
 for c in split:
@@ -98,11 +99,12 @@ for name, (kind, ck) in MODELS.items():
             for b in range(uv.shape[0]):
                 outs.append({"uv": uv[b], "z": z[b], "lm": lm[b], "jaw_deg": float(np.degrees(fp["jaw_params"][b].norm().item())),
                              "flame_expr_norm": float(fp["expression_params"][b].norm()), "body_exp_abs": float(bp["exp"][b].abs().mean()),
+                             "smplx_exp_norm": float(bp["exp"][b].norm()),   # SMPL-X 2020 expression (50): the face of pure SMPL-X heads (SPRINT)
                              "head_scale": float(bp["head_scale"][b].mean())})
     res[name] = outs; del m; torch.cuda.empty_cache()
     for tag in ("ubody", "ehf", "c1", "all"):
         sel = [o for o, f in zip(outs, frames) if tag == "all" or f[0] == tag]
-        stats.setdefault(name, {})[tag] = {k: float(np.mean([o[k] for o in sel])) for k in ("jaw_deg", "flame_expr_norm", "body_exp_abs", "head_scale")}
+        stats.setdefault(name, {})[tag] = {k: float(np.mean([o[k] for o in sel])) for k in ("jaw_deg", "flame_expr_norm", "smplx_exp_norm", "body_exp_abs", "head_scale")}
     print(name, stats[name]["all"], flush=True)
 
 # ---- drawing ----
@@ -134,7 +136,7 @@ for fi, (tag, img, info) in enumerate(frames):
     top = [img] + [overlay(img, res[n][fi]) for n in MODELS]; bot = [np.zeros_like(img)] + [face_zoom(img, res[n][fi]) for n in MODELS]
     for j, n in enumerate(["input"] + list(MODELS)):
         cv2.putText(top[j], n, (4, 14), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
-        if j: cv2.putText(bot[j], f"jaw {res[n][fi]['jaw_deg']:.1f}d |e| {res[n][fi]['flame_expr_norm']:.2f}", (4, 250), font, 0.4, (255, 255, 0), 1, cv2.LINE_AA)
+        if j: cv2.putText(bot[j], f"jaw {res[n][fi]['jaw_deg']:.1f}d |e|fl {res[n][fi]['flame_expr_norm']:.2f} |e|sx {res[n][fi]['smplx_exp_norm']:.2f}", (4, 250), font, 0.4, (255, 255, 0), 1, cv2.LINE_AA)
     g = np.concatenate([np.concatenate(top, 1), np.concatenate(bot, 1)], 0)
     cv2.imwrite(str(OUT / f"{fi:02d}_{tag}.jpg"), cv2.cvtColor(g, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])
     rows_all.append(g)

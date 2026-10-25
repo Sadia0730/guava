@@ -187,6 +187,7 @@ def main():
     p.add_argument("--camera", action="store_true",
                    help="SPRINT models only: pass cond={'cam': ...} with the known EHF camera (EHF_camera.txt focal, real 1). "
                         "Ignored for other models. Default off (unchanged outputs).")
+    p.add_argument("--camera-width-only", action="store_true", help="with --camera: focal = image width, real 0 (no EHF calibration)")
     args = p.parse_args()
     head = "gt" if args.model == "gt" else ev.effective_head(args.model, args.head)
     if args.refiner and args.precision != "fp32":
@@ -220,8 +221,10 @@ def main():
         images = torch.stack([c[0] for c in crops])
         cams = None
         if args.camera:   # image centre in the formula as in training (cam_features); focal = EHF fx
-            cams = np.stack([ev.cam_feat(ev.box_to_affine(c[1]), *cv2.imread(f["image"]).shape[1::-1], FOCAL[0], 1.0)
-                             for c, f in zip(crops, frames)])
+            def _cf(c, f):
+                w_, h_ = cv2.imread(f["image"]).shape[1::-1]
+                return ev.cam_feat(ev.box_to_affine(c[1]), w_, h_, *((w_, 0.0) if args.camera_width_only else (FOCAL[0], 1.0)))
+            cams = np.stack([_cf(c, f) for c, f in zip(crops, frames)])
         handcrop = args.model == "student_vitpose_mq_handcrop"
         if handcrop:
             hc = load_by_path_ehf("guava_handcrop_eval_utils", ROOT / "tools" / "handcrop_eval_utils.py")
