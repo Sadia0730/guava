@@ -13,7 +13,11 @@ import argparse
 _ap = argparse.ArgumentParser(); _ap.add_argument("--extra", action="append", default=[], help="NAME=student checkpoint (added after the four reference models)")
 _ap.add_argument("--out", default="/raid/ubx858/outputs/dnt/qual_face")
 _ap.add_argument("--head", choices=("ehm", "smplx"), default="ehm", help="mesh head of the --extra models (eval_3dpw_standard.HEADS); "
-                 "the four reference models keep their EHM (FLAME) head"); _args = _ap.parse_args()
+                 "the four reference models keep their EHM (FLAME) head")
+_ap.add_argument("--extra-model", default="student_vitpose", choices=("student_vitpose", "sprint", "sprint_raw"), help="model kind of the --extra checkpoints")
+_ap.add_argument("--camera", action="store_true", help="SPRINT --extra models only: cond={'cam': ...} for UBody (f = image width, real 0) and "
+                 "EHF (EHF camera, real 1) frames; C1 driver frames (no original-image geometry) keep the empty camera token. Default off")
+_args = _ap.parse_args()
 ROOT = Path(__file__).resolve().parents[1]; OUT = Path(_args.out); OUT.mkdir(parents=True, exist_ok=True)
 sys.argv = sys.argv[:1]
 sys.path.insert(0, str(ROOT / "tools")); import eval_ehf_standard as E; ev = E.ev
@@ -36,10 +40,16 @@ for i in np.argsort(-score):
     if vid in seen: continue
     seen.add(vid); s = ds_ub[i]
     frames.append(("ubody", s["image"].permute(1, 2, 0).numpy(), {"file": cand[i]["file_name"], "gt_jaw_deg": float(np.degrees(jaw[i])), "gt_expr_norm": float(ex[i])}))
+    if _args.camera:
+        _h, _w = cv2.imread(str(Path("/raid/ubx858/datasets/eval_suite/ubody/images") / cand[i]["scene"] / cand[i]["file_name"])).shape[:2]
+        frames[-1][2]["_cam"] = ev.cam_feat(s["affine"].numpy(), _w, _h, _w, 0.0)
     if len(seen) == 12: break
 ehf = E.load_frames()
 for j in np.linspace(0, len(ehf) - 1, 6).round().astype(int):
-    img, _ = E.crop(ehf[j]); frames.append(("ehf", img.permute(1, 2, 0).numpy() if torch.is_tensor(img) else img, {"id": ehf[j]["id"]}))
+    img, _box = E.crop(ehf[j]); frames.append(("ehf", img.permute(1, 2, 0).numpy() if torch.is_tensor(img) else img, {"id": ehf[j]["id"]}))
+    if _args.camera:
+        _h, _w = cv2.imread(ehf[j]["image"]).shape[:2]
+        frames[-1][2]["_cam"] = ev.cam_feat(ev.box_to_affine(_box), _w, _h, E.FOCAL[0], 1.0)
 split = json.loads(Path("/raid/ubx858/outputs/dnt/c1/split.json").read_text())["clips"]
 n = 0
 for c in split:
@@ -67,15 +77,17 @@ face_tris = faces[fmask[faces].all(1)]
 MODELS = {"PEAR": ("pear", None), "L-real": ("student_vitpose", "/raid/ubx858/outputs/phase1_task1/screen/L_real/checkpoints/best.pt"),
           "A2-ctrl EMA": ("student_vitpose", "/raid/ubx858/outputs/dnt/trackA2/eval/ckpt/A2ctrl_best_ema.pt"),
           "Track A": ("student_vitpose", "/raid/ubx858/outputs/dnt/trackA/run/checkpoints/best.pt")}
-MODELS.update({e.split("=", 1)[0]: ("student_vitpose", e.split("=", 1)[1]) for e in _args.extra})
+MODELS.update({e.split("=", 1)[0]: (_args.extra_model, e.split("=", 1)[1]) for e in _args.extra})
 HEAD = {n: (ev.effective_head(MODELS[n][0], _args.head) if n in {e.split("=", 1)[0] for e in _args.extra} else "ehm") for n in MODELS}
 res, stats = {}, {}
 for name, (kind, ck) in MODELS.items():
     m, _ = ev.load_model(kind, Path(ck).resolve() if ck else ev.DEFAULT_TEACHER.resolve(), "configs/student_l70_v2.yaml", 8, dev)
     outs = []
+    cam_on = _args.camera and kind in ev.SPRINT_KINDS; step = 1 if cam_on else 8   # per frame: C1 rows have no camera
     with torch.inference_mode():
-        for s in range(0, len(frames), 8):
-            o = m(imgs[s:s + 8]); o = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float()) for k, v in o.items()}
+        for s in range(0, len(frames), step):
+            c = frames[s][2].get("_cam") if cam_on else None
+            o = m(imgs[s:s + step], **ev.camera_kwargs(kind, c is not None, None if c is None else c[None], dev)); o = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float()) for k, v in o.items()}
             mesh = ev.predicted_mesh(o, ehm, HEAD[name])
             cam = o["pd_cam"]
             def proj(P):
@@ -126,7 +138,9 @@ for fi, (tag, img, info) in enumerate(frames):
     g = np.concatenate([np.concatenate(top, 1), np.concatenate(bot, 1)], 0)
     cv2.imwrite(str(OUT / f"{fi:02d}_{tag}.jpg"), cv2.cvtColor(g, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])
     rows_all.append(g)
-json.dump({"frames": [{"tag": f[0], **f[2]} for f in frames], "stats": stats, "head": HEAD,
+json.dump({"frames": [{"tag": f[0], **{k: v for k, v in f[2].items() if k != "_cam"}} for f in frames], "stats": stats, "head": HEAD,
+           **({"camera": {n: bool(_args.camera and MODELS[n][0] in ev.SPRINT_KINDS) for n in MODELS},
+               "camera_frames": [f[0] for f in frames if "_cam" in f[2]]} if _args.camera else {"camera": False}),
            "per_frame": {n: [{k: v for k, v in o.items() if k not in ("uv", "z", "lm")} for o in res[n]] for n in MODELS}},
           open(OUT / "summary.json", "w"), indent=1)
 print("QUAL_FACE_DONE", flush=True)

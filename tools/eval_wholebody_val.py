@@ -18,6 +18,7 @@ p.add_argument("--student-config", default="configs/student_l70_v2.yaml"); p.add
 p.add_argument("--wholebody", type=Path, default=Path("/raid/ubx858/datasets/train2d/coco_wholebody/coco_wholebody_val_v1.0.json"))
 p.add_argument("--images", type=Path, default=Path("/raid/ubx858/datasets/eval_suite/coco/val2017")); p.add_argument("--device", default="cuda:0")
 p.add_argument("--head", choices=ev.HEADS, default="ehm", help="evaluated mesh head: ehm (FLAME head, default) or smplx (plain SMPL-X 2020); PEAR: ehm")
+p.add_argument("--camera", action="store_true", help="SPRINT models only: pass cond={'cam': ...} (f = image width, real 0). Default off")
 a = p.parse_args(); t0 = time.time(); dev = torch.device(a.device); head = ev.effective_head(a.model, a.head)
 W = json.loads(a.wholebody.read_text()); imgs = {im["id"]: im for im in W["images"]}
 items = []
@@ -35,14 +36,15 @@ model, rep = ev.load_model(a.model, (a.checkpoint or ev.DEFAULT_TEACHER).resolve
 ehm = EHM_v2("assets/FLAME", "assets/SMPLX").to(dev).eval(); os.chdir(cwd)
 hits = {k: {0.1: [], 0.2: []} for k in ("face", "hands")}; nme = {"face": [], "hands": []}
 for s in range(0, len(items), 32):
-    batch = items[s:s + 32]; crops, affs = [], []
+    batch = items[s:s + 32]; crops, affs, cams = [], [], []
     for fn, box, _ in batch:
         im = cv2.imread(str(a.images / fn)); h, w = im.shape[:2]
         bb = ev.process_bbox(box, w, h, (ev.IMAGE_SIZE, ev.IMAGE_SIZE), ratio=1.25); A = ev.box_to_affine(bb)
         crops.append(cv2.cvtColor(cv2.warpAffine(im, A, (ev.IMAGE_SIZE, ev.IMAGE_SIZE), flags=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB)); affs.append(A)
+        if a.camera: cams.append(ev.cam_feat(A, w, h, w, 0.0))
     x = torch.from_numpy(np.stack(crops)).permute(0, 3, 1, 2).to(dev).float() / 255.0
     with torch.inference_mode():
-        o = model(x); o = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float()) for k, v in o.items()}
+        o = model(x, **ev.camera_kwargs(a.model, a.camera, np.stack(cams) if cams else None, dev)); o = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float()) for k, v in o.items()}
         dw = smplx_joints_to_dwpose(ev.predicted_mesh(o, ehm, head)["joints"])[0][..., :3]
         uv = (tpd.project_joints(o["pd_cam"], dw) * ev.IMAGE_SIZE).cpu().numpy()            # crop px
     for b, (fn, box, parts) in enumerate(batch):
@@ -53,7 +55,7 @@ for s in range(0, len(items), 32):
             key = "face" if k == "face" else "hands"
             for al in (0.1, 0.2): hits[key][al].extend((d <= al).tolist())
             nme[key].append(float(d.mean()))
-summ = {"model": a.model, "head": head, "checkpoint": str(a.checkpoint), "load_report": rep, "persons": len(items),
+summ = {"model": a.model, "head": head, "checkpoint": str(a.checkpoint), "load_report": rep, "camera": bool(a.camera and a.model in ev.SPRINT_KINDS), "persons": len(items),
         "parts": {k: len(v) for k, v in nme.items()}, **{f"pck{int(al*100):02d}_{k}": float(np.mean(hits[k][al])) for k in hits for al in (0.1, 0.2)},
         **{f"nme_{k}": float(np.mean(v)) for k, v in nme.items()}, "seconds": time.time() - t0, "evaluator": "tools/eval_wholebody_val.py"}
 a.output_dir.mkdir(parents=True, exist_ok=True); (a.output_dir / "summary.json").write_text(json.dumps(summ, indent=1)); print(json.dumps(summ, indent=1))

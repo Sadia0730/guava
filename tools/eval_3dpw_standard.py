@@ -125,6 +125,30 @@ def box_to_affine(box_xywh) -> np.ndarray:
     return cv2.getAffineTransform(src, dst).astype(np.float32)
 
 
+SPRINT_KINDS = ("sprint", "sprint_raw")
+
+
+def cam_feat(affine, width: float, height: float, focal: float, real: float) -> np.ndarray:
+    """SPRINT camera input (= dataset/bedlam2_gt_dataset.cam_features, unflipped): (5,) float32
+    [(cx - W/2)/f, (cy - H/2)/f, b/f, log(f/W), real]; (cx, cy) = the 256 px crop centre in ORIGINAL image pixels,
+    b = crop side in original pixels, affine = original px -> 256 px crop (2, 3). Unknown intrinsics: f = W, real 0."""
+    import math
+    net = np.vstack([np.asarray(affine, np.float64), [0, 0, 1]])
+    c = np.linalg.inv(net) @ np.array([IMAGE_SIZE / 2, IMAGE_SIZE / 2, 1.0])
+    b = IMAGE_SIZE / math.sqrt(abs(np.linalg.det(net[:2, :2])))
+    f = float(focal)
+    return np.array([(c[0] - width / 2) / f, (c[1] - height / 2) / f, b / f, math.log(f / width), float(real)], np.float32)
+
+
+def camera_kwargs(kind: str, camera: bool, feats, device) -> dict:
+    """Forward kwargs for the optional camera input: {"cond": {"cam": (B, 5)}} for SPRINT models with camera on, else {}
+    (other models never receive it)."""
+    if not camera or kind not in SPRINT_KINDS:
+        return {}
+    feats = feats if torch.is_tensor(feats) else torch.from_numpy(np.asarray(feats, np.float32))
+    return {"cond": {"cam": feats.to(device).float()}}
+
+
 def gt_keypoint_box(keypoints_18x3: np.ndarray, width: int, height: int):
     xy = keypoints_18x3[:, :2]
     valid = (keypoints_18x3[:, 2] > 0).astype(np.int64)

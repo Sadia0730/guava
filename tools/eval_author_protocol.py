@@ -111,7 +111,10 @@ def eval_pose_hmr2(pred, gt):
 
 
 class HMR2Crops(Dataset):
-    def __init__(self, ev, npz_path: Path, img_root: Path, stride: int = 1):
+    def __init__(self, ev, npz_path: Path, img_root: Path, stride: int = 1, camera: bool = False, focals: dict | None = None):
+        """camera (SPRINT input, additive): also return "cam_feat" (ev.cam_feat); focals = {imgname: focal px} of known
+        intrinsics (real 1), otherwise f = image width, real 0."""
+        self.camera, self.focals = camera, focals
         d = np.load(npz_path)
         idx = np.arange(0, len(d["imgname"]), stride)
         self.ev, self.img_root = ev, img_root
@@ -143,7 +146,22 @@ class HMR2Crops(Dataset):
         a = self.affine(i)
         crop = cv2.cvtColor(cv2.warpAffine(image, a, (PATCH, PATCH), flags=cv2.INTER_LINEAR,
                                            borderMode=cv2.BORDER_CONSTANT, borderValue=0), cv2.COLOR_BGR2RGB)
-        return {"index": i, "image": torch.from_numpy(crop).permute(2, 0, 1).contiguous(), "affine": torch.from_numpy(a)}
+        out = {"index": i, "image": torch.from_numpy(crop).permute(2, 0, 1).contiguous(), "affine": torch.from_numpy(a)}
+        if self.camera:
+            h, w = image.shape[:2]
+            f = self.focals.get(self.imgname[i]) if self.focals else None
+            out["cam_feat"] = torch.from_numpy(self.ev.cam_feat(a, w, h, w if f is None else f, 0.0 if f is None else 1.0))
+        return out
+
+
+def pw3d_focals(imgnames, dataset_root: Path = DATASETS["3DPW-TEST"][1]) -> dict:
+    """{imgname: fx} from the 3DPW sequence intrinsics (sequenceFiles/test/<seq>.pkl cam_intrinsics, as
+    eval_3dpw_standard.load_samples reads them) for 'imageFiles/<seq>/image_xxxxx.jpg' names."""
+    fx = {}
+    for seq in sorted({n.split("/")[1] for n in imgnames}):
+        with (dataset_root / "sequenceFiles" / "test" / f"{seq}.pkl").open("rb") as handle:
+            fx[seq] = float(np.asarray(pickle.load(handle, encoding="latin1")["cam_intrinsics"], np.float64)[0, 0])
+    return {n: fx[n.split("/")[1]] for n in imgnames}
 
 
 class AuthorJoints:
@@ -183,6 +201,9 @@ def main():
     p.add_argument("--stride", type=int, default=1)
     p.add_argument("--head", choices=("ehm", "smplx"), default="ehm",
                    help="evaluated mesh head (eval_3dpw_standard.HEADS): ehm (FLAME head, default) or smplx (plain SMPL-X); PEAR: ehm")
+    p.add_argument("--camera", action="store_true",
+                   help="SPRINT models only: pass cond={'cam': ev.cam_feat} (3DPW: sequence intrinsics, real 1; COCO / LSP: "
+                        "f = image width, real 0). Ignored for other models. Default off (unchanged outputs).")
     args = p.parse_args()
     t0 = time.time()
     ev = load_module("guava_eval_3dpw_standard", ROOT / "tools" / "eval_3dpw_standard.py")
@@ -193,6 +214,9 @@ def main():
     npz, img_root, task = DATASETS[args.dataset]
     labels = EVAL_ROOT / "hmr2_evaluation_data" / npz
     ds = HMR2Crops(ev, labels, img_root, args.stride)
+    if args.camera:
+        ds.camera = True
+        ds.focals = pw3d_focals(ds.imgname) if args.dataset == "3DPW-TEST" else None
     checkpoint = (args.checkpoint or ev.DEFAULT_TEACHER).resolve()
     cwd = Path.cwd(); os.chdir(ev.PEAR_ROOT)
     try:
@@ -217,10 +241,11 @@ def main():
     for batch in DataLoader(ds, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False, pin_memory=True):
         idx = batch["index"].numpy()
         with torch.inference_mode():
+            ck = ev.camera_kwargs(args.model, args.camera, batch.get("cam_feat"), device)
             if refiner is None:
-                out = model(batch["image"].to(device).float() / 255.0)
+                out = model(batch["image"].to(device).float() / 255.0, **ck)
             else:
-                out, feats = model(batch["image"].to(device).float() / 255.0, return_features=True)
+                out, feats = model(batch["image"].to(device).float() / 255.0, return_features=True, **ck)
             out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float())
                    for k, v in out.items()}
             if refiner is not None:
@@ -235,6 +260,7 @@ def main():
            "labels": str(labels), "labels_sha256": hashlib.sha256(labels.read_bytes()).hexdigest(),
            "reference_script_sha256": hashlib.sha256(REFERENCE.read_bytes()).hexdigest(),
            "evaluator_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+           "camera": bool(args.camera and args.model in ev.SPRINT_KINDS),
            "protocol": "PEAR author's evaluation_kp.py (HSMR/HMR2 data, crop and metrics); [0,1] input assumed"}
     if task == "pck":
         # HMR2: crop-normalised x expand factor == image-pixel distance / max(scale*200)

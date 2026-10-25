@@ -184,6 +184,9 @@ def main():
                         "image around the predicted hands, or the full-resolution image around the TRUE hands (diagnostic)")
     p.add_argument("--head", choices=ev.HEADS, default="ehm",
                    help="evaluated mesh head: ehm (SMPL-X body + FLAME head, default) or smplx (plain SMPL-X 2020); PEAR: ehm")
+    p.add_argument("--camera", action="store_true",
+                   help="SPRINT models only: pass cond={'cam': ...} with the known EHF camera (EHF_camera.txt focal, real 1). "
+                        "Ignored for other models. Default off (unchanged outputs).")
     args = p.parse_args()
     head = "gt" if args.model == "gt" else ev.effective_head(args.model, args.head)
     if args.refiner and args.precision != "fp32":
@@ -215,6 +218,10 @@ def main():
             os.chdir(cwd)
         crops = [crop(f) for f in frames]
         images = torch.stack([c[0] for c in crops])
+        cams = None
+        if args.camera:   # image centre in the formula as in training (cam_features); focal = EHF fx
+            cams = np.stack([ev.cam_feat(ev.box_to_affine(c[1]), *cv2.imread(f["image"]).shape[1::-1], FOCAL[0], 1.0)
+                             for c, f in zip(crops, frames)])
         handcrop = args.model == "student_vitpose_mq_handcrop"
         if handcrop:
             hc = load_by_path_ehf("guava_handcrop_eval_utils", ROOT / "tools" / "handcrop_eval_utils.py")
@@ -223,8 +230,9 @@ def main():
         dtype = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}[args.precision]
         with torch.inference_mode():
             for s in range(0, len(frames), 25):
+                ck = ev.camera_kwargs(args.model, args.camera, None if cams is None else cams[s:s + 25], device)
                 if refiner is not None:
-                    out, feats = model(images[s:s + 25].to(device).float().div_(255.0), return_features=True)
+                    out, feats = model(images[s:s + 25].to(device).float().div_(255.0), return_features=True, **ck)
                     out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()}
                                if isinstance(v, dict) else v.float()) for k, v in out.items()}
                     rot1, cam1 = refiner(feats.float(), None, L.predicted_rotmats(out)[:, :22], cam_from_t(out["pd_cam"][:, :3, 3]))
@@ -238,12 +246,12 @@ def main():
                         if args.hand_crops == "oracle":
                             kp = np.stack([np.stack([project_points(P_.hand_reg[side] @ f["gt_world"], f) for side in ("left", "right")]) for f in fr])
                             kw["hand_boxes"] = hc.oracle_boxes(kp, affs[s:s + 25]).to(device)
-                    out = model(x, **kw)
+                    out = model(x, **kw, **ck)
                 elif dtype == torch.float32:
-                    out = model(images[s:s + 25].to(device).float().div_(255.0))
+                    out = model(images[s:s + 25].to(device).float().div_(255.0), **ck)
                 else:   # as in eval_3dpw_standard.py: autocast forward, outputs back to fp32
                     with torch.autocast(device_type=device.type, dtype=dtype):
-                        out = model(images[s:s + 25].to(device).float().div_(255.0))
+                        out = model(images[s:s + 25].to(device).float().div_(255.0), **ck)
                     out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()}
                                if isinstance(v, dict) else v.float()) for k, v in out.items()}
                 verts = ev.predicted_smplx_vertices(out, ehm, head).double().cpu().numpy()
@@ -262,6 +270,7 @@ def main():
     report = {
         "protocol": "Hand4Whole EHF.evaluate (c94908654b81); crop from EHF OpenPose BODY_25 via PEAR get_bbox x1.2 + process_bbox x1.25",
         "model": args.model, "head": head, "frames": len(rows), "metrics_mm": summary, "precision": args.precision,
+        "camera": bool(args.camera and args.model in ev.SPRINT_KINDS),
         "refiner": str(args.refiner) if args.refiner else None,
         "hand_crops": args.hand_crops if args.model == "student_vitpose_mq_handcrop" else None,
         "refiner_sha256": ev.sha256(args.refiner) if args.refiner else None,

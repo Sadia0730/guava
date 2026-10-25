@@ -102,12 +102,12 @@ def stats(x):
             ">45": float((x > 45).mean()) if len(x) else None, ">90": float((x > 90).mean()) if len(x) else None}
 
 
-def predict(ev, model, ehm, ds, dataset, head, joints, mapping, device, batch_size, num_workers):
+def predict(ev, model, ehm, ds, dataset, head, joints, mapping, device, batch_size, num_workers, kind=None, camera=False):
     pred2d = np.zeros((len(ds), 44, 2)); G = np.zeros((len(ds), 3, 3))
     for batch in DataLoader(ds, batch_size=batch_size, num_workers=num_workers, shuffle=False, pin_memory=True):
         idx = batch["index"].numpy()
         with torch.inference_mode():
-            out = model(batch["image"].to(device).float() / 255.0)
+            out = model(batch["image"].to(device).float() / 255.0, **ev.camera_kwargs(kind, camera, batch.get("cam_feat"), device))
             out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float())
                    for k, v in out.items()}
             v = torch.stack([torch.sparse.mm(mapping, x.float()) for x in ev.predicted_smplx_vertices(out, ehm, head)])
@@ -174,6 +174,9 @@ def main():
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--num-workers", type=int, default=8)
     p.add_argument("--device", default="cuda:0")
+    p.add_argument("--camera", action="store_true",
+                   help="SPRINT models only: pass cond={'cam': ...} (f = image width, real 0; eval_author_protocol.HMR2Crops). "
+                        "Ignored for other models. Default off (unchanged outputs).")
     p.add_argument("--gt-only", action="store_true", help="write the GT rules / subsets only (no model)")
     p.add_argument("--table", nargs="+", default=None, help="print a markdown table of these output dirs and exit")
     a = p.parse_args()
@@ -209,7 +212,9 @@ def main():
     joints = eap.AuthorJoints(ev, eap.reference_tables(), device)
     results, per = {}, {}
     for dsn in DATASETS:
-        pred2d, G = predict(ev, model, ehm, data[dsn], dsn, head, joints, mapping, device, a.batch_size, a.num_workers)
+        data[dsn].camera = a.camera
+        pred2d, G = predict(ev, model, ehm, data[dsn], dsn, head, joints, mapping, device, a.batch_size, a.num_workers,
+                            kind=a.model, camera=a.camera)
         results[dsn], arr = evaluate(dsn, data[dsn], gts[dsn]["g"], pred2d, G, pck_mod)
         per.update({f"{dsn}/{k}": v for k, v in arr.items()})
         per.update({f"{dsn}/gt_{k}": v for k, v in gts[dsn]["g"].items()})
@@ -218,7 +223,7 @@ def main():
     np.savez_compressed(a.output_dir / "per_image.npz", **per)
     summ = {"name": a.name or a.output_dir.parent.name, "model": a.model, "head": head, "checkpoint": str(checkpoint),
             "checkpoint_sha256": ev.sha256(checkpoint), "load_report": load_report,
-            "rules_sha256": RULES_SHA256, "rules": RULES, "gt": gt_report, "results": results,
+            "camera": bool(a.camera and a.model in ev.SPRINT_KINDS), "rules_sha256": RULES_SHA256, "rules": RULES, "gt": gt_report, "results": results,
             "evaluator_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "git": {"guava": ev.git_state(ev.ROOT), "pear": ev.git_state(ev.PEAR_ROOT)},
             "command": " ".join(sys.argv), "seconds": round(time.time() - t0, 1)}
