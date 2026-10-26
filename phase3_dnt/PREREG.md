@@ -329,3 +329,9 @@ brief (author protocol COCO / LSP, 3DPW test, EHF, COCO-WholeBody, orientation e
   evaluation; no pixel-level renderer loss. The like-for-like comparison with PEAR-arch always uses SPRINT from scratch.
 - Monitoring: the final run is reported every ~16k steps and flagged if 3DPW-val EMA is not below ~55 mm by 48k steps. GPU 0 is
   left free (shared).
+
+### Final-model decision (2026-10-26, applying the registered rule)
+SPRINT from scratch: best live step 128k (live 48.97, EMA 49.04 -> EMA reported); BEDLAM2-val tilt>90 48.22, MOYO val 35.68.
+SPRINT-ft: step 48k (live 45.89, EMA 45.88 -> EMA); BEDLAM2-val tilt>90 42.46, MOYO val 31.15. SPRINT-ft is better on 3DPW-val
+AND on the hard-pose set -> **the final SPRINT model is SPRINT-ft (EMA, step 48k)**. Both are reported; the like-for-like comparison
+with PEAR-arch uses SPRINT from scratch.
