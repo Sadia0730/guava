@@ -149,6 +149,32 @@ def camera_kwargs(kind: str, camera: bool, feats, device) -> dict:
     return {"cond": {"cam": feats.to(device).float()}}
 
 
+class RefinedModel(torch.nn.Module):
+    """Student + no-render refiner (PEAR train_render_refiner.py) applied once, for evaluators without their own --refiner
+    code (additive, 2026-10-26). Identical ops to eval_author_protocol.py / eval_ehf_standard.py --refiner: the student's
+    fp32 forward (with any cond), outputs to fp32, refiner(feats, None, root + 21 body rotations, cam_from_t(pd_cam T)),
+    refined_output. forward(x, **kw) returns the refined output dict (the student's call signature)."""
+
+    def __init__(self, model, refiner_path: Path, device):
+        super().__init__()
+        sys.path.insert(0, str(PEAR_ROOT))
+        from models.render_refiner import RenderRefiner
+        from train_render_refiner import cam_from_t, refined_output
+        import student_gt_losses as L
+        st = torch.load(refiner_path, map_location="cpu", weights_only=False)
+        assert not st["config"]["use_render"], "only the no-render refiner is supported here"
+        self.model, self.refiner = model, RenderRefiner(use_render=False).to(device).eval()
+        self.refiner.load_state_dict(st["refiner"], strict=True)
+        self._cam_from_t, self._refined_output, self._rotmats = cam_from_t, refined_output, L.predicted_rotmats
+
+    def forward(self, x, **kw):
+        out, feats = self.model(x, return_features=True, **kw)
+        out = {k: ({kk: (vv.float() if torch.is_tensor(vv) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v.float())
+               for k, v in out.items()}
+        rot1, cam1 = self.refiner(feats.float(), None, self._rotmats(out)[:, :22], self._cam_from_t(out["pd_cam"][:, :3, 3]))
+        return self._refined_output(out, rot1, cam1)
+
+
 def gt_keypoint_box(keypoints_18x3: np.ndarray, width: int, height: int):
     xy = keypoints_18x3[:, :2]
     valid = (keypoints_18x3[:, 2] > 0).astype(np.int64)

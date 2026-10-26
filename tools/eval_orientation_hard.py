@@ -179,6 +179,8 @@ def main():
                         "Ignored for other models. Default off (unchanged outputs).")
     p.add_argument("--camera-width-only", action="store_true", help="accepted for a uniform CLI; LSP / COCO always use f = image width, real 0")
     p.add_argument("--gt-only", action="store_true", help="write the GT rules / subsets only (no model)")
+    p.add_argument("--refiner", type=Path, default=None, help="optional no-render refiner checkpoint applied once "
+                   "(eval_3dpw_standard.RefinedModel); default none")
     p.add_argument("--table", nargs="+", default=None, help="print a markdown table of these output dirs and exit")
     a = p.parse_args()
     if a.table:
@@ -205,6 +207,9 @@ def main():
     cwd = Path.cwd(); os.chdir(ev.PEAR_ROOT)
     try:
         model, load_report = ev.load_model(a.model, checkpoint, a.student_config, a.batch_size, device)
+        if a.refiner:
+            model = ev.RefinedModel(model, a.refiner.resolve(), device)
+            load_report = {**load_report, "refiner": str(a.refiner)}
         from models.modules.ehm import EHM_v2
         ehm = EHM_v2("assets/FLAME", "assets/SMPLX").to(device).eval()
     finally:

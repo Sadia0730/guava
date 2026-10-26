@@ -20,6 +20,7 @@ p.add_argument("--images", type=Path, default=Path("/raid/ubx858/datasets/eval_s
 p.add_argument("--head", choices=ev.HEADS, default="ehm", help="evaluated mesh head: ehm (FLAME head, default) or smplx (plain SMPL-X 2020); PEAR: ehm")
 p.add_argument("--camera", action="store_true", help="SPRINT models only: pass cond={'cam': ...} (f = image width, real 0). Default off")
 p.add_argument("--camera-width-only", action="store_true", help="accepted for a uniform CLI; this evaluator always uses f = image width, real 0")
+p.add_argument("--refiner", type=Path, default=None, help="optional no-render refiner checkpoint applied once (eval_3dpw_standard.RefinedModel); default none")
 a = p.parse_args(); t0 = time.time(); dev = torch.device(a.device); head = ev.effective_head(a.model, a.head)
 W = json.loads(a.wholebody.read_text()); imgs = {im["id"]: im for im in W["images"]}
 items = []
@@ -34,7 +35,9 @@ from models.modules.ehm import EHM_v2
 from models.smplx.smplx_head import smplx_joints_to_dwpose
 import train_pear_student_distill as tpd
 model, rep = ev.load_model(a.model, (a.checkpoint or ev.DEFAULT_TEACHER).resolve(), a.student_config, 32, dev)
-ehm = EHM_v2("assets/FLAME", "assets/SMPLX").to(dev).eval(); os.chdir(cwd)
+ehm = EHM_v2("assets/FLAME", "assets/SMPLX").to(dev).eval()
+if a.refiner: model = ev.RefinedModel(model, a.refiner.resolve(), dev)
+os.chdir(cwd)
 hits = {k: {0.1: [], 0.2: []} for k in ("face", "hands")}; nme = {"face": [], "hands": []}
 for s in range(0, len(items), 32):
     batch = items[s:s + 32]; crops, affs, cams = [], [], []
@@ -56,7 +59,7 @@ for s in range(0, len(items), 32):
             key = "face" if k == "face" else "hands"
             for al in (0.1, 0.2): hits[key][al].extend((d <= al).tolist())
             nme[key].append(float(d.mean()))
-summ = {"model": a.model, "head": head, "checkpoint": str(a.checkpoint), "load_report": rep, "camera": bool(a.camera and a.model in ev.SPRINT_KINDS), "persons": len(items),
+summ = {"model": a.model, "head": head, "checkpoint": str(a.checkpoint), "load_report": rep, "camera": bool(a.camera and a.model in ev.SPRINT_KINDS), **({"refiner": str(a.refiner)} if a.refiner else {}), "persons": len(items),
         "parts": {k: len(v) for k, v in nme.items()}, **{f"pck{int(al*100):02d}_{k}": float(np.mean(hits[k][al])) for k in hits for al in (0.1, 0.2)},
         **{f"nme_{k}": float(np.mean(v)) for k, v in nme.items()}, "seconds": time.time() - t0, "evaluator": "tools/eval_wholebody_val.py"}
 a.output_dir.mkdir(parents=True, exist_ok=True); (a.output_dir / "summary.json").write_text(json.dumps(summ, indent=1)); print(json.dumps(summ, indent=1))

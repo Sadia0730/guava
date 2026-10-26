@@ -359,3 +359,14 @@ User: SPRINT-ft cannot be used because its initialisation lineage (Track A -> A2
 (Run A: face labels mapped to FLAME, COCO-WholeBody 2D through the EHM mesh, FLAME regularisers). **The final SPRINT model is SPRINT
 from scratch** (configs/sprint/sprint_final.yaml, EMA at step 128k; no FLAME anywhere in its training). SPRINT-ft is reported only
 as an ablation. All downstream steps (refiner, head-to-head with released PEAR, avatar table, latency) use SPRINT from scratch.
+
+### Correction (2026-10-26, user decision, before any SPRINT-ft refiner result was evaluated)
+The refiner target changes from SPRINT-ft to **SPRINT from scratch** (final SPRINT model; SPRINT-ft is not used because its Run A
+ancestry was trained with a FLAME head): `/raid/ubx858/outputs/dnt/sprint/final/checkpoints/best.pt` step 128k, EMA weights
+(`eval_programme/sprint_scratch/best_ema.pt`), sprint_raw, camera input as in its training. The SPRINT-ft refiner run was stopped at
+step ~6k (outputs left in `/raid/ubx858/outputs/dnt/refiner_sprint_ft/`, not evaluated, not used). Everything else in the entry above
+applies unchanged to SPRINT from scratch: its own error bank (same 20,000 BEDLAM2-val crops, camera on), the identical v2b recipe
+(PEAR configs/sprint/refiner_v2b_sprint_scratch.yaml), the full suite in settings (i) and (ii) next to the no-refiner baselines
+`eval_programme/sprint_scratch` (i) and `sprint_scratch_camwidth` (ii) and PEAR, 3DPW-val in-loop with / without, latency, the same
+question (gap to PEAR 46.73 in setting ii) and the same decision rule (keep iff 3DPW-test PA-MPJPE (ii) improves and COCO PCK@0.05
+(ii) is not lower by > 0.005).

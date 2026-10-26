@@ -18,6 +18,8 @@ _ap.add_argument("--extra-model", default="student_vitpose", choices=("student_v
 _ap.add_argument("--camera", action="store_true", help="SPRINT --extra models only: cond={'cam': ...} for UBody (f = image width, real 0) and "
                  "EHF (EHF camera, real 1) frames; C1 driver frames (no original-image geometry) keep the empty camera token. Default off")
 _ap.add_argument("--camera-width-only", action="store_true", help="with --camera: EHF frames also use focal = image width, real 0")
+_ap.add_argument("--refiner", default=None, help="optional no-render refiner checkpoint applied to the --extra models only "
+                 "(eval_3dpw_standard.RefinedModel); default none")
 _args = _ap.parse_args()
 ROOT = Path(__file__).resolve().parents[1]; OUT = Path(_args.out); OUT.mkdir(parents=True, exist_ok=True)
 sys.argv = sys.argv[:1]
@@ -83,6 +85,8 @@ HEAD = {n: (ev.effective_head(MODELS[n][0], _args.head) if n in {e.split("=", 1)
 res, stats = {}, {}
 for name, (kind, ck) in MODELS.items():
     m, _ = ev.load_model(kind, Path(ck).resolve() if ck else ev.DEFAULT_TEACHER.resolve(), "configs/student_l70_v2.yaml", 8, dev)
+    if _args.refiner and name in {e.split("=", 1)[0] for e in _args.extra}:
+        m = ev.RefinedModel(m, Path(_args.refiner).resolve(), dev)
     outs = []
     cam_on = _args.camera and kind in ev.SPRINT_KINDS; step = 1 if cam_on else 8   # per frame: C1 rows have no camera
     with torch.inference_mode():
@@ -140,7 +144,7 @@ for fi, (tag, img, info) in enumerate(frames):
     g = np.concatenate([np.concatenate(top, 1), np.concatenate(bot, 1)], 0)
     cv2.imwrite(str(OUT / f"{fi:02d}_{tag}.jpg"), cv2.cvtColor(g, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])
     rows_all.append(g)
-json.dump({"frames": [{"tag": f[0], **{k: v for k, v in f[2].items() if k != "_cam"}} for f in frames], "stats": stats, "head": HEAD,
+json.dump({**({"refiner": _args.refiner} if _args.refiner else {}), "frames": [{"tag": f[0], **{k: v for k, v in f[2].items() if k != "_cam"}} for f in frames], "stats": stats, "head": HEAD,
            **({"camera": {n: bool(_args.camera and MODELS[n][0] in ev.SPRINT_KINDS) for n in MODELS},
                "camera_frames": [f[0] for f in frames if "_cam" in f[2]]} if _args.camera else {"camera": False}),
            "per_frame": {n: [{k: v for k, v in o.items() if k not in ("uv", "z", "lm")} for o in res[n]] for n in MODELS}},
