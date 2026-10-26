@@ -14,7 +14,7 @@ _ap = argparse.ArgumentParser(); _ap.add_argument("--extra", action="append", de
 _ap.add_argument("--out", default="/raid/ubx858/outputs/dnt/qual_face")
 _ap.add_argument("--head", choices=("ehm", "smplx"), default="ehm", help="mesh head of the --extra models (eval_3dpw_standard.HEADS); "
                  "the four reference models keep their EHM (FLAME) head")
-_ap.add_argument("--extra-model", default="student_vitpose", choices=("student_vitpose", "sprint", "sprint_raw"), help="model kind of the --extra checkpoints")
+_ap.add_argument("--extra-model", default="student_vitpose", choices=("student_vitpose", "sprint", "sprint_raw", "pear_arch"), help="model kind of the --extra checkpoints")
 _ap.add_argument("--camera", action="store_true", help="SPRINT --extra models only: cond={'cam': ...} for UBody (f = image width, real 0) and "
                  "EHF (EHF camera, real 1) frames; C1 driver frames (no original-image geometry) keep the empty camera token. Default off")
 _ap.add_argument("--camera-width-only", action="store_true", help="with --camera: EHF frames also use focal = image width, real 0")

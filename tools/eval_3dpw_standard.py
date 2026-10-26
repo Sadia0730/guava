@@ -125,7 +125,7 @@ def box_to_affine(box_xywh) -> np.ndarray:
     return cv2.getAffineTransform(src, dst).astype(np.float32)
 
 
-SPRINT_KINDS = ("sprint", "sprint_raw")
+SPRINT_KINDS = ("sprint", "sprint_raw", "pear_arch")   # models that take the SPRINT camera condition
 
 
 def cam_feat(affine, width: float, height: float, focal: float, real: float) -> np.ndarray:
@@ -388,6 +388,19 @@ def load_model(kind: str, checkpoint: Path, student_config: str, batch_size: int
         state = torch.load(checkpoint, map_location="cpu", weights_only=False)
         model.load_state_dict(state["student"], strict=True)
         load_report = {"strict": True, "step": int(state.get("step", -1))}
+    elif kind == "pear_arch":
+        # "PEAR architecture trained with our recipe" (models/pipeline/pear_arch_pipeline.py): ViT-H + SPRINTHead, raw rotation;
+        # backbone weights come from the checkpoint (no pretrained file needed at evaluation).
+        import train_pear_student_distill as tpd
+        from models.pipeline.pear_arch_pipeline import PearArchPipeline
+        cfg = tpd.load_config(student_config)
+        tpd.set_config_batch_size(cfg, batch_size, 1)
+        state = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        c_ = state.get("config") or {}; pa_ = c_.get("pear_arch", {})
+        model = PearArchPipeline(cfg, None, n_dense=int(c_.get("sprint", {}).get("n_dense", 64)), orient_bins=False,
+                                 variant=pa_.get("variant", "vit_h"), expert=int(pa_.get("expert", 0)))
+        model.load_state_dict(state["student"], strict=True)
+        load_report = {"strict": True, "step": int(state.get("step", -1)), "orient_bins": False}
     elif kind in ("sprint", "sprint_raw"):
         # SPRINT (models/pipeline/sprint_pipeline.py): "sprint" = orientation bins applied (argmax), "sprint_raw" = raw
         # rotation. No shape / camera condition is passed here ("no shape" benchmark mode; camera token empty).
