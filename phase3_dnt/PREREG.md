@@ -335,3 +335,27 @@ SPRINT from scratch: best live step 128k (live 48.97, EMA 49.04 -> EMA reported)
 SPRINT-ft: step 48k (live 45.89, EMA 45.88 -> EMA); BEDLAM2-val tilt>90 42.46, MOYO val 31.15. SPRINT-ft is better on 3DPW-val
 AND on the hard-pose set -> **the final SPRINT model is SPRINT-ft (EMA, step 48k)**. Both are reported; the like-for-like comparison
 with PEAR-arch uses SPRINT from scratch.
+
+## Refiner (v2b) on SPRINT-ft (registered 2026-10-26, before training; user-approved step)
+- **Student (frozen):** SPRINT-ft EMA step 48k (`eval_programme/sprint_ft/best_ema.pt`, sprint_raw, pure SMPL-X 2020 head), always
+  run with the camera input cond={"cam": cam_features} exactly as in its training (BEDLAM2: real intrinsics, real 1; COCO / MPII:
+  focal = image width, real 0).
+- **Error bank:** rebuilt from SPRINT-ft (the L-real refiner is unusable on another student's features): the same 20,000 evenly
+  spaced BEDLAM2-val crops (bedlam2_gt val, `--build-error-bank 20000`) as L-real's bank, with the camera input.
+- **Recipe:** refiner v2b unchanged (configs/phase1_task3/refiner_v2b_Lreal.yaml): no-render RenderRefiner (4.18 M), seed 20261012,
+  20,000 steps, batch 51 BEDLAM2 (bedlam2_gt train, same augmentation) + 13 COCO/MPII real rows, start 50/50 student / GT + bank
+  error, AdamW 3e-4 wd 0.05, warmup 1000, cosine to 0.05, clip 1.0, GT losses root / body rot, 3D joints, camera, 2D (1.0 each),
+  real-image 2D loss 1.0 with the v2b dataset-specific hip regressor (hip weight 1.0). Only changes: the student class / camera input
+  (new config keys; defaults reproduce the L-real path). Checkpoint = the final step (as v2b; validation only monitors).
+- **Evaluation:** the full suite (`phase3_dnt/run_full_eval.sh`, sprint_raw, smplx head, orientation) with the refiner, in setting (i)
+  known camera (CAMERA=1) and (ii) no extra information (CAMERA=2, focal = image width everywhere), next to SPRINT-ft without the
+  refiner and PEAR; plus 3DPW-val (in-loop validator, camera on) with / without the refiner; latency L40S batch 1 eager.
+- **Question:** does the refiner close the 3DPW-test PA-MPJPE gap to PEAR (46.73 mm) in setting (ii)?
+- **Decision rule:** the refiner is kept iff it improves 3DPW-test PA-MPJPE in setting (ii) AND COCO PCK@0.05 (setting ii) is not
+  lower by > 0.005. No tuning on any test set; one training run.
+
+### Final-model decision, user override (2026-10-26)
+User: SPRINT-ft cannot be used because its initialisation lineage (Track A -> A2-ctrl -> Run A) was trained with a FLAME head
+(Run A: face labels mapped to FLAME, COCO-WholeBody 2D through the EHM mesh, FLAME regularisers). **The final SPRINT model is SPRINT
+from scratch** (configs/sprint/sprint_final.yaml, EMA at step 128k; no FLAME anywhere in its training). SPRINT-ft is reported only
+as an ablation. All downstream steps (refiner, head-to-head with released PEAR, avatar table, latency) use SPRINT from scratch.
