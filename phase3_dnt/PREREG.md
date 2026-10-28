@@ -370,3 +370,73 @@ applies unchanged to SPRINT from scratch: its own error bank (same 20,000 BEDLAM
 `eval_programme/sprint_scratch` (i) and `sprint_scratch_camwidth` (ii) and PEAR, 3DPW-val in-loop with / without, latency, the same
 question (gap to PEAR 46.73 in setting ii) and the same decision rule (keep iff 3DPW-test PA-MPJPE (ii) improves and COCO PCK@0.05
 (ii) is not lower by > 0.005).
+
+## GUAVA-FB: GUAVA extended to the full body (registered 2026-10-28, before any conversion run or training; user brief)
+GUAVA-FB is GUAVA (Zhang et al., "GUAVA: Generalizable Upper Body 3D Gaussian Avatar") extended to the full body; all credit for
+the architecture, losses and training recipe goes to GUAVA. Pure SMPL-X 2020 head (SMPLX_NEUTRAL_2020, 200 shape, 50 expression),
+no FLAME, initialised from GUAVA (a20) `guava_a20/run/checkpoints/best.pt` (iteration 2k), same UV layout and visibility outputs.
+**Storage (user decision 2026-10-28, /raid at 26 GB free):** all GUAVA-FB data and outputs go to
+`/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/` (/raid is only read). **GPUs (user):** 0, 1, 2.
+
+### Camera patch and its regression check
+Per-sample perspective camera: perspective crop (virtual camera rotated onto the crop centre ray, homography warp, principal point
+at the crop centre) + per-sample `invtanfov` = 2 f / L, used in all 4 places GUAVA hard-codes `invtanfov` (AVATAR_B_PLAN §1 #3) and
+an empty-box guard in `cal_box_loss`. Applied as a monkeypatch (GUAVA files untouched).
+- **Regression check (must pass before any training):** GUAVA (a20) best.pt on its own 10 UBody validation clips (347 frames)
+  with the patch active and every sample's invtanfov = 24 must reproduce the unpatched validation: |dPSNR| <= 0.01 dB,
+  |dSSIM| <= 1e-4, |dLPIPS| <= 1e-4.
+- **Correctness check:** re-render the converted SMPL-X through GUAVA's own mesh rasteriser / camera on 50 rows per exact-label
+  source (BEDLAM2, 4D-DRESS): mean vertex reprojection error vs the source camera's projection < 1 px at 512.
+
+### Data (each source: size, licence, SMPL-X availability, views, 10 overlays, reported before training)
+| source | share | labels | pairs | split |
+|---|---|---|---|---|
+| BEDLAM2 videos | 30 % | exact SMPL-X (locked head -> SMPLX_NEUTRAL_2020: shape16 -> betas200 map used by SPRINT), exact cameras | source / target = different frames of a clip | AVATAR_B_PLAN strict split: 40 test subjects (not used now), 10 val clips, train pool (pilot rule, <= 2 clips / subject, cap 1,500 clips) |
+| Motion-X full-body | 20 % | dataset SMPL-X kept if the clip passes the alignment filter, else SPRINT (from scratch) + refinement refit, filter applied again | different frames | 20 val clips held out (seed 0, after filtering) |
+| 4D-DRESS | 20 % | dataset SMPL-X (v1.1, gendered, 10 betas, PCA hands) refitted to SMPLX_NEUTRAL_2020 (one shape per subject, per-frame poses); calibrated cameras (4 views) | **source and target from DIFFERENT cameras** of the same subject (any take / outfit of that subject) | 4 subjects held out for validation (2 female, 2 male; SHA-1 of the id, lowest), never in training |
+| UBC-Fashion | 15 % | SPRINT (from scratch) + refinement fit, ONE shared shape per video, temporal smoothing | different frames | official TRAIN videos only; all 100 official test videos (incl. GART's 6) excluded; train videos whose identity matches a test video (ArcFace, below) also excluded |
+| UBody (EHM-tracked, a20 data) | 15 % | a20 conversion (56 bad clips excluded) | as a20 | a20's own 10 validation clips |
+
+- **Fitting model:** SPRINT from scratch (EMA, step 128k; `eval_programme/sprint_scratch/best_ema.pt`), camera input focal = image
+  width (setting ii), `sprint_avatar_fit.py` refinement (DWPose keypoints + StyleMatte mask). SPRINT-ft is not used.
+- **Masks:** StyleMatte (EHM-Tracker `stylematte_synth.pt`, GUAVA's matting) on every frame of every source (4D-DRESS's rendered
+  masks only as a check of StyleMatte).
+- **Alignment filter (fitted / dataset labels of real video: Motion-X, UBC):** per frame (a) projected mesh outside the matte < 5 %
+  of mesh pixels and (b) max per-limb DWPose-to-joint error < 3 % of body height (keypoints with score > 0.5, >= 15 of them);
+  a clip is kept iff >= 80 % of its frames pass. Thresholds fixed now; no tuning on any evaluation set.
+- **4D-DRESS SMPL-X refit check:** mean vertex distance converted vs original mesh < 5 mm per subject (median over frames); a
+  subject failing it is dropped and reported.
+- **NEVER in training:** People-Snapshot, NeuMan, X-Humans, UBC-Fashion test videos, held-out 4D-DRESS subjects (also any 3DPW).
+  **Identity overlap check** (reported): ArcFace (antelopev2 glintr100, `onnx_arcface_torch.py`) max cosine between face crops of
+  each training identity and each evaluation identity; a pair with cosine > 0.5 is a match; a matching training clip / video is
+  removed from training before it starts. Evaluation sets not yet on disk are checked when they arrive; if a match is then found,
+  the affected evaluation subject is reported as contaminated.
+
+### Identity retention and losses
+- Shape lock: one SMPL-X 2020 shape per clip / subject (`id_share_params.smplx_shape`), never per frame.
+- `lambda_head_crop` 0.25 -> **0.5** (faces are about 60 px in a full-body 512 render); other GUAVA weights unchanged.
+- ArcFace identity loss on face crops (research use only; insightface models are licensed non-commercial research only):
+  1 - cos(ArcFace(render face crop), ArcFace(GT face crop)), aligned by the projected SMPL-X eye / nose / mouth landmarks, weight
+  **0.05**, only for targets whose GT face box is >= 48 px and whose face faces the camera (head forward axis within 60 deg of the
+  camera axis).
+- Avatar built once per source and reused for all its targets: batch = 2 sources x 3 targets (6 renders, as GUAVA's batch 6).
+
+### Training
+- Smoke test: 200 iterations + 10 renders. Pass iff every loss is finite, the 10 renders overlay the GT silhouette (visual check),
+  peak memory < 44 GB and the regression check above passed. If the smoke test and data checks pass, training starts without
+  asking (user instruction).
+- Run: 30k iterations, Adam (GUAVA's param groups, betas (0, 0.99)), lr 5e-5 -> 0.1x linear, iteration offset 160k, seed 0.
+- Validation every 2k iterations on: held-out 4D-DRESS subjects (frame 0 of camera A as source, other cameras as targets),
+  10 held-out BEDLAM2 clips, 20 held-out Motion-X clips, a20's 10 UBody val clips; GUAVA metrics (full 512 image, GT x mask on
+  black) plus face-crop LPIPS.
+- **best.pt rule:** a checkpoint is eligible iff on UBody val SSIM >= a20 SSIM - 0.002 AND face-crop LPIPS <= a20 + 0.002 (a20
+  measured by the same validator at iteration 0). Among eligible checkpoints, best = highest mean SSIM over the three full-body
+  tracks (4D-DRESS, BEDLAM2, Motion-X). Only best.pt is kept at the end. If no trained checkpoint is eligible, this is reported as a
+  failed criterion.
+
+### Evaluation (after training; each with its published protocol; not used for any choice)
+People-Snapshot (InstantAvatar protocol, 4 subjects; SMPL -> SMPL-X conversion stated), NeuMan (bike, citron, jogging, seattle;
+official split; masked metrics), X-Humans (00028, 00034, 00087; given SMPL-X, no test-time fitting), UBC-Fashion (GART's 6 test videos
+and frame rule). Source image = the first training frame (declared). Metrics PSNR, SSIM, LPIPS, L1, CSIM (ArcFace identity over
+frames), tLPIPS; with and without test-time pose fitting. Baseline numbers copied from the papers where available (GART,
+GaussianAvatar, ExAvatar) and run where stated. Every table states that GUAVA-FB uses ONE image while the baselines train on video.
