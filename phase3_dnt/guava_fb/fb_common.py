@@ -232,10 +232,11 @@ _orig_cal_box_loss = Optimization_Loss.cal_box_loss
 
 
 def cal_box_loss_guarded(self, render_images, gt_images, box, loss_funs, loss_lambdas):
-    """utils/loss_utils.py:140-159 unchanged except: 0 when no crop in the batch is non-empty (else torch.cat([]) crashes)."""
+    """utils/loss_utils.py:140-159 unchanged except: 0 when no crop in the batch is non-empty (else torch.cat([]) crashes).
+    The zero has the [1, 1, 1, 1] shape of the normal result (LPIPS keeps dims), so `hand_loss += ...` works in either order."""
     h = box[:, 3].clamp(max=gt_images.shape[-2]) - box[:, 2]; w = box[:, 1].clamp(max=gt_images.shape[-1]) - box[:, 0]
     if not bool(((h >= 1) & (w >= 1)).any()):
-        return render_images.sum() * 0.0
+        return render_images.sum().reshape(1, 1, 1, 1) * 0.0
     return _orig_cal_box_loss(self, render_images, gt_images, box, loss_funs, loss_lambdas)
 
 
