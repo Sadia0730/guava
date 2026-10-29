@@ -560,3 +560,44 @@ the model, its weights' shapes and inference are unchanged. Not in these pilots:
   - (6) per-frame render time is not slower than v1b's by more than 2 %.
   
   Everything is reported whether it passes or not.
+
+### GUAVA-FB amendment 4 (registered 2026-10-29 ~12:35, before any pilot C run): pilot C, normal / depth-normal supervision
+User request (2026-10-29): another 8k pilot with normal supervision decoupled to depth, as in VCR-GauS (Chen et al., NeurIPS
+2024, "View Consistent Depth-Normal Regularizer for Gaussian Surface Reconstruction"), on top of pilot B (which passed
+amendment 3's rule). Training-only changes: the model, its weights' shapes and inference are unchanged.
+- **Pseudo normals:** Sapiens-normal-1B (Meta, CC-BY-NC 4.0, non-commercial research), frozen, bf16, run on each training
+  target image (square crop resized to 768, zero-padded to 1024 × 768, no aspect change). Its axes are mapped to GUAVA's
+  OpenCV camera frame by (x, −y, −z). This was checked before training by `normal_check.py` on 18 validation targets:
+  - mean cosine vs SMPL-X normals 0.91;
+  - D-Normal of the SMPL-X surface vs its rendered normals 0.97.
+- **Pilot C** = pilot B (same options, seed 0) plus:
+  - (1) **flattening** (VCR-GauS Eq. 6): L1 of each Gaussian's smallest world scale, weight 1.0 (paper value);
+  - (2) **rendered normal loss** (Eq. 8): L1 + (1 − cos) between the alpha-normalised rendered normal map and Sapiens.
+    The Gaussian normal is the shortest scale axis, oriented to the camera. Weight 0.1;
+  - (3) **D-Normal loss** (Eqs. 11, 14): normal from the finite differences of the back-projected rendered depth map vs
+    Sapiens, times the confidence w = exp((N̂·N − 1)/γ) (detached). Weight 0.15.
+  - Losses (2) and (3) apply inside the matte eroded by 2 px ∩ the rendered coverage (alpha > 0.5) eroded by 2 px.
+  - Deviations from the paper:
+    - depth is the alpha-blended Gaussian **centre** depth, not the ray-plane intersection depth (that needs a custom CUDA
+      kernel);
+    - the normal and D-Normal weights are the paper's 0.01 / 0.015 × 10, because GUAVA's photometric objective (L1 + LPIPS +
+      head / hand / clothing crops, ≈ 0.29) is ≈ 7× the L1 term that corresponds to the paper's RGB loss;
+    - γ = 0.1 instead of 0.005: the paper's per-scene setting would give w ≈ 0 everywhere at the start (pilot B's rendered
+      normals agree with Sapiens at mean cosine 0.74).
+  - Options: pilot B's plus `--flat-weight 1.0 --normal-weight 0.1 --dnormal-weight 0.15 --dn-gamma 0.1`.
+  - 8k iterations on the 30k schedule (`--stop-iter 8000`), validation every 2k with the registered validator and best.pt
+    rule (unchanged); latest.pt at 8k is kept for the comparison. Smoke test first.
+- **Comparison:** amendment 3's measures (1)-(6), for pilot C against pilot B at 8k (and v1b_10k / pilot A for reference),
+  plus:
+  - (7) **geometry:** mean cosine of the rendered normal and of the D-Normal vs Sapiens on the validation targets of
+    measure (2), inside matte ∩ coverage (each eroded by 2 px);
+  - normal-map visuals.
+- **Decision** ("pilot C improves on B"): all of the following must hold, against pilot B.
+  - (2) 4D-DRESS clothing-box LPIPS is lower;
+  - (3) zoomed clothing LPIPS is lower;
+  - (7) the D-Normal cosine is higher;
+  - (1) mean full-body SSIM is not lower by more than 0.002;
+  - (5) flicker is not higher by more than 10 %;
+  - (6) per-frame render time is not slower by more than 2 %.
+  
+  Everything is reported whether it passes or not.

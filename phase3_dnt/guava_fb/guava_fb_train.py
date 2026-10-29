@@ -58,6 +58,12 @@ ap.add_argument("--zoom-p", type=float, default=0.0); ap.add_argument("--zoom-fa
 ap.add_argument("--edge-weight", type=float, default=0.0, help="Sobel-gradient L1 on source-frame (exactly aligned) targets only")
 ap.add_argument("--cloth-crop", type=float, default=0.0, help="clothing-box L1 + LPIPS weight (as GUAVA's head crop), box = torso / hips / thighs / upper arms")
 ap.add_argument("--sil-weight", type=float, default=0.0, help="L1 between the Gaussians' coverage (constant-feature render) and the matte")
+ap.add_argument("--normal-weight", type=float, default=0.0, help="pilot C (VCR-GauS Eq. 8): rendered Gaussian normal map vs Sapiens pseudo normals")
+ap.add_argument("--dnormal-weight", type=float, default=0.0, help="pilot C (VCR-GauS Eq. 14): D-Normal from the rendered depth vs Sapiens, confidence-weighted")
+ap.add_argument("--flat-weight", type=float, default=0.0, help="pilot C (VCR-GauS Eq. 6): L1 on each Gaussian's smallest scale (world units)")
+ap.add_argument("--dn-gamma", type=float, default=0.005, help="VCR-GauS confidence temperature (Eq. 13)")
+ap.add_argument("--normal-model", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/models/sapiens/sapiens_1b_normal.pt2")
+ap.add_argument("--normal-sign", default="1,-1,-1", help="Sapiens -> OpenCV camera axes (normal_check.py)")
 ap.add_argument("--fullbody-tracks", default="dress4d,bedlam2,motionx", help="tracks of the best.pt mean SSIM (registered: dress4d,bedlam2,motionx)")
 ap.add_argument("--cross-view-sources", default="dress4d", help="sources paired across different views (registered: dress4d)")
 ap.add_argument("--cross-view-group", default="subject+outfit", help="index fields that define a cross-view pairing group (v1: subject; v1b registered: subject+outfit, so source and target wear the same clothes)")
@@ -334,6 +340,36 @@ def pilot_losses(rr, t, assets):
     return out_
 
 
+GEO = a.normal_weight > 0 or a.dnormal_weight > 0 or a.flat_weight > 0
+if GEO:
+    import normal_prior as NP
+    SAP = NP.SapiensNormal(a.normal_model, dev, sign=tuple(float(x) for x in a.normal_sign.split(",")))
+
+
+def geometry_losses(t, assets):
+    """pilot C, after VCR-GauS: flattening (Eq. 6), rendered normal (Eq. 8) and confidence-weighted D-Normal (Eq. 14) losses
+    against frozen Sapiens normals of the target image, inside the eroded matte and the Gaussians' coverage. Training only."""
+    out_ = {}
+    if a.flat_weight > 0: out_["flat_loss"] = a.flat_weight * assets["scaling"].min(-1).values.mean()
+    if a.normal_weight > 0 or a.dnormal_weight > 0:
+        Np = SAP(t["image"]); B = Np.shape[0]
+        Nr, Dr, Ar = NP.render_geometry(ren, assets, t["render_cam_params"], t["w2c_cam"])
+        Nd = NP.depth_to_normal(Dr, F.batch_invtanfov(t, B, dev))
+        valid = NP.erode((t["mask"][:, :1] > 0.5).float(), 2) * NP.erode((Ar.detach() > 0.5).float(), 2); nv = valid.sum().clamp(min=1)
+        ln, ldn = NP.normal_terms(Nr, Nd, Np, valid)
+        w = torch.exp(((Nr.detach() * Np).sum(1, keepdim=True) - 1) / a.dn_gamma)
+        if a.normal_weight > 0: out_["normal_loss"] = a.normal_weight * ln.sum() / nv
+        if a.dnormal_weight > 0: out_["dnormal_loss"] = a.dnormal_weight * (w * ldn).sum() / nv
+        with torch.no_grad():
+            GSTAT.update({"geo_cos_rendered": float(((Nr * Np).sum(1, keepdim=True) * valid).sum() / nv),
+                          "geo_cos_dnormal": float(((Nd * Np).sum(1, keepdim=True) * valid).sum() / nv),
+                          "geo_conf_mean": float((w * valid).sum() / nv)})
+    return out_
+
+
+GSTAT = {}
+
+
 def arcface_loss(render, gt, t):
     box, side, inside, kp, cosang = target_geometry(t)
     kin = ((kp >= 0) & (kp <= 511)).all(-1).all(-1)
@@ -420,6 +456,8 @@ while step < stop_iter:
         la, n_arc = arcface_loss(rr["renders"], tgt["image"] * tgt["mask"], tgt); lm["arcface_loss"] = la * a.arcface_weight
     if a.cloth_crop > 0 or a.edge_weight > 0 or a.sil_weight > 0:
         lm.update(pilot_losses(rr, tgt, assets))
+    if GEO:
+        lm.update(geometry_losses(tgt, assets))
     loss = sum(lm.values())
     opt.zero_grad(set_to_none=True); loss.backward()
     for p_ in list(inf.parameters()) + list(ren.parameters()):
@@ -431,7 +469,7 @@ while step < stop_iter:
         el = time.time() - t0
         rec = {"split": "train", "iter": step, "loss": float(loss), "it_per_s": (step - n0) / el, "data_wait_frac": t_data / el, "lr": sch.get_last_lr()[0],
                "mem_gb": torch.cuda.max_memory_allocated() / 2**30, "mem_reserved_gb": torch.cuda.max_memory_reserved() / 2**30, "n_arcface": n_arc,
-               "sources": [m["source"] for m in meta_b], "pairs": meta_b, **vals}
+               "sources": [m["source"] for m in meta_b], "pairs": meta_b, **vals, **GSTAT}
         log.write(json.dumps(rec) + "\n"); log.flush(); log_print(json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in rec.items()}))
     if step % a.vis_every == 0:
         with torch.no_grad():
