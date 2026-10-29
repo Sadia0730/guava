@@ -440,3 +440,53 @@ official split; masked metrics), X-Humans (00028, 00034, 00087; given SMPL-X, no
 and frame rule). Source image = the first training frame (declared). Metrics PSNR, SSIM, LPIPS, L1, CSIM (ArcFace identity over
 frames), tLPIPS; with and without test-time pose fitting. Baseline numbers copied from the papers where available (GART,
 GaussianAvatar, ExAvatar) and run where stated. Every table states that GUAVA-FB uses ONE image while the baselines train on video.
+
+### GUAVA-FB addendum (registered 2026-10-28, after the data checks, before the smoke test and training)
+Data checks are complete (reports in `O/reports/<source>/`). The changes and precisions below were fixed without any training run
+and without looking at an evaluation set.
+- **Correction:** GART's 6 UBC videos (91+bCFG1jOS, 91Iegdp9HFS, 91Ile3zLhMS, 91QFEra7jDS, 91WvLcNpdzS, 91fxYsir49S) are in UBC's
+  official TRAIN list, not in the test list. All 6 are excluded from training, and their identities count as evaluation
+  identities for the ArcFace overlap check (100 test + GART 6). This removed 362 of 494 checked train videos.
+- **Alignment filter (b), how it is read:** for each limb, average the DWPose-to-joint errors over the limb's keypoints; a frame
+  passes if the largest of these limb means is < 3 % of body height. Implementation: `fit_ubc.frame_filter` + `silhouettes`, the
+  same for UBC and Motion-X. Reading it as the largest single-keypoint error would pass almost nothing (Motion-X: 0 % with
+  dataset labels, 0.07 % with refits).
+- **Known defect, not fixed for this run:** the shared DWPose-134 -> SMPL-X regressor maps the heels to joints 10 / 11 (ball of the
+  foot) instead of heel vertices (8846 / 8635). Effects:
+  - The filter is stricter than intended. On Motion-X, fixing it would raise clip pass rates from 1.96 % to 3.84 % with dataset
+    labels and from 22.9 % to 30.4 % with refits.
+  - The heel term of the UBC / Motion-X refits is slightly biased toward the toes.
+  
+  This is kept as-is because UBC and Motion-X were filtered identically and every kept frame passed visual overlay checks. It is
+  reported as a limitation; a later version may refit with the fix.
+- **Dropped frames** (`O/data/<source>/drop_frames.json`, applied by the trainer):
+  - UBC: 38 frames where the fitted body faces the wrong way (front / back flip; fitted facing disagrees with the DWPose
+    shoulder order);
+  - 4D-DRESS: rows whose body is cut off by the image edge by more than 5 % (`trunc_frac` > 0.05; 521 train and 100 val rows);
+  - Motion-X: none (kept clips contain only passing, non-flipped frames).
+  
+  BEDLAM2 rows with any mesh vertex closer than 0.2 m to the camera were not converted.
+- **4D-DRESS:** 5 takes of 00135 / Outer are missing from the extracted download and are not used.
+- **Motion-X:**
+  - sampling and labels:
+    - 1,500 candidate clips, equal quota over 7 subsets, at most 1 clip per source video (source video = subject = one shape);
+    - frames every ~0.5 s, at most 40 per clip;
+    - dataset SMPL-X v1.1 labels convert exactly to 2020: zero-padded betas, with one shape per clip = the mean of the clip's betas;
+  - kept clips:
+    - 310 in total: 27 with dataset labels and 283 with SPRINT refits;
+    - 20 val clips (seed 0, never HuMMan, because its clips share performers) and 290 train clips.
+- **UBC:** shape is per video. An `identity_group` field ties videos of the same person together; the group never crosses the
+  train / evaluation boundary.
+- **Correctness check result** (registered sample = the first 10 clips × 5 rows in seed-0 order): pass on both sources.
+  - BEDLAM2: 0.37 px mean.
+  - 4D-DRESS: 0.55 px mean.
+  - Over all clips (the script did not stop at 50 rows), BEDLAM2 is 0.37 px over 1,510 clips with none above 1 px; 4D-DRESS is
+    0.57 px over 516 clips, with 6 clips between 1.0 and 1.64 px. All clips are kept.
+- **Validation sets (fixed for compute):**
+  - targets per group: 4D-DRESS at most 60 per held-out subject (evenly strided over its other-camera rows); BEDLAM2 and Motion-X
+    every 4th frame from the 2nd, at most 20 / 10 per clip;
+  - UBody: exactly a20's rule (all 347 frames);
+  - `torch.manual_seed(0)` before every validation forward / render, so validation is deterministic (StyleUNet noise);
+  - a20's reference values for the best.pt rule are measured by this same validator at iteration 0.
+- **Staging:** at launch, training data is copied from the vault to RAM disk (`/dev/shm/ubx858_guava_fb/data`; the vault reads
+  14 reads/s single-threaded). The vault keeps the master copy, checkpoints and results.
