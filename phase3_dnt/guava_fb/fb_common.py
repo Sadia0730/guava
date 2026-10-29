@@ -391,18 +391,21 @@ class FBData(TrackedData):
         """A true zoomed target: the camera is rotated about its centre onto the ray through a chosen point of the stored
         1024 crop and its invtanfov is multiplied by `factor`; the image / mask are the 1024 crop warped by the exact
         homography (no upsampling of a 512 image). Centre: the head (prob. head_p) or a random matte pixel of the clothing
-        band (head bottom .. 70 % of the person's height); `center` = (u, v) in 1024 px overrides. None if the window
-        would hold < min_cover person pixels (the caller then uses the normal target)."""
+        band (head bottom .. 70 % of the person's height); `center` = (u, v) in 1024 px overrides, "band_median" = the
+        median matte pixel of the clothing band (deterministic; comparisons). None if the window would hold < min_cover
+        person pixels (the caller then uses the normal target)."""
         tt, ti, tm = self.info(ci, k); S = ti.shape[-1]; n = self.image_size; rng = rng or np.random.default_rng(0)
         m = tm[0].numpy() > 0.5; ys, xs = np.nonzero(m)
         if ys.size == 0: return None
         hb = tt["head_box"].tolist(); s2 = S / n
-        if center is not None: cu, cv = center
+        y0, y1 = ys.min(), ys.max(); top = min(max(hb[3] * s2, y0), y1); bot = y0 + 0.7 * (y1 - y0)
+        sel = (ys >= top) & (ys <= max(bot, top + 1))
+        if isinstance(center, str) and center == "band_median":
+            cu, cv = (float(np.median(xs[sel])), float(np.median(ys[sel]))) if sel.any() else (float(np.median(xs)), float(np.median(ys)))
+        elif center is not None: cu, cv = center
         elif rng.random() < head_p and not (hb[0] == 0 and hb[1] == n - 1 and hb[2] == 0 and hb[3] == n - 1):
             cu, cv = (hb[0] + hb[1]) / 2 * s2, (hb[2] + hb[3]) / 2 * s2
         else:
-            y0, y1 = ys.min(), ys.max(); top = min(max(hb[3] * s2, y0), y1); bot = y0 + 0.7 * (y1 - y0)
-            sel = (ys >= top) & (ys <= max(bot, top + 1))
             j = rng.choice(np.flatnonzero(sel)) if sel.any() else rng.integers(ys.size); cu, cv = float(xs[j]), float(ys[j])
         half = S / factor / 2
         win = m[int(max(0, cv - half)):int(min(S, cv + half)), int(max(0, cu - half)):int(min(S, cu + half))]
