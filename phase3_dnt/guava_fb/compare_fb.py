@@ -8,13 +8,17 @@
           (deform + rasterise + refine, median of 200).
   geometry (amendment 4, measure 7) mean cosine of the rendered normal and of the D-Normal (normal_prior.py) vs frozen
           Sapiens-normal-1B on the same validation targets, inside matte ∩ coverage (each eroded by 2 px); normal-map examples.
-  compose side-by-side mp4s / zoom crops and the summary table from the per-model results."""
+  compose side-by-side mp4s / zoom crops and the summary table from the per-model results.
+  showcase --models baseline=ckpt candidate=ckpt, after eval + geometry of both: the validation targets with the largest
+          per-target gain of the candidate (distinct take groups) for the D-Normal cosine (best per track + the median-gain
+          target), coverage miss and zoomed clothing LPIPS; figures + selection.json (gains, share of targets improved)."""
 import argparse, json, math, os, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ap = argparse.ArgumentParser()
-ap.add_argument("--part", choices=["eval", "timing", "geometry", "compose"], required=True)
+ap.add_argument("--part", choices=["eval", "timing", "geometry", "compose", "showcase"], required=True)
+ap.add_argument("--per", type=int, default=3, help="showcase: examples per measure")
 ap.add_argument("--models", nargs="+", required=True, help="label=checkpoint")
 ap.add_argument("--out", required=True); ap.add_argument("--data-root", default="/dev/shm/ubx858_guava_fb/data")
 ap.add_argument("--tracks", default="dress4d,bedlam2,motionx"); ap.add_argument("--val-step", type=int, default=4)
@@ -158,6 +162,107 @@ def interp_records(r0, r1, n):
                 r["smplx"][k] = (1 - w) * v0 + w * v1
         outl.append(r)
     return outl
+
+
+# ----------------------------------------------------------------------------- showcase (selected examples, baseline vs candidate)
+if a.part == "showcase":
+    import normal_prior as NP
+    la, lb = list(models); R = {}
+    for l in (la, lb):
+        for f in ("eval", "geometry"):
+            for r in json.loads((out / l / f"{f}.json").read_text())["rows"]: R.setdefault(l, {}).setdefault((r["track"], r["tgt"]), {}).update(r)
+    REF = {(s, f"{clips[ref[0]]['name']}/{ref[1]}"): (src, ref) for s, G in VAL.items() for src, tg in G for ref in tg}
+    grp = lambda k: (k[0], k[1].split("/")[0].split("_Take")[0])
+
+    def gains(m, sg):
+        return sorted(((sg * (R[lb][k][m] - R[la][k][m]), k) for k in R[lb] if R[lb][k].get(m) is not None and R[la].get(k, {}).get(m) is not None), reverse=True)
+
+    def top(g, n):
+        seen, sel = set(), []
+        for v, k in g:
+            if v > 0 and grp(k) not in seen: seen.add(grp(k)); sel.append(("best", v, k))
+            if len(sel) == n: break
+        return sel
+    MEAS = {"geometry": ("geo_cos_dnormal", 1), "coverage": ("miss_frac", -1), "zoom": ("zoom_lpips", -1)}
+    G = {p: gains(*ms) for p, ms in MEAS.items()}
+    SEL = {"geometry": [x for s in VAL for x in top([y for y in G["geometry"] if y[1][0] == s], 1)] + [("median", *G["geometry"][len(G["geometry"]) // 2])],
+           "coverage": top(G["coverage"], a.per), "zoom": top(G["zoom"], a.per)}
+    sap = NP.SapiensNormal(a.sapiens, dev, sign=(1.0, -1.0, -1.0)); T = {}
+    for l in (la, lb):
+        load(l); cache = {}
+        with torch.no_grad():
+            for part, sel in SEL.items():
+                for _, _, k in sel:
+                    src, ref = REF[k]; d = T.setdefault((part, k), {})
+                    if src not in cache: cache[src] = avatar(src)
+                    av = cache[src]; t = to_dev(F.collate1(fbd.target_info(*ref)), dev); d["gt"] = (t["image"] * t["mask"])[0].cpu(); d["m"] = (t["mask"][0, :1] > 0.5).cpu()
+                    if part == "geometry":
+                        if "Np" not in d: d["Np"] = sap(t["image"])[0].cpu()
+                        Nr, Dr, Ar = NP.render_geometry(ren, av(t), t["render_cam_params"], t["w2c_cam"]); Nd = NP.depth_to_normal(Dr, F.batch_invtanfov(t, 1, dev))
+                        d[l] = (Nr[0].cpu(), Nd[0].cpu(), (Ar[0] > 0.5).cpu())
+                    elif part == "coverage":
+                        r, al = render(av, t); d[l] = (r[0].cpu(), al[0].cpu())
+                    else:
+                        tz = to_dev(F.collate1(fbd.target_info_zoom(*ref, center="band_median", factor=2.0, min_cover=0.0)), dev)
+                        d["gt"] = (tz["image"] * tz["mask"])[0].cpu(); d[l] = render(av, tz)[0][0].cpu()
+        del cache
+
+    def u8(x): return np.ascontiguousarray((x.clamp(0, 1).permute(1, 2, 0).numpy() * 255).astype(np.uint8)[..., ::-1])
+
+    def sq(m, pad=0.06):
+        ys, xs = np.nonzero(m[0].numpy()); H = m.shape[-1]
+        side = min(H, int(max(ys.max() - ys.min(), xs.max() - xs.min()) * (1 + 2 * pad)))
+        y0 = int(np.clip((ys.min() + ys.max() - side) / 2, 0, H - side)); x0 = int(np.clip((xs.min() + xs.max() - side) / 2, 0, H - side))
+        return y0, x0, side
+
+    def tile(img, b=None, S=400, txt=()):
+        if b is not None: img = img[b[0]:b[0] + b[2], b[1]:b[1] + b[2]]
+        img = cv2.resize(img, (S, S), interpolation=cv2.INTER_AREA if img.shape[0] > S else cv2.INTER_LINEAR)
+        for i, s in enumerate(txt):
+            (w, h), bl = cv2.getTextSize(s, cv2.FONT_HERSHEY_SIMPLEX, .55, 1); y = 6 + i * (h + bl + 8)
+            cv2.rectangle(img, (3, y - 3), (9 + w, y + h + bl + 2), (0, 0, 0), -1)
+            cv2.putText(img, s, (6, y + h), cv2.FONT_HERSHEY_SIMPLEX, .55, (255, 255, 255), 1, cv2.LINE_AA)
+        return cv2.copyMakeBorder(img, 2, 2, 2, 2, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+
+    def grid(rows, heads, title, path):
+        W = sum(t.shape[1] for t in rows[0]); hd = np.full((64, W, 3), 255, np.uint8); x = 0
+        cv2.putText(hd, title, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, .6, (0, 0, 0), 1, cv2.LINE_AA)
+        for h, t in zip(heads, rows[0]): cv2.putText(hd, h, (x + 8, 54), cv2.FONT_HERSHEY_SIMPLEX, .6, (0, 0, 0), 2, cv2.LINE_AA); x += t.shape[1]
+        cv2.imwrite(str(path), np.concatenate([hd] + [np.concatenate(r, 1) for r in rows], 0), [cv2.IMWRITE_JPEG_QUALITY, 92])
+
+    od = out / "showcase"; od.mkdir(exist_ok=True); share = {}
+    for part, (m, sg) in MEAS.items():
+        share[part] = {"measure": m, "n": len(G[part]), "candidate_better": int(sum(v > 0 for v, _ in G[part])), "mean_gain": float(np.mean([v for v, _ in G[part]]))}
+    rows = []
+    for tag, v, k in SEL["geometry"]:
+        d = T[("geometry", k)]; b = sq(d["m"]); rk = [R[l][k] for l in (la, lb)]
+        nrm = lambda n, msk: u8((n * .5 + .5) * msk)
+        rows.append([tile(u8(d["gt"]), b, txt=(f"{k[0]} ({tag} gain)", k[1].split("/")[0][:40])), tile(nrm(d["Np"], d["m"]), b)]
+                    + [tile(nrm(d[l][0], d[l][2]), b, txt=(f"cos {r['geo_cos_rendered']:.3f}",)) for l, r in zip((la, lb), rk)]
+                    + [tile(nrm(d[l][1], d[l][2]), b, txt=(f"cos {r['geo_cos_dnormal']:.3f}",)) for l, r in zip((la, lb), rk)])
+    s = share["geometry"]
+    grid(rows, ["input", "Sapiens (target)", f"{la} normal", f"{lb} normal", f"{la} D-Normal", f"{lb} D-Normal"],
+         f"geometry: {lb} > {la} on D-Normal cosine for {s['candidate_better']}/{s['n']} targets; rows = best per track + median-gain target", od / "geometry_wins.jpg")
+    rows = []
+    for tag, v, k in SEL["coverage"]:
+        d = T[("coverage", k)]; b = sq(d["m"]); m = d["m"][0]; ov = []
+        for l in (la, lb):
+            al = d[l][1][0]; base = d["gt"] * 0.35; miss = m & (al < 0.5); spill = ~m & (al > 0.5)
+            base[0][miss], base[1][miss], base[2][miss] = 1.0, 0.1, 0.1; base[0][spill], base[1][spill], base[2][spill] = 0.1, 0.9, 1.0
+            ov.append(tile(u8(base), b, txt=(f"miss {R[l][k]['miss_frac'] * 100:.1f}%  spill {R[l][k]['spill_frac'] * 100:.1f}%",)))
+        rows.append([tile(u8(d["gt"]), b, txt=(k[0], k[1][:40])), tile(u8(d[la][0]), b), tile(u8(d[lb][0]), b)] + ov)
+    s = share["coverage"]
+    grid(rows, ["ground truth", la, lb, f"{la} coverage", f"{lb} coverage"],
+         f"coverage (red = person not covered, cyan = spill): {lb} misses less on {s['candidate_better']}/{s['n']} targets", od / "coverage_wins.jpg")
+    rows = []
+    for tag, v, k in SEL["zoom"]:
+        d = T[("zoom", k)]
+        rows.append([tile(u8(d["gt"]), txt=(k[1][:40],))] + [tile(u8(d[l]), txt=(f"LPIPS {R[l][k]['zoom_lpips']:.3f}  SSIM {R[l][k]['zoom_ssim']:.3f}",)) for l in (la, lb)])
+    s = share["zoom"]
+    grid(rows, ["ground truth (2x zoom)", la, lb], f"2x clothing zoom: {lb} lower LPIPS on {s['candidate_better']}/{s['n']} targets", od / "zoom_wins.jpg")
+    (od / "selection.json").write_text(json.dumps({"baseline": la, "candidate": lb, "share": share,
+                                                   "selected": {p: [{"track": k[0], "tgt": k[1], "kind": t, "gain": v} for t, v, k in sel] for p, sel in SEL.items()}}, indent=1))
+    print(json.dumps(share, indent=1)); sys.exit(0)
 
 
 # ----------------------------------------------------------------------------- timing
