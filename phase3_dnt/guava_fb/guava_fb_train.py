@@ -67,6 +67,17 @@ ap.add_argument("--normal-sign", default="1,-1,-1", help="Sapiens -> OpenCV came
 ap.add_argument("--fullbody-tracks", default="dress4d,bedlam2,motionx", help="tracks of the best.pt mean SSIM (registered: dress4d,bedlam2,motionx)")
 ap.add_argument("--cross-view-sources", default="dress4d", help="sources paired across different views (registered: dress4d)")
 ap.add_argument("--cross-view-group", default="subject+outfit", help="index fields that define a cross-view pairing group (v1: subject; v1b registered: subject+outfit, so source and target wear the same clothes)")
+ap.add_argument("--sapiens-sources", default="all", help="pilot D: sources whose targets get the Sapiens normal losses ('all' = pilot C)")
+ap.add_argument("--scan-root", default="", help="pilot D: 4D-DRESS scan cache (dress4d_scans.py); scan geometry losses on dress4d targets")
+ap.add_argument("--scan-normal-weight", type=float, default=0.0, help="pilot D: rendered Gaussian normal vs scan normal (L1 + 1 - cos)")
+ap.add_argument("--scan-dnormal-weight", type=float, default=0.0, help="pilot D: D-Normal vs scan normal (L1 + 1 - cos, no confidence weight)")
+ap.add_argument("--scan-depth-weight", type=float, default=0.0, help="pilot D: L1 (m) between the rendered Gaussian depth and the scan depth")
+ap.add_argument("--scan-chamfer-weight", type=float, default=0.0, help="pilot D: truncated two-sided chamfer (m) scan points <-> UV Gaussian centres")
+ap.add_argument("--chamfer-points", type=int, default=8192); ap.add_argument("--chamfer-trunc", type=float, default=0.10)
+ap.add_argument("--offset-threshold", type=float, default=3.0, help="GUAVA threshold_local_xyz (local face-scale units; GUAVA 3.0)")
+ap.add_argument("--gan-weight", type=float, default=0.0, help="pilot D: hinge patch-GAN generator loss on 256-px clothing-box crops")
+ap.add_argument("--gan-start", type=int, default=1000, help="iteration from which the generator gets the adversarial loss (D trains from 0)")
+ap.add_argument("--gan-lr", type=float, default=2e-4); ap.add_argument("--gram-weight", type=float, default=0.0, help="pilot D: VGG Gram texture loss on clothing-box crops")
 a = ap.parse_args()
 out = Path(a.out) if os.path.isabs(a.out) else O / "runs" / a.out
 assert not str(out.resolve()).startswith("/raid"), "write nothing on /raid"
@@ -138,7 +149,8 @@ for c, m in zip(loaded, meta):
     c.update(m); clips.append(c)
 log_print(f"loaded {len(clips)} clips in {time.time() - t_load:.0f} s; skipped {sum(len(v) for v in skipped.values())}")
 from omegaconf import OmegaConf
-cfg = F.get_cfg(); OmegaConf.set_readonly(cfg, False); cfg.OPTIMIZE.lambda_head_crop = a.lambda_head_crop; OmegaConf.set_readonly(cfg, True)
+cfg = F.get_cfg(); OmegaConf.set_readonly(cfg, False); cfg.OPTIMIZE.lambda_head_crop = a.lambda_head_crop
+cfg.OPTIMIZE.threshold_local_xyz = a.offset_threshold; OmegaConf.set_readonly(cfg, True)
 fbd = F.FBData(cfg, clips)
 
 # training groups
@@ -319,15 +331,20 @@ def grad_img(x):
     return torch.nn.functional.conv2d(x, w, padding=1, groups=x.shape[1])
 
 
+@torch.no_grad()
+def cloth_box(t, B, S):
+    """clothing box [l, r, t, b] (px, S) = 2-98 % quantiles of the projected torso / hip / thigh / upper-arm vertices."""
+    V = inf.ehm(t["smplx_coeffs"], t["flame_coeffs"])["vertices"][:, CLOTH_VID]
+    px, _ = F.project_px(V, t["w2c_cam"], F.batch_invtanfov(t, B, dev))
+    lo = torch.quantile(px, 0.02, dim=1); hi = torch.quantile(px, 0.98, dim=1)
+    return torch.stack([lo[:, 0], hi[:, 0], lo[:, 1], hi[:, 1]], 1).clamp(0, S - 1).long()
+
+
 def pilot_losses(rr, t, assets):
     """amendment 3 (pilot B): clothing-box L1 + LPIPS, edge loss on source-frame targets, Gaussian-coverage silhouette loss."""
     out_ = {}; r = rr["renders"]; g = t["image"] * t["mask"]; B = r.shape[0]
     if a.cloth_crop > 0:
-        with torch.no_grad():
-            V = inf.ehm(t["smplx_coeffs"], t["flame_coeffs"])["vertices"][:, CLOTH_VID]
-            px, _ = F.project_px(V, t["w2c_cam"], F.batch_invtanfov(t, B, dev))
-            lo = torch.quantile(px, 0.02, dim=1); hi = torch.quantile(px, 0.98, dim=1)
-            box = torch.stack([lo[:, 0], hi[:, 0], lo[:, 1], hi[:, 1]], 1).clamp(0, r.shape[-1] - 1).long()
+        box = cloth_box(t, B, r.shape[-1])
         lam = [lossm.cfg.lambda_l1 * a.cloth_crop, lossm.cfg.lambda_perpetual_high * a.cloth_crop]
         out_["cloth_loss"] = lossm.cal_box_loss(r, g, box, [lossm.l1_loss_f, lossm.perpetual_loss_f], lam)
     if a.edge_weight > 0:
@@ -340,31 +357,122 @@ def pilot_losses(rr, t, assets):
     return out_
 
 
-GEO = a.normal_weight > 0 or a.dnormal_weight > 0 or a.flat_weight > 0
+SAPW = a.normal_weight > 0 or a.dnormal_weight > 0
+SCANW = bool(a.scan_root) and (a.scan_normal_weight > 0 or a.scan_dnormal_weight > 0 or a.scan_depth_weight > 0 or a.scan_chamfer_weight > 0)
+GEO = SAPW or SCANW or a.flat_weight > 0
+SAP_SOURCES = None if a.sapiens_sources == "all" else {s for s in a.sapiens_sources.split(",") if s}
 if GEO:
     import normal_prior as NP
+if SAPW:
     SAP = NP.SapiensNormal(a.normal_model, dev, sign=tuple(float(x) for x in a.normal_sign.split(",")))
+if SCANW:
+    import scan_geom as SG
+    from pytorch3d.ops import knn_points
+    SCAN = SG.ScanStore(a.scan_root)
 
 
-def geometry_losses(t, assets):
+def load_scans(meta_b):
+    """per flattened target: (V, F, L) on the device (row's GUAVA world) for 4D-DRESS targets with a cached scan, else None."""
+    out_ = []
+    for m in meta_b:
+        for tg in m["tgt"]:
+            s = SCAN.get(*tg.split("/", 1)) if (SCANW and m["source"] == "dress4d") else None
+            out_.append(None if s is None else tuple(torch.from_numpy(x).to(dev, non_blocking=True) for x in s))
+    return out_
+
+
+def geometry_losses(t, assets, tsrc, scans, n_vg, step):
     """pilot C, after VCR-GauS: flattening (Eq. 6), rendered normal (Eq. 8) and confidence-weighted D-Normal (Eq. 14) losses
-    against frozen Sapiens normals of the target image, inside the eroded matte and the Gaussians' coverage. Training only."""
-    out_ = {}
+    against frozen Sapiens normals of the target image, inside the eroded matte and the Gaussians' coverage. Pilot D: Sapiens
+    only on targets of --sapiens-sources; on 4D-DRESS targets the real scan instead (rendered normal / D-Normal / depth vs the
+    scan rendered in the target camera, inside eroded scan silhouette & matte & coverage; truncated chamfer between scan vertices
+    and the UV Gaussian centres in 3D). Training only."""
+    out_ = {}; B = t["image"].shape[0]
     if a.flat_weight > 0: out_["flat_loss"] = a.flat_weight * assets["scaling"].min(-1).values.mean()
-    if a.normal_weight > 0 or a.dnormal_weight > 0:
-        Np = SAP(t["image"]); B = Np.shape[0]
-        Nr, Dr, Ar = NP.render_geometry(ren, assets, t["render_cam_params"], t["w2c_cam"])
-        Nd = NP.depth_to_normal(Dr, F.batch_invtanfov(t, B, dev))
-        valid = NP.erode((t["mask"][:, :1] > 0.5).float(), 2) * NP.erode((Ar.detach() > 0.5).float(), 2); nv = valid.sum().clamp(min=1)
-        ln, ldn = NP.normal_terms(Nr, Nd, Np, valid)
-        w = torch.exp(((Nr.detach() * Np).sum(1, keepdim=True) - 1) / a.dn_gamma)
+    si = [b for b in range(B) if SAPW and (SAP_SOURCES is None or tsrc[b] in SAP_SOURCES)]
+    ki = [b for b in range(B) if scans[b] is not None]
+    if not si and not ki: return out_
+    Nr, Dr, Ar = NP.render_geometry(ren, assets, t["render_cam_params"], t["w2c_cam"]); itf = F.batch_invtanfov(t, B, dev)
+    Nd = NP.depth_to_normal(Dr, itf); cov = NP.erode((Ar.detach() > 0.5).float(), 2); mt = t["mask"][:, :1] > 0.5
+    if si:
+        Np = SAP(t["image"][si]); valid = NP.erode(mt[si].float(), 2) * cov[si]; nv = valid.sum().clamp(min=1)
+        ln, ldn = NP.normal_terms(Nr[si], Nd[si], Np, valid)
+        w = torch.exp(((Nr[si].detach() * Np).sum(1, keepdim=True) - 1) / a.dn_gamma)
         if a.normal_weight > 0: out_["normal_loss"] = a.normal_weight * ln.sum() / nv
         if a.dnormal_weight > 0: out_["dnormal_loss"] = a.dnormal_weight * (w * ldn).sum() / nv
         with torch.no_grad():
-            GSTAT.update({"geo_cos_rendered": float(((Nr * Np).sum(1, keepdim=True) * valid).sum() / nv),
-                          "geo_cos_dnormal": float(((Nd * Np).sum(1, keepdim=True) * valid).sum() / nv),
+            GSTAT.update({"geo_cos_rendered": float(((Nr[si] * Np).sum(1, keepdim=True) * valid).sum() / nv),
+                          "geo_cos_dnormal": float(((Nd[si] * Np).sum(1, keepdim=True) * valid).sum() / nv),
                           "geo_conf_mean": float((w * valid).sum() / nv)})
+    if ki:
+        Ns, Ds, Ls = SG.render_scans([scans[b] for b in ki], t["w2c_cam"][ki], itf[ki])
+        valid = NP.erode(((Ls >= 0) & mt[ki]).float(), 2) * cov[ki]; nv = valid.sum().clamp(min=1)
+        ln, ldn = NP.normal_terms(Nr[ki], Nd[ki], Ns, valid); dl = (Dr[ki] - Ds).abs() * valid
+        if a.scan_normal_weight > 0: out_["scan_normal_loss"] = a.scan_normal_weight * ln.sum() / nv
+        if a.scan_dnormal_weight > 0: out_["scan_dnormal_loss"] = a.scan_dnormal_weight * ldn.sum() / nv
+        if a.scan_depth_weight > 0: out_["scan_depth_loss"] = a.scan_depth_weight * dl.sum() / nv
+        s2g, g2s = [], []
+        if a.scan_chamfer_weight > 0:
+            gen = torch.Generator(device=dev).manual_seed(int(step))
+            for b in ki:
+                V = scans[b][0]; P = V[torch.randint(len(V), (a.chamfer_points,), device=dev, generator=gen)]
+                X = assets["xyz"][b, n_vg:]; op = assets["opacity"][b, n_vg:, 0].detach()
+                d1 = knn_points(P[None], X[None], K=1).dists[0, :, 0].clamp(min=1e-12).sqrt().clamp(max=a.chamfer_trunc)
+                d2 = knn_points(X[None], P[None], K=1).dists[0, :, 0].clamp(min=1e-12).sqrt().clamp(max=a.chamfer_trunc)
+                s2g.append(d1.mean()); g2s.append((d2 * op).sum() / op.sum().clamp(min=1e-6))
+            out_["scan_chamfer_loss"] = a.scan_chamfer_weight * (torch.stack(s2g).mean() + torch.stack(g2s).mean())
+        with torch.no_grad():
+            GSTAT.update({"scan_cos_rendered": float(((Nr[ki] * Ns).sum(1, keepdim=True) * valid).sum() / nv),
+                          "scan_cos_dnormal": float(((Nd[ki] * Ns).sum(1, keepdim=True) * valid).sum() / nv),
+                          "scan_depth_l1_cm": float(dl.sum() / nv) * 100, "n_scan_targets": len(ki),
+                          **({"chamfer_s2g_cm": float(torch.stack(s2g).mean()) * 100, "chamfer_g2s_cm": float(torch.stack(g2s).mean()) * 100} if s2g else {})})
     return out_
+
+
+class PatchD(torch.nn.Module):
+    """PatchGAN discriminator (spectral norm, 256 px in, 30 x 30 logits) for the clothing-box crops (pilot D, training only)."""
+    def __init__(self, ch=64):
+        super().__init__(); SN = torch.nn.utils.spectral_norm; L, c = [], 3
+        for i, co in enumerate([ch, ch * 2, ch * 4, ch * 8]):
+            L += [SN(torch.nn.Conv2d(c, co, 4, 2 if i < 3 else 1, 1)), torch.nn.LeakyReLU(0.2, True)]; c = co
+        self.net = torch.nn.Sequential(*L, SN(torch.nn.Conv2d(c, 1, 4, 1, 1)))
+
+    def forward(self, x): return self.net(x * 2 - 1)
+
+
+TEX = a.gan_weight > 0 or a.gram_weight > 0
+if a.gan_weight > 0:
+    DISC = PatchD().to(dev); OPT_D = torch.optim.Adam(DISC.parameters(), lr=a.gan_lr, betas=(0.0, 0.99))
+
+
+def gram(f):
+    B, C, H, W = f.shape; f = f.reshape(B, C, H * W); return f @ f.transpose(1, 2) / (C * H * W)
+
+
+def texture_losses(rr, t, step):
+    """pilot D: 256-px clothing-box crops (roi_align) of render and masked target -> hinge patch-GAN generator loss (from
+    --gan-start) and VGG Gram loss (LPIPS' VGG16 layers). Returns (losses, crops for the D step)."""
+    from torchvision.ops import roi_align
+    out_ = {}; r = rr["renders"]; g = t["image"] * t["mask"]; B, _, S, _ = r.shape
+    bx = cloth_box(t, B, S); ok = ((bx[:, 1] - bx[:, 0]) >= 8) & ((bx[:, 3] - bx[:, 2]) >= 8)
+    if not bool(ok.any()): return out_, None
+    ii = torch.nonzero(ok).flatten(); b = bx[ii].float()
+    rois = torch.stack([ii.float(), b[:, 0], b[:, 2], b[:, 1] + 1, b[:, 3] + 1], 1)
+    rc = roi_align(r, rois, 256, 1.0, 2, True); gc = roi_align(g, rois, 256, 1.0, 2, True)
+    if a.gram_weight > 0:
+        fr, fg_ = lp.net(rc * 2 - 1), lp.net(gc * 2 - 1)
+        out_["gram_loss"] = a.gram_weight * sum((gram(x) - gram(y)).abs().mean() for x, y in zip(fr, fg_))
+    if a.gan_weight > 0 and step >= a.gan_start:
+        for p_ in DISC.parameters(): p_.requires_grad_(False)
+        out_["gan_g_loss"] = a.gan_weight * (-DISC(rc).mean())
+        for p_ in DISC.parameters(): p_.requires_grad_(True)
+    return out_, (rc.detach(), gc.detach())
+
+
+def disc_step(crops):
+    rc, gc = crops; OPT_D.zero_grad(set_to_none=True)
+    ld = torch.relu(1 - DISC(gc)).mean() + torch.relu(1 + DISC(rc)).mean(); ld.backward(); OPT_D.step()
+    return float(ld)
 
 
 GSTAT = {}
@@ -431,6 +539,7 @@ log = open(out / "train_log.jsonl", "a"); step, best, base = 0, None, None
 if a.resume and (out / "checkpoints/latest.pt").exists():
     ck = torch.load(out / "checkpoints/latest.pt", map_location="cpu", weights_only=False)
     inf.load_state_dict(ck["model"]); ren.load_state_dict(ck["render_model"]); opt.load_state_dict(ck["optimizer"]); sch.load_state_dict(ck["scheduler"])
+    if a.gan_weight > 0 and "disc" in ck: DISC.load_state_dict(ck["disc"]); OPT_D.load_state_dict(ck["disc_opt"])
     step, best, base = ck["step"], ck["best"], ck["a20_val"]; del ck
     log_print("resumed at", step)
 ds = GroupSampler()
@@ -442,7 +551,7 @@ if base is None and VAL:
 inf.train(); ren.train(); t0 = time.time(); t_data = 0.0; nonfinite = []; torch.cuda.reset_peak_memory_stats(); n0 = step
 stop_iter = a.smoke_iters if a.smoke else (min(a.stop_iter, a.iters) if a.stop_iter else a.iters)
 while step < stop_iter:
-    td = time.time(); batch = next(it); t_data += time.time() - td
+    td = time.time(); batch = next(it); t_data += time.time() - td; GSTAT.clear()
     meta_b = [json.loads(m) for m in batch.pop("meta")]
     batch = to_dev(batch, dev); src = batch["source"]; tgt = flat(batch["target"])
     vg, ug, ex = inf(src)
@@ -457,12 +566,17 @@ while step < stop_iter:
     if a.cloth_crop > 0 or a.edge_weight > 0 or a.sil_weight > 0:
         lm.update(pilot_losses(rr, tgt, assets))
     if GEO:
-        lm.update(geometry_losses(tgt, assets))
+        tsrc = [m["source"] for m in meta_b for _ in range(a.n_tgt)]
+        lm.update(geometry_losses(tgt, assets, tsrc, load_scans(meta_b) if SCANW else [None] * len(tsrc), vg["positions"].shape[1], step))
+    crops = None
+    if TEX:
+        lt, crops = texture_losses(rr, tgt, step); lm.update(lt)
     loss = sum(lm.values())
     opt.zero_grad(set_to_none=True); loss.backward()
     for p_ in list(inf.parameters()) + list(ren.parameters()):
         if p_.grad is not None: p_.grad.nan_to_num_()
     opt.step(); sch.step(); step += 1
+    if a.gan_weight > 0 and crops is not None: GSTAT["gan_d_loss"] = disc_step(crops)
     vals = {k: float(v) for k, v in lm.items()}
     if not all(math.isfinite(v) for v in vals.values()) or not math.isfinite(float(loss)): nonfinite.append({"iter": step, **vals})
     if step % a.log_every == 0 or step == 1:
@@ -482,7 +596,8 @@ while step < stop_iter:
             best = {"iter": step, "fullbody_mean_ssim": v["fullbody_mean_ssim"]}; torch.save(state, out / "checkpoints/best.pt")
         log.write(json.dumps({"split": "val", "iter": step, "eligible": el, "is_best": is_best, **v}) + "\n"); log.flush()
         log_print("val", step, "eligible", el, "best", best, json.dumps(v))
-        torch.save(state | {"optimizer": opt.state_dict(), "scheduler": sch.state_dict(), "best": best, "a20_val": base}, out / "checkpoints/latest.pt")
+        torch.save(state | {"optimizer": opt.state_dict(), "scheduler": sch.state_dict(), "best": best, "a20_val": base}
+                   | ({"disc": DISC.state_dict(), "disc_opt": OPT_D.state_dict()} if a.gan_weight > 0 else {}), out / "checkpoints/latest.pt")
     if a.max_minutes and (time.time() - t0) / 60 > a.max_minutes:
         log_print("max-minutes reached at", step); break
 

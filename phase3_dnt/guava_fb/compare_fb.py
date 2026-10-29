@@ -25,6 +25,7 @@ ap.add_argument("--tracks", default="dress4d,bedlam2,motionx"); ap.add_argument(
 ap.add_argument("--val-caps", default="dress4d:30,bedlam2:20,motionx:10")
 ap.add_argument("--flicker-groups", default="00127/Outer,00134/Outer,00137/Outer,00151/Outer"); ap.add_argument("--inbetween", type=int, default=3)
 ap.add_argument("--sapiens", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/models/sapiens/sapiens_1b_normal.pt2")
+ap.add_argument("--scan-root", default="", help="geometry: 4D-DRESS scan cache -> scan normal / depth / fold-detail / per-garment coverage (amendment 5)")
 a = ap.parse_args()
 models = dict(m.split("=", 1) for m in a.models); out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(HERE))
@@ -41,7 +42,10 @@ if a.part == "compose":
     keys = [("dress4d", "cloth_lpips"), ("dress4d", "cloth_ssim"), ("bedlam2", "cloth_lpips"), ("motionx", "cloth_lpips"),
             ("dress4d", "zoom_lpips"), ("dress4d", "zoom_ssim"), ("dress4d", "zoom_psnr"), ("dress4d", "miss_frac"), ("dress4d", "spill_frac"),
             ("dress4d", "psnr"), ("bedlam2", "psnr"), ("motionx", "psnr"), ("flicker", "lpips_consecutive"),
-            ("all", "geo_cos_dnormal"), ("all", "geo_cos_rendered"), ("dress4d", "geo_cos_dnormal"), ("bedlam2", "geo_cos_dnormal"), ("motionx", "geo_cos_dnormal")]
+            ("all", "geo_cos_dnormal"), ("all", "geo_cos_rendered"), ("dress4d", "geo_cos_dnormal"), ("bedlam2", "geo_cos_dnormal"), ("motionx", "geo_cos_dnormal"),
+            ("all", "fold_sapiens_rendered"), ("dress4d", "scan_cos_rendered"), ("dress4d", "scan_cos_dnormal"), ("dress4d", "scan_depth_mae_cm"),
+            ("dress4d", "fold_scan_rendered"), ("dress4d", "fold_scan_dnormal"), ("dress4d", "miss_scan"), ("dress4d", "miss_upper"),
+            ("dress4d", "miss_lower"), ("dress4d", "miss_outer")]
     rows = ["| measure | " + " | ".join(labels) + " |", "|---|" + "---|" * len(labels)]
     for t, k in keys:
         rows.append(f"| {t} {k} | " + " | ".join(f"{res[l]['summary'].get(t, {}).get(k, float('nan')):.4f}" if l in res else "-" for l in labels) + " |")
@@ -287,8 +291,9 @@ if a.part == "timing":
 
 # ----------------------------------------------------------------------------- geometry (measure 7)
 if a.part == "geometry":
-    import normal_prior as NP, torchvision
-    sap = NP.SapiensNormal(a.sapiens, dev, sign=(1.0, -1.0, -1.0))
+    import normal_prior as NP, torchvision, scan_geom as SG
+    sap = NP.SapiensNormal(a.sapiens, dev, sign=(1.0, -1.0, -1.0)); store = SG.ScanStore(a.scan_root) if a.scan_root else None
+    GARM = {3: "upper", 4: "lower", 5: "outer"}
     for label in models:
         step = load(label); od = out / label; od.mkdir(exist_ok=True); rows = []; ex = []
         with torch.no_grad():
@@ -296,18 +301,36 @@ if a.part == "geometry":
                 for src, tg in G:
                     av = avatar(src)
                     for ref in tg:
-                        t = to_dev(F.collate1(fbd.target_info(*ref)), dev); Np = sap(t["image"])
+                        t = to_dev(F.collate1(fbd.target_info(*ref)), dev); Np = sap(t["image"]); itf = F.batch_invtanfov(t, 1, dev)
                         Nr, Dr, Ar = NP.render_geometry(ren, av(t), t["render_cam_params"], t["w2c_cam"])
-                        Nd = NP.depth_to_normal(Dr, F.batch_invtanfov(t, 1, dev))
-                        v = NP.erode((t["mask"][:, :1] > 0.5).float(), 2) * NP.erode((Ar > 0.5).float(), 2); nv = v.sum().clamp(min=1)
-                        rows.append({"track": s, "tgt": f"{clips[ref[0]]['name']}/{ref[1]}",
-                                     "geo_cos_rendered": float(((Nr * Np).sum(1, keepdim=True) * v).sum() / nv),
-                                     "geo_cos_dnormal": float(((Nd * Np).sum(1, keepdim=True) * v).sum() / nv)})
+                        Nd = NP.depth_to_normal(Dr, itf); m = t["mask"][:, :1] > 0.5
+                        v = NP.erode(m.float(), 2) * NP.erode((Ar > 0.5).float(), 2); nv = v.sum().clamp(min=1); v2 = NP.erode(v, 2)
+                        row = {"track": s, "tgt": f"{clips[ref[0]]['name']}/{ref[1]}",
+                               "geo_cos_rendered": float(((Nr * Np).sum(1, keepdim=True) * v).sum() / nv),
+                               "geo_cos_dnormal": float(((Nd * Np).sum(1, keepdim=True) * v).sum() / nv),
+                               "fold_sapiens_rendered": float(SG.fold_detail(Nr, Np, v2)[0]), "fold_sapiens_dnormal": float(SG.fold_detail(Nd, Np, v2)[0])}
+                        sc = store.get(clips[ref[0]]["name"], ref[1]) if (store is not None and s == "dress4d") else None
+                        if sc is not None:
+                            Ns, Ds, Ls = SG.render_scans([tuple(torch.from_numpy(x).to(dev) for x in sc)], t["w2c_cam"], itf)
+                            on = (Ls >= 0) & m; vs = NP.erode(on.float(), 2) * NP.erode((Ar > 0.5).float(), 2); nvs = vs.sum().clamp(min=1)
+                            row.update({"scan_cos_rendered": float(((Nr * Ns).sum(1, keepdim=True) * vs).sum() / nvs),
+                                        "scan_cos_dnormal": float(((Nd * Ns).sum(1, keepdim=True) * vs).sum() / nvs),
+                                        "scan_depth_mae_cm": float(((Dr - Ds).abs() * vs).sum() / nvs) * 100,
+                                        "fold_scan_rendered": float(SG.fold_detail(Nr, Ns, NP.erode(vs, 2))[0]),
+                                        "fold_scan_dnormal": float(SG.fold_detail(Nd, Ns, NP.erode(vs, 2))[0]),
+                                        "miss_scan": float((on & (Ar < 0.5)).sum() / on.sum().clamp(min=1))})
+                            for l, nm in GARM.items():
+                                pix = (Ls == l) & m
+                                if int(pix.sum()) >= 50: row[f"miss_{nm}"] = float((pix & (Ar < 0.5)).sum() / pix.sum())
+                        rows.append(row)
                         if len(ex) < 4 and len(rows) % 60 == 1:
                             ex.append(torch.cat([t["image"][0] * t["mask"][0], (Np[0] * .5 + .5) * v[0], (Nr[0] * .5 + .5) * v[0], (Nd[0] * .5 + .5) * v[0]], 2))
                 print(label, s, "done", len(rows), flush=True)
-        summ = {s: {k: float(np.mean([r[k] for r in rows if r["track"] == s])) for k in ("geo_cos_rendered", "geo_cos_dnormal")} for s in VAL}
-        summ["all"] = {k: float(np.mean([r[k] for r in rows])) for k in ("geo_cos_rendered", "geo_cos_dnormal")}          # over all targets (registered)
+        KEYS = ("geo_cos_rendered", "geo_cos_dnormal", "fold_sapiens_rendered", "fold_sapiens_dnormal", "scan_cos_rendered", "scan_cos_dnormal",
+                "scan_depth_mae_cm", "fold_scan_rendered", "fold_scan_dnormal", "miss_scan", "miss_upper", "miss_lower", "miss_outer")
+        def mk(rr): return {k: float(np.mean([r[k] for r in rr if k in r])) for k in KEYS if any(k in r for r in rr)}
+        summ = {s: mk([r for r in rows if r["track"] == s]) for s in VAL}
+        summ["all"] = mk(rows)                                                            # over all targets (registered)
         (od / "geometry.json").write_text(json.dumps({"label": label, "checkpoint": models[label], "step": step, "summary": summ, "rows": rows}, indent=0))
         if ex: torchvision.utils.save_image(torch.stack(ex), od / "normal_examples.jpg", nrow=len(ex), padding=4, pad_value=1.0)
         print(label, json.dumps(summ), flush=True)

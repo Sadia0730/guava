@@ -601,3 +601,49 @@ amendment 3's rule). Training-only changes: the model, its weights' shapes and i
   - (6) per-frame render time is not slower by more than 2 %.
   
   Everything is reported whether it passes or not.
+
+### GUAVA-FB amendment 5 (registered 2026-10-29 ~18:50, before any pilot D run): pilot D, real scan geometry + texture losses
+User request (2026-10-29): "start pilot D, I need visual and quantitative improvements", restricted (user's earlier choice) to
+changes that add **no inference latency**: training losses and evaluation only; the model, its weights' shapes, the Gaussian
+count and both inference stages (avatar build, per-frame render) are unchanged. Motivation (pilot C review): normals follow
+the body, not the garment; loose garments (vest back) are not covered; folds / patterns / texture are lost.
+- **Scan geometry (4D-DRESS, train rows only; val rows for evaluation only):** the dataset's 80k-face textured scans and
+  per-vertex garment labels (non-commercial research licence), cached by `dress4d_scans.py` and mapped into each row's
+  GUAVA world (X = R_v R_c X_world + R_v t_c - t'; convert_dress4d.py step 4). Check before training (`scan_check.py`,
+  16 clips): scan silhouette vs matte IoU 0.976 (zoomed targets 0.981); labels 0 skin / 1 hair / 2 shoes / 3 upper /
+  4 lower / 5 outer confirmed by the nearest SMPL-X joint group; scan-to-body distance p50 / p90 / p99: outer 2.4 / 7.0 /
+  12.1 cm = 1.32 / 3.45 / 6.02 local face units (GUAVA's offset threshold 3.0 is below the outer p90).
+- **Pilot D** = pilot C's flattening and Sapiens losses (weights / gamma unchanged) **restricted to bedlam2, motionx, ubc
+  targets** (not ubody, to protect upper body / face; not dress4d, which gets the scan), plus on 4D-DRESS targets (normal,
+  same-moment and zoomed), with the scan rendered in the target camera (pytorch3d, interpolated vertex normals):
+  - (1) rendered normal vs scan normal, L1 + (1 − cos), weight 0.1; (2) D-Normal vs scan normal, L1 + (1 − cos), no
+    confidence weight, weight 0.15; (3) |rendered depth − scan depth| (m), weight 0.5 — all inside (scan silhouette ∩ matte)
+    eroded 2 px ∩ coverage eroded 2 px;
+  - (4) truncated two-sided chamfer (m, truncation 0.10) between 8,192 random scan vertices and the UV Gaussian centres
+    (scan → Gaussians mean; Gaussians → scan weighted by detached opacity), weight 1.0;
+  - (5) offset threshold (GUAVA threshold_local_xyz) 3.0 → **6.0** (= outer-garment p99 above), all sources;
+  - (6) hinge patch-GAN (spectral-norm PatchGAN, 256-px clothing-box crops via roi_align, Adam 2e-4, betas (0, 0.99); D trains
+    from iteration 0, the generator term from iteration 1,000), weight 0.02;
+  - (7) VGG Gram texture loss on the same crops (LPIPS' VGG16 layers, L1 of Gram matrices), weight set so that its mean over
+    the smoke test's logged iterations is 0.01 (≈ 1/5 of the clothing-box term); the value is recorded in RUNLOG before
+    the run.
+  - Same seed / schedule / data / mix as pilots B and C; 8k on the 30k schedule (`--stop-iter 8000`), registered validator
+    and best.pt rule unchanged; latest.pt at 8k kept. Smoke test first (finite, memory, speed).
+- **Comparison** (`compare_fb.py`, pilot D vs pilot B at 8k; pilot C and v1b_10k for reference; validation data only):
+  amendment 3's (1)-(6), amendment 4's (7), and new
+  - (8) **scan geometry** on the 239 4D-DRESS validation targets: mean cosine of the rendered normal vs the scan normal
+    (8a) and **fold detail** (8b): correlation of the high-pass normal components (normal minus its masked Gaussian blur,
+    σ = 3 px) of the rendered normal and the scan normal, inside (scan ∩ matte) eroded 2 px ∩ coverage eroded 2 px, eroded
+    2 px more; also D-Normal versions, depth MAE, fold detail vs Sapiens on all tracks (reported);
+  - (9) **per-garment coverage** on the same targets: fraction of matte pixels of the scan's outer-garment label not covered
+    by the Gaussians (alpha < 0.5); upper / lower / whole scan reported;
+  - visuals: the showcase figures (largest per-target gains AND the median-gain target for each measure), D vs B (and C).
+- **Decision** ("pilot D improves on B"): all of the following must hold, against pilot B.
+  - (2) 4D-DRESS clothing-box LPIPS is lower; (3) zoomed clothing LPIPS is lower;
+  - (7) the D-Normal cosine vs Sapiens (all targets) is higher;
+  - (8a) the scan rendered-normal cosine is higher and (8b) the scan fold detail is higher;
+  - (9) the outer-garment miss fraction is lower;
+  - (1) mean full-body SSIM is not lower by more than 0.002; (5) flicker is not higher by more than 10 %;
+    (6) per-frame render time is not slower by more than 2 %.
+
+  UBody SSIM / face LPIPS (registered validator) are reported. Everything is reported whether it passes or not.
