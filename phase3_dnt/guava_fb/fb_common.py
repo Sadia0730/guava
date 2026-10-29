@@ -30,7 +30,7 @@ from __future__ import annotations
 import ast, json, os, pickle, random, sys, time, types
 from copy import deepcopy
 from pathlib import Path
-import numpy as np, torch, torchvision
+import cv2, numpy as np, torch, torchvision
 import torch.nn as nn
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -386,6 +386,56 @@ class FBData(TrackedData):
         tt["mask"] = torchvision.transforms.functional.resize(tm, (self.image_size, self.image_size), antialias=True)
         tt["render_cam_params"] = render_cam_params(tt["w2c_cam"], tt["c2w_cam"], tt["invtanfov"], self.image_size)
         return tt
+
+    def target_info_zoom(self, ci, k, rng=None, factor=2.0, head_p=0.25, center=None, min_cover=0.15, with_M=False):
+        """A true zoomed target: the camera is rotated about its centre onto the ray through a chosen point of the stored
+        1024 crop and its invtanfov is multiplied by `factor`; the image / mask are the 1024 crop warped by the exact
+        homography (no upsampling of a 512 image). Centre: the head (prob. head_p) or a random matte pixel of the clothing
+        band (head bottom .. 70 % of the person's height); `center` = (u, v) in 1024 px overrides. None if the window
+        would hold < min_cover person pixels (the caller then uses the normal target)."""
+        tt, ti, tm = self.info(ci, k); S = ti.shape[-1]; n = self.image_size; rng = rng or np.random.default_rng(0)
+        m = tm[0].numpy() > 0.5; ys, xs = np.nonzero(m)
+        if ys.size == 0: return None
+        hb = tt["head_box"].tolist(); s2 = S / n
+        if center is not None: cu, cv = center
+        elif rng.random() < head_p and not (hb[0] == 0 and hb[1] == n - 1 and hb[2] == 0 and hb[3] == n - 1):
+            cu, cv = (hb[0] + hb[1]) / 2 * s2, (hb[2] + hb[3]) / 2 * s2
+        else:
+            y0, y1 = ys.min(), ys.max(); top = min(max(hb[3] * s2, y0), y1); bot = y0 + 0.7 * (y1 - y0)
+            sel = (ys >= top) & (ys <= max(bot, top + 1))
+            j = rng.choice(np.flatnonzero(sel)) if sel.any() else rng.integers(ys.size); cu, cv = float(xs[j]), float(ys[j])
+        half = S / factor / 2
+        win = m[int(max(0, cv - half)):int(min(S, cv + half)), int(max(0, cu - half)):int(min(S, cu + half))]
+        if win.size == 0 or win.mean() < min_cover: return None
+        itf = float(tt["invtanfov"]); itf2 = itf * factor
+        d = np.array([((cu + 0.5) / (S / 2) - 1) / itf, ((cv + 0.5) / (S / 2) - 1) / itf, 1.0]); d /= np.linalg.norm(d)
+        R = _rot_to_z(d)                                                     # new camera coords = R @ old camera coords
+        K_in = np.array([[S / 2 * itf, 0, S / 2 - 0.5], [0, S / 2 * itf, S / 2 - 0.5], [0, 0, 1]])
+        K_out = np.array([[n / 2 * itf2, 0, n / 2 - 0.5], [0, n / 2 * itf2, n / 2 - 0.5], [0, 0, 1]])
+        M = K_in @ R.T @ np.linalg.inv(K_out)                                # output pixel -> input pixel (pixel centres at integers)
+        warp = lambda x: cv2.warpPerspective(x.permute(1, 2, 0).numpy(), M, (n, n), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderValue=0)
+        img = torch.from_numpy(warp(ti)).reshape(n, n, -1).permute(2, 0, 1).contiguous()
+        msk = torch.from_numpy(warp(tm)).reshape(n, n, -1).permute(2, 0, 1).contiguous()
+        R4 = torch.eye(4, dtype=tt["w2c_cam"].dtype); R4[:3, :3] = torch.from_numpy(R).to(R4.dtype)
+        w2c = R4 @ tt["w2c_cam"]; tt["w2c_cam"], tt["c2w_cam"] = w2c, torch.linalg.inv(w2c)
+        Minv = np.linalg.inv(M)
+        for key in ("head_box", "left_hand_box", "right_hand_box"):                  # boxes [l, r, t, b] (512 scale) -> zoomed frame
+            l, r, t, b = [float(x) * s2 for x in tt[key].tolist()]
+            c = Minv @ np.array([[l, r, l, r], [t, t, b, b], [1, 1, 1, 1]]); c = c[:2] / c[2:]
+            l2, r2 = np.clip(c[0].min(), 0, n - 1), np.clip(c[0].max(), 0, n - 1); t2, b2 = np.clip(c[1].min(), 0, n - 1), np.clip(c[1].max(), 0, n - 1)
+            tt[key] = torch.tensor([int(l2), int(r2), int(t2), int(b2)] if (int(r2) > int(l2) and int(b2) > int(t2)) else [0, 0, 0, 0], dtype=torch.long)
+        tt["image"], tt["mask"], tt["invtanfov"] = img, msk, itf2
+        tt["render_cam_params"] = render_cam_params(tt["w2c_cam"], tt["c2w_cam"], itf2, n)
+        if with_M: tt["zoom_M"] = torch.from_numpy(M.astype(np.float64))     # checks only (keys must match in a training batch)
+        return tt
+
+
+def _rot_to_z(d):
+    """rotation matrix R (3 x 3) with R @ d = (0, 0, 1) for a unit vector d (smallest rotation, Rodrigues)."""
+    z = np.array([0.0, 0.0, 1.0]); v = np.cross(d, z); s = np.linalg.norm(v); c = float(np.dot(d, z))
+    if s < 1e-12: return np.eye(3)
+    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    return np.eye(3) + vx + vx @ vx * ((1 - c) / s ** 2)
 
 
 def load_face_conv(path=FACE_CONV):

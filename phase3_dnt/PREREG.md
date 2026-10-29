@@ -509,3 +509,54 @@ and without looking at an evaluation set.
 - **Validation renders** (`val_render.py`, separate process, visual only; it computes no metric and changes nothing in
   training): for each new validation, a fixed subset (first 8 4D-DRESS groups, otherwise first 4 groups; 2 targets each) is
   rendered from that step's checkpoint into `<run>/val_renders/iter_XXXXXX/`.
+
+### GUAVA-FB amendment 3 (registered 2026-10-29 ~01:40, before any pilot run): clothing-detail pilots A and B, 8k comparison
+User request (2026-10-29): add the reviewed changes, train 8k iterations and compare with v1b. These are training-only changes:
+the model, its weights' shapes and inference are unchanged. Not in these pilots: adversarial loss, pose-dependent offsets,
+1024 px colour input (separate tests later).
+- **Pilot A** = v1b recipe plus:
+  - (1) **source frame as a target:** for non-4D-DRESS sources, with prob. 0.75 one of the 3 targets is the source frame
+    (≈ 25 % of their targets). Cross-frame targets stay.
+  - (2) **same moment, other camera:** for 4D-DRESS, each target is, with prob. 0.5, the same frame of the same take from
+    another camera. This keeps the user's different-camera rule and removes cloth-state differences.
+  - (3) **true 2× zoomed targets:** for 4D-DRESS and UBC, each target with prob. 0.33 is a zoomed target. The camera is rotated
+    about its centre onto a chosen ray with invtanfov × 2, and the 1024 crop is warped by the exact homography to 512.
+    - Centre: the head with prob. 0.25, otherwise a random matte pixel of the clothing band (head bottom to 70 % of the
+      person's height).
+    - Not used if the window holds < 15 % person pixels.
+    - Checked before training (`zoom_check.py`, 48 targets): projection vs homography ≤ 0.0005 px; mesh-in-matte precision
+      0.982 zoomed vs 0.974 unzoomed.
+  - (4) **UBody share 25 %** (bedlam2 26.47, motionx 17.65, dress4d 17.65, ubc 13.24, ubody 25).
+  - Options: `--self-target-p 0.75 --same-frame-p 0.5 --zoom-sources dress4d,ubc --zoom-p 0.33 --zoom-head-p 0.25`, `--mix` as
+    above.
+- **Pilot B** = pilot A plus:
+  - clothing-box L1 + LPIPS, weight 0.5, like GUAVA's head crop; the box covers the projected torso / hip / thigh / upper-arm
+    vertices (2-98 % quantiles);
+  - Sobel-gradient L1, weight 0.5, on source-frame targets only (exactly aligned);
+  - silhouette L1 between the Gaussians' coverage (render with constant features) and the matte, weight 0.5.
+  - Options: `--cloth-crop 0.5 --edge-weight 0.5 --sil-weight 0.5`.
+- **Both pilots:**
+  - 8k iterations on the 30k schedule (`--stop-iter 8000`, lr 5e-5 → 0.1× over 30k, as v1b), seed 0, validation every 2k
+    with the registered validator and best.pt rule (unchanged).
+  - latest.pt at 8k is kept for the comparison; the winning pilot can later be resumed to 30k (user decision).
+  - Smoke test first.
+- **Comparison** (validation data only, never an evaluation set):
+  - (1) registered validation at 8k vs v1b at 8k (per track PSNR / SSIM / LPIPS / face LPIPS; UBody eligibility);
+  - (2) clothing-box LPIPS / SSIM / L1 on the 4D-DRESS, BEDLAM2 and Motion-X validation targets (512, same box as the loss);
+  - (3) zoomed clothing LPIPS / SSIM / PSNR on the 4D-DRESS validation targets: 2× zoom at the median matte pixel of the
+    clothing band, against the 1024 crop;
+  - (4) Gaussian coverage vs matte (missed / spilled fraction);
+  - (5) flicker: 4 held-out 4D-DRESS groups (one Outer group per subject), first non-source camera, the take's frames with 3
+    slerp in-betweens; mean LPIPS between consecutive renders; side-by-side mp4;
+  - (6) cost: Gaussians after pruning, per-frame render time (deform + rasterise + refine; median of 200) and avatar build
+    time (median of 20), same GPU, after warm-up.
+  - Checkpoint-based measures (2-6) use v1b's step-10k checkpoint (a copy taken before 12k overwrote it), which has 2k more
+    iterations than the pilots: a conservative baseline.
+- **Decision** ("pilot improves clothing"): all of the following must hold.
+  - (2) 4D-DRESS clothing-box LPIPS is lower than v1b's;
+  - (3) zoomed clothing LPIPS is lower than v1b's;
+  - (1) mean full-body SSIM is not lower than v1b's by more than 0.002;
+  - (5) flicker is not higher than v1b's by more than 10 %;
+  - (6) per-frame render time is not slower than v1b's by more than 2 %.
+  
+  Everything is reported whether it passes or not.

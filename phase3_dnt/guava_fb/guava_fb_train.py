@@ -50,6 +50,14 @@ ap.add_argument("--face-min-px", type=float, default=48.0); ap.add_argument("--f
 ap.add_argument("--smoke", action="store_true"); ap.add_argument("--smoke-iters", type=int, default=200)
 ap.add_argument("--max-minutes", type=float, default=0, help="stop training after this wall time (timing runs only)")
 ap.add_argument("--resume", action="store_true")
+ap.add_argument("--stop-iter", type=int, default=0, help="stop at this iteration; the lr schedule still runs over --iters (pilots)")
+ap.add_argument("--self-target-p", type=float, default=0.0, help="prob. that one target of a non-cross-view source is the source frame itself")
+ap.add_argument("--same-frame-p", type=float, default=0.0, help="cross-view sources: prob. per target of the same moment from another camera")
+ap.add_argument("--zoom-sources", default="", help="sources with true 2x zoomed targets (warped 1024 crop + rotated camera)")
+ap.add_argument("--zoom-p", type=float, default=0.0); ap.add_argument("--zoom-factor", type=float, default=2.0); ap.add_argument("--zoom-head-p", type=float, default=0.25)
+ap.add_argument("--edge-weight", type=float, default=0.0, help="Sobel-gradient L1 on source-frame (exactly aligned) targets only")
+ap.add_argument("--cloth-crop", type=float, default=0.0, help="clothing-box L1 + LPIPS weight (as GUAVA's head crop), box = torso / hips / thighs / upper arms")
+ap.add_argument("--sil-weight", type=float, default=0.0, help="L1 between the Gaussians' coverage (constant-feature render) and the matte")
 ap.add_argument("--fullbody-tracks", default="dress4d,bedlam2,motionx", help="tracks of the best.pt mean SSIM (registered: dress4d,bedlam2,motionx)")
 ap.add_argument("--cross-view-sources", default="dress4d", help="sources paired across different views (registered: dress4d)")
 ap.add_argument("--cross-view-group", default="subject+outfit", help="index fields that define a cross-view pairing group (v1: subject; v1b registered: subject+outfit, so source and target wear the same clothes)")
@@ -71,6 +79,8 @@ from submodules.lpipsPyTorch import LPIPS
 import onnx_arcface_torch as AF
 
 PAIRING = {s: "cross_view" for s in a.cross_view_sources.split(",") if s}
+ZOOM_SOURCES = {s for s in a.zoom_sources.split(",") if s} if a.zoom_p > 0 else set()
+EXTRAS = a.self_target_p > 0 or a.same_frame_p > 0 or bool(ZOOM_SOURCES)
 FULLBODY_TRACKS = tuple(t for t in a.fullbody_tracks.split(",") if t)
 OFF = 160000
 
@@ -164,13 +174,41 @@ class GroupSampler(torch.utils.data.Dataset):
         ti = rng.choice(cand, size=a.n_tgt, replace=len(cand) < a.n_tgt)
         return s, g, si, ti
 
+    def extras(self, i, s, g, si, ti):
+        """pilot options (amendment 3): self target, same-moment cross-view targets, zoomed targets; RNG [seed, i, 7]."""
+        ti = np.array(ti).copy(); selfs = [False] * len(ti); zooms = [None] * len(ti)
+        if not EXTRAS: return ti, selfs, zooms
+        rng = np.random.default_rng([a.seed, i, 7])
+        if s not in PAIRING and a.self_target_p > 0 and rng.random() < a.self_target_p:
+            ti[0] = si; selfs[0] = True
+        if s in PAIRING and a.same_frame_p > 0:
+            ci, k = g["frames"][si]; fid = k.split("_", 1)[-1]
+            if "_sf" not in g:
+                g["_sf"] = {}
+                for p_, (cj, kj) in enumerate(g["frames"]): g["_sf"].setdefault((cj, kj.split("_", 1)[-1]), []).append(p_)
+            same = [p_ for p_ in g["_sf"].get((ci, fid), []) if g["views"][p_] != g["views"][si]]
+            for j in range(len(ti)):
+                if same and rng.random() < a.same_frame_p:
+                    p_ = same[int(rng.integers(len(same)))]; ti[j] = p_
+        if s in ZOOM_SOURCES:
+            for j in range(len(ti)):
+                if rng.random() < a.zoom_p: zooms[j] = int(rng.integers(1 << 31))
+        return ti, selfs, zooms
+
     def __getitem__(self, i):
         s, g, si, ti = self.draw(i)
-        src = fbd.source_info(*g["frames"][si])
-        tg = torch.utils.data.default_collate([fbd.target_info(*g["frames"][j]) for j in ti])
+        ti, selfs, zooms = self.extras(i, s, g, si, ti)
+        src = fbd.source_info(*g["frames"][si]); tl = []
+        for j, sf, z in zip(ti, selfs, zooms):
+            t = fbd.target_info_zoom(*g["frames"][j], np.random.default_rng(z), a.zoom_factor, a.zoom_head_p) if z is not None else None
+            zf = t is not None
+            if t is None: t = fbd.target_info(*g["frames"][j])
+            t["is_self"] = torch.tensor(float(sf)); t["is_zoom"] = torch.tensor(float(zf)); tl.append(t)
+        tg = torch.utils.data.default_collate(tl)
         m = {"source": s, "group": g["name"], "src": "/".join(map(str, (clips[g["frames"][si][0]]["name"], g["frames"][si][1]))),
              "tgt": ["/".join(map(str, (clips[g["frames"][j][0]]["name"], g["frames"][j][1]))) for j in ti],
-             "views": None if g["views"] is None else [str(g["views"][si])] + [str(g["views"][j]) for j in ti]}
+             "views": None if g["views"] is None else [str(g["views"][si])] + [str(g["views"][j]) for j in ti],
+             "self": [bool(x) for x in selfs], "zoom": [bool(x) for x in tg["is_zoom"].tolist()]}
         return {"source": src, "target": tg, "meta": json.dumps(m)}
 
 
@@ -265,6 +303,37 @@ def target_geometry(t):
     return box, side, inside, kp, cosang
 
 
+SOBEL = torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]], device=dev) / 8
+CLOTH_JOINTS = torch.tensor([0, 1, 2, 3, 6, 9, 13, 14, 16, 17], device=dev)          # pelvis, hips (thighs), spine1-3, collars, shoulders (upper arms)
+CLOTH_VID = torch.nonzero(torch.isin(inf.ehm.smplx.lbs_weights[:NV].argmax(1), CLOTH_JOINTS)).flatten()
+
+
+def grad_img(x):
+    w = torch.stack([SOBEL, SOBEL.T])[:, None].repeat(x.shape[1], 1, 1, 1)
+    return torch.nn.functional.conv2d(x, w, padding=1, groups=x.shape[1])
+
+
+def pilot_losses(rr, t, assets):
+    """amendment 3 (pilot B): clothing-box L1 + LPIPS, edge loss on source-frame targets, Gaussian-coverage silhouette loss."""
+    out_ = {}; r = rr["renders"]; g = t["image"] * t["mask"]; B = r.shape[0]
+    if a.cloth_crop > 0:
+        with torch.no_grad():
+            V = inf.ehm(t["smplx_coeffs"], t["flame_coeffs"])["vertices"][:, CLOTH_VID]
+            px, _ = F.project_px(V, t["w2c_cam"], F.batch_invtanfov(t, B, dev))
+            lo = torch.quantile(px, 0.02, dim=1); hi = torch.quantile(px, 0.98, dim=1)
+            box = torch.stack([lo[:, 0], hi[:, 0], lo[:, 1], hi[:, 1]], 1).clamp(0, r.shape[-1] - 1).long()
+        lam = [lossm.cfg.lambda_l1 * a.cloth_crop, lossm.cfg.lambda_perpetual_high * a.cloth_crop]
+        out_["cloth_loss"] = lossm.cal_box_loss(r, g, box, [lossm.l1_loss_f, lossm.perpetual_loss_f], lam)
+    if a.edge_weight > 0:
+        sm = t["is_self"] > 0.5
+        out_["edge_loss"] = (a.edge_weight * (grad_img(r[sm]) - grad_img(g[sm])).abs().mean()) if bool(sm.any()) else r.sum() * 0.0
+    if a.sil_weight > 0:
+        ones = dict(assets); ones["features_color"] = torch.ones_like(assets["features_color"])
+        alpha = ren.forward_raw(ones, t["render_cam_params"], bg=0.0)["raw_features"][:, :1]
+        out_["sil_loss"] = a.sil_weight * (alpha - t["mask"][:, :1]).abs().mean()
+    return out_
+
+
 def arcface_loss(render, gt, t):
     box, side, inside, kp, cosang = target_geometry(t)
     kin = ((kp >= 0) & (kp <= 511)).all(-1).all(-1)
@@ -335,20 +404,22 @@ it = iter(dl)                                                        # fork the 
 if base is None and VAL:
     base = validate(); log.write(json.dumps({"split": "val", "iter": 0, **base}) + "\n"); log.flush(); log_print("val iter 0 (a20)", json.dumps(base))
 inf.train(); ren.train(); t0 = time.time(); t_data = 0.0; nonfinite = []; torch.cuda.reset_peak_memory_stats(); n0 = step
-stop_iter = a.smoke_iters if a.smoke else a.iters
+stop_iter = a.smoke_iters if a.smoke else (min(a.stop_iter, a.iters) if a.stop_iter else a.iters)
 while step < stop_iter:
     td = time.time(); batch = next(it); t_data += time.time() - td
     meta_b = [json.loads(m) for m in batch.pop("meta")]
     batch = to_dev(batch, dev); src = batch["source"]; tgt = flat(batch["target"])
     vg, ug, ex = inf(src)
     av = Ubody_Gaussian(cfg.MODEL, rep(vg, a.n_tgt, a.n_src), rep(ug, a.n_tgt, a.n_src), pruning=False); av.init_ehm(inf.ehm)
-    rr = ren(av(tgt), tgt["render_cam_params"], bg=0.0)
+    assets = av(tgt); rr = ren(assets, tgt["render_cam_params"], bg=0.0)
     extra = {"uv_point_xyz": ug["local_pos"], "uv_point_scale": ug["scales"], "vertices": inf.smplx_deform_res["vertices"], "uv_point_opacity": ug["opacities"],
              "vertex_opacity": vg["opacities"], "vertex_scale": vg["scales"]}
     lm, show = lossm(rr, tgt, extra, OFF + step)
     n_arc = 0
     if a.arcface_weight > 0:
         la, n_arc = arcface_loss(rr["renders"], tgt["image"] * tgt["mask"], tgt); lm["arcface_loss"] = la * a.arcface_weight
+    if a.cloth_crop > 0 or a.edge_weight > 0 or a.sil_weight > 0:
+        lm.update(pilot_losses(rr, tgt, assets))
     loss = sum(lm.values())
     opt.zero_grad(set_to_none=True); loss.backward()
     for p_ in list(inf.parameters()) + list(ren.parameters()):
