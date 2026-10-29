@@ -490,3 +490,22 @@ and without looking at an evaluation set.
   - a20's reference values for the best.pt rule are measured by this same validator at iteration 0.
 - **Staging:** at launch, training data is copied from the vault to RAM disk (`/dev/shm/ubx858_guava_fb/data`; the vault reads
   14 reads/s single-threaded). The vault keeps the master copy, checkpoints and results.
+
+### GUAVA-FB amendment 2 (registered 2026-10-28 ~23:00, before v1b): 4D-DRESS pairs by subject AND outfit
+- **Found from validation renders** (iterations 4k / 6k; validation data only, no evaluation set): grouping 4D-DRESS cross-view
+  pairs by subject alone mixed each subject's Inner and Outer outfits. 71 of 141 logged 4D-DRESS training targets (50 %) wore a
+  different outfit from their source, and so did part of the 4D-DRESS validation targets. Such a target cannot be reached from the
+  source image.
+- **Change:** a cross-view pairing group is now subject + outfit (index fields `subject`, `outfit`), for both training and
+  validation. Source and target still come from different cameras, and may come from any take of the same outfit.
+  - 4D-DRESS validation: for each held-out subject-outfit group, the source is the first frame of the lowest-numbered camera of
+    the group's first take (by name), and the targets are the other cameras' rows of that group, evenly strided and capped at
+    30 per group (so still at most 60 per held-out subject).
+  - Option `--cross-view-group` (v1 = `subject`, v1b = `subject+outfit`).
+- **v1:** stopped at iteration ~8.5k (validation at 2k, 4k, 6k and 8k; no checkpoint eligible; latest.pt at step 8k kept, nothing
+  deleted). It is superseded and is used for no choice beyond this fix.
+- **v1b:** the v1 recipe with this change only (same seed, data, losses, schedule, best.pt rule). The a20 reference is measured
+  again at iteration 0 of v1b by the same validator, because the 4D-DRESS validation set changed.
+- **Validation renders** (`val_render.py`, separate process, visual only; it computes no metric and changes nothing in
+  training): for each new validation, a fixed subset (first 8 4D-DRESS groups, otherwise first 4 groups; 2 targets each) is
+  rendered from that step's checkpoint into `<run>/val_renders/iter_XXXXXX/`.

@@ -42,7 +42,7 @@ ap.add_argument("--mix", default=REG_MIX); ap.add_argument("--allow-missing", ac
 ap.add_argument("--data-root", default=str(O / "data"))
 ap.add_argument("--val-tracks", default="dress4d,bedlam2,motionx,ubody"); ap.add_argument("--val-every", type=int, default=2000)
 ap.add_argument("--val-step", type=int, default=4); ap.add_argument("--val-cap", type=int, default=150)
-ap.add_argument("--val-caps", default="dress4d:60,bedlam2:20,motionx:10", help="per-track target caps (per subject for cross-view, per clip otherwise); UBody uses a20's rule")
+ap.add_argument("--val-caps", default="dress4d:30,bedlam2:20,motionx:10", help="per-track target caps (per pairing group (subject+outfit) for cross-view, per clip otherwise); UBody uses a20's rule")
 ap.add_argument("--vis-every", type=int, default=1000); ap.add_argument("--log-every", type=int, default=50)
 ap.add_argument("--workers", type=int, default=6); ap.add_argument("--seed", type=int, default=0)
 ap.add_argument("--lambda-head-crop", type=float, default=0.5); ap.add_argument("--arcface-weight", type=float, default=0.05)
@@ -52,6 +52,7 @@ ap.add_argument("--max-minutes", type=float, default=0, help="stop training afte
 ap.add_argument("--resume", action="store_true")
 ap.add_argument("--fullbody-tracks", default="dress4d,bedlam2,motionx", help="tracks of the best.pt mean SSIM (registered: dress4d,bedlam2,motionx)")
 ap.add_argument("--cross-view-sources", default="dress4d", help="sources paired across different views (registered: dress4d)")
+ap.add_argument("--cross-view-group", default="subject+outfit", help="index fields that define a cross-view pairing group (v1: subject; v1b registered: subject+outfit, so source and target wear the same clothes)")
 a = ap.parse_args()
 out = Path(a.out) if os.path.isabs(a.out) else O / "runs" / a.out
 assert not str(out.resolve()).startswith("/raid"), "write nothing on /raid"
@@ -104,7 +105,8 @@ for s in need:
     idx = json.loads(ip.read_text())
     for e in idx["clips"]:
         if e.get("split") not in ("train", "val"): continue          # test clips are never loaded
-        jobs.append((str(Path(a.data_root) / s / e["name"]), None, True)); meta.append({"source": s, "split": e["split"], "subject": str(e.get("subject", e["name"]))})
+        jobs.append((str(Path(a.data_root) / s / e["name"]), None, True)); meta.append({"source": s, "split": e["split"], "subject": str(e.get("subject", e["name"])),
+                     "pair_group": "/".join(str(e[k]) for k in a.cross_view_group.split("+") if k in e) or str(e.get("subject", e["name"]))})
 log_print(f"loading {len(jobs)} clips from {need}")
 t_load = time.time(); loaded = F.load_clips_parallel(jobs, workers=24)
 clips, skipped = [], {}
@@ -130,7 +132,7 @@ for s in mix_req:
     G = []
     if PAIRING.get(s) == "cross_view":
         by_subj = {}
-        for i in cis: by_subj.setdefault(clips[i]["subject"], []).append(i)
+        for i in cis: by_subj.setdefault(clips[i].get("pair_group", clips[i]["subject"]), []).append(i)
         for subj, ii in sorted(by_subj.items()):
             fr = [(i, k) for i in ii for k in clips[i]["keys"]]; views = np.array([clips[i]["recs"][k]["view"] for i, k in fr])
             if len(set(views)) >= 2: G.append({"name": subj, "frames": fr, "views": views})
@@ -190,7 +192,7 @@ def build_val():
             for i in cis: G.append(((i, clips[i]["keys"][0]), [(i, k) for k in clips[i]["keys"][1::4]]))
         elif PAIRING.get(s) == "cross_view":
             by_subj = {}
-            for i in cis: by_subj.setdefault(clips[i]["subject"], []).append(i)
+            for i in cis: by_subj.setdefault(clips[i].get("pair_group", clips[i]["subject"]), []).append(i)
             for subj, ii in sorted(by_subj.items()):
                 ii = sorted(ii, key=lambda i: clips[i]["name"]); take = ii[0]
                 v0 = sorted({clips[take]["recs"][k]["view"] for k in clips[take]["keys"]})[0]
