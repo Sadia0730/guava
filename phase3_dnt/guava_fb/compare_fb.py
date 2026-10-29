@@ -6,18 +6,21 @@
           the take's frames + slerp in-betweens; mean LPIPS between consecutive renders; one mp4 per group.
   timing  all models interleaved on one GPU: Gaussians after pruning, avatar build time (median of 20), per-frame render time
           (deform + rasterise + refine, median of 200).
+  geometry (amendment 4, measure 7) mean cosine of the rendered normal and of the D-Normal (normal_prior.py) vs frozen
+          Sapiens-normal-1B on the same validation targets, inside matte ∩ coverage (each eroded by 2 px); normal-map examples.
   compose side-by-side mp4s / zoom crops and the summary table from the per-model results."""
 import argparse, json, math, os, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ap = argparse.ArgumentParser()
-ap.add_argument("--part", choices=["eval", "timing", "compose"], required=True)
+ap.add_argument("--part", choices=["eval", "timing", "geometry", "compose"], required=True)
 ap.add_argument("--models", nargs="+", required=True, help="label=checkpoint")
 ap.add_argument("--out", required=True); ap.add_argument("--data-root", default="/dev/shm/ubx858_guava_fb/data")
 ap.add_argument("--tracks", default="dress4d,bedlam2,motionx"); ap.add_argument("--val-step", type=int, default=4)
 ap.add_argument("--val-caps", default="dress4d:30,bedlam2:20,motionx:10")
 ap.add_argument("--flicker-groups", default="00127/Outer,00134/Outer,00137/Outer,00151/Outer"); ap.add_argument("--inbetween", type=int, default=3)
+ap.add_argument("--sapiens", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/models/sapiens/sapiens_1b_normal.pt2")
 a = ap.parse_args()
 models = dict(m.split("=", 1) for m in a.models); out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(HERE))
@@ -27,10 +30,14 @@ from scipy.spatial.transform import Rotation, Slerp
 if a.part == "compose":
     labels = list(models)
     res = {l: json.loads((out / l / "eval.json").read_text()) for l in labels if (out / l / "eval.json").exists()}
+    for l in labels:
+        if l in res and (out / l / "geometry.json").exists():
+            for t, d in json.loads((out / l / "geometry.json").read_text())["summary"].items(): res[l]["summary"].setdefault(t, {}).update(d)
     tim = json.loads((out / "timing.json").read_text()) if (out / "timing.json").exists() else {}
     keys = [("dress4d", "cloth_lpips"), ("dress4d", "cloth_ssim"), ("bedlam2", "cloth_lpips"), ("motionx", "cloth_lpips"),
             ("dress4d", "zoom_lpips"), ("dress4d", "zoom_ssim"), ("dress4d", "zoom_psnr"), ("dress4d", "miss_frac"), ("dress4d", "spill_frac"),
-            ("dress4d", "psnr"), ("bedlam2", "psnr"), ("motionx", "psnr"), ("flicker", "lpips_consecutive")]
+            ("dress4d", "psnr"), ("bedlam2", "psnr"), ("motionx", "psnr"), ("flicker", "lpips_consecutive"),
+            ("all", "geo_cos_dnormal"), ("all", "geo_cos_rendered"), ("dress4d", "geo_cos_dnormal"), ("bedlam2", "geo_cos_dnormal"), ("motionx", "geo_cos_dnormal")]
     rows = ["| measure | " + " | ".join(labels) + " |", "|---|" + "---|" * len(labels)]
     for t, k in keys:
         rows.append(f"| {t} {k} | " + " | ".join(f"{res[l]['summary'].get(t, {}).get(k, float('nan')):.4f}" if l in res else "-" for l in labels) + " |")
@@ -48,6 +55,8 @@ if a.part == "compose":
             if vw is None: vw = cv2.VideoWriter(str(out / f"flicker_{g.replace('/', '_')}_side_by_side.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 24, (row.shape[1], row.shape[0]))
             vw.write(row)
         if vw is not None: vw.release()
+    ns = [cv2.imread(str(out / l / "normal_examples.jpg")) for l in labels]
+    if all(z is not None for z in ns): cv2.imwrite(str(out / "normal_examples_all.jpg"), np.concatenate(ns, 0))
     zs = [cv2.imread(str(out / l / "zoom_examples.jpg")) for l in labels]
     if all(z is not None for z in zs): cv2.imwrite(str(out / "zoom_examples_all.jpg"), np.concatenate(zs, 0))
     sys.exit(0)
@@ -170,6 +179,34 @@ if a.part == "timing":
     res = {l: {"build_ms": float(np.median(v["build"])), "frame_ms": float(np.median(v["frame"])), "frame_ms_p90": float(np.percentile(v["frame"], 90)),
                "n_gaussians": v["n_gaussians"], "gpu": torch.cuda.get_device_name(0)} for l, v in T.items()}
     (out / "timing.json").write_text(json.dumps(res, indent=1)); print(json.dumps(res, indent=1)); sys.exit(0)
+
+# ----------------------------------------------------------------------------- geometry (measure 7)
+if a.part == "geometry":
+    import normal_prior as NP, torchvision
+    sap = NP.SapiensNormal(a.sapiens, dev, sign=(1.0, -1.0, -1.0))
+    for label in models:
+        step = load(label); od = out / label; od.mkdir(exist_ok=True); rows = []; ex = []
+        with torch.no_grad():
+            for s, G in VAL.items():
+                for src, tg in G:
+                    av = avatar(src)
+                    for ref in tg:
+                        t = to_dev(F.collate1(fbd.target_info(*ref)), dev); Np = sap(t["image"])
+                        Nr, Dr, Ar = NP.render_geometry(ren, av(t), t["render_cam_params"], t["w2c_cam"])
+                        Nd = NP.depth_to_normal(Dr, F.batch_invtanfov(t, 1, dev))
+                        v = NP.erode((t["mask"][:, :1] > 0.5).float(), 2) * NP.erode((Ar > 0.5).float(), 2); nv = v.sum().clamp(min=1)
+                        rows.append({"track": s, "tgt": f"{clips[ref[0]]['name']}/{ref[1]}",
+                                     "geo_cos_rendered": float(((Nr * Np).sum(1, keepdim=True) * v).sum() / nv),
+                                     "geo_cos_dnormal": float(((Nd * Np).sum(1, keepdim=True) * v).sum() / nv)})
+                        if len(ex) < 4 and len(rows) % 60 == 1:
+                            ex.append(torch.cat([t["image"][0] * t["mask"][0], (Np[0] * .5 + .5) * v[0], (Nr[0] * .5 + .5) * v[0], (Nd[0] * .5 + .5) * v[0]], 2))
+                print(label, s, "done", len(rows), flush=True)
+        summ = {s: {k: float(np.mean([r[k] for r in rows if r["track"] == s])) for k in ("geo_cos_rendered", "geo_cos_dnormal")} for s in VAL}
+        summ["all"] = {k: float(np.mean([r[k] for r in rows])) for k in ("geo_cos_rendered", "geo_cos_dnormal")}          # over all targets (registered)
+        (od / "geometry.json").write_text(json.dumps({"label": label, "checkpoint": models[label], "step": step, "summary": summ, "rows": rows}, indent=0))
+        if ex: torchvision.utils.save_image(torch.stack(ex), od / "normal_examples.jpg", nrow=len(ex), padding=4, pad_value=1.0)
+        print(label, json.dumps(summ), flush=True)
+    sys.exit(0)
 
 # ----------------------------------------------------------------------------- eval
 for label in models:
