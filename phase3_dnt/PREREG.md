@@ -647,3 +647,28 @@ the body, not the garment; loose garments (vest back) are not covered; folds / p
     (6) per-frame render time is not slower by more than 2 %.
 
   UBody SSIM / face LPIPS (registered validator) are reported. Everything is reported whether it passes or not.
+
+### GUAVA-FB amendment 6 (registered 2026-10-29 ~23:55, before running it): diagnostic — raw vs refined renders, loss-gradient balance
+User request (2026-10-29): compare pilot B / C's raw and refined clothing and face renders, and measure weighted gradient norms
+and the agreement of geometry and image losses on shared layers ("raw loss values alone do not show which objective
+dominates"). **Diagnostic only:** no training, no parameter change, no decision rule; it informs the next pilot's design.
+Checkpoints: pilot B and pilot C latest.pt at 8k (pilot D at 8k later with the same tools). No test data.
+- **(A) raw vs refined** (`compare_fb.py --part rawref`, validation targets of dress4d / bedlam2 / motionx (as amendment 3)
+  and UBody (a20 rule)): "raw" = the first 3 channels of the rasterised 32-channel Gaussian features (GUAVA's loss supervises
+  them as an RGB image), "refined" = the StyleUNet refiner output. Per target: PSNR / SSIM / LPIPS on the full image; on the
+  clothing box (256 px, amendment 3's box) and the face box (128 px, the validator's box): LPIPS / SSIM / L1 and high-pass
+  luminance **detail** (render minus its masked Gaussian blur, σ = 2 px): correlation with the ground truth's (detail r) and
+  energy ratio render / ground truth (1 = as much fine detail as the photo, < 1 = smoother). Reported per track, raw and
+  refined. Figures: crops at fixed positions (1/6, 1/2, 5/6 of each track's target list), not selected by result.
+- **(B) gradient balance** (`guava_fb_train.py --grad-diag`): 15 fixed training batches (3 per training source; both groups
+  of a batch from that source; same batches and StyleUNet noise for every checkpoint), pilot B / C's data options. Loss terms
+  at their training weights, each differentiated separately: GUAVA's loss split into raw-render and refined-render parts
+  (full image L1 + LPIPS; head + hand crops), clothing box, ArcFace, edge, silhouette, offset / scale regularisers, and the
+  geometry terms at pilot C / D weights: flattening, Sapiens normal, Sapiens D-Normal (all sources, as C), scan normal /
+  D-Normal / depth / chamfer (4D-DRESS, as D), Gram (as D). Per batch and parameter group: Gram matrix of the term gradients,
+  raw and Adam-preconditioned (g · lr_group / (√v + ε), v = the checkpoint's second moment; with β1 = 0 this is the step's
+  update). Reported: per-term gradient norm; each term's **share of the update** ⟨u_i, u_total⟩ / ‖u_total‖² (shares sum
+  to 1; u_total = the pilot's own objective); cosine between the image total and the geometry total (Sapiens, scan), and
+  between raw and refined image terms; fraction of batches with cosine < 0. "Shared layers" = parameter groups where both
+  image and geometry gradients are non-zero. Wording used in the report (fixed now): a term group "dominates" a layer if its
+  update share is > 0.5; geometry and image "conflict" on a layer if their cosine is < 0 in more than half the batches.
