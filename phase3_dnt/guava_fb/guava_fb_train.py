@@ -78,10 +78,13 @@ ap.add_argument("--offset-threshold", type=float, default=3.0, help="GUAVA thres
 ap.add_argument("--gan-weight", type=float, default=0.0, help="pilot D: hinge patch-GAN generator loss on 256-px clothing-box crops")
 ap.add_argument("--gan-start", type=int, default=1000, help="iteration from which the generator gets the adversarial loss (D trains from 0)")
 ap.add_argument("--gan-lr", type=float, default=2e-4); ap.add_argument("--gram-weight", type=float, default=0.0, help="pilot D: VGG Gram texture loss on clothing-box crops")
+ap.add_argument("--grad-diag", default="", help="diagnostic (amendment 6): checkpoint whose per-loss-term gradients are measured; no training")
+ap.add_argument("--diag-per-source", type=int, default=3, help="grad-diag: batches per training source (both groups of a batch from that source)")
 a = ap.parse_args()
 out = Path(a.out) if os.path.isabs(a.out) else O / "runs" / a.out
 assert not str(out.resolve()).startswith("/raid"), "write nothing on /raid"
-(out / "checkpoints").mkdir(parents=True, exist_ok=True); (out / "visuals").mkdir(exist_ok=True)
+out.mkdir(parents=True, exist_ok=True)
+if not a.grad_diag: (out / "checkpoints").mkdir(exist_ok=True); (out / "visuals").mkdir(exist_ok=True)
 
 sys.path.insert(0, str(HERE))
 import numpy as np, random, torch, torchvision
@@ -533,6 +536,83 @@ def eligible(v, base):
     if "ubody" not in v or "ubody" not in base: return False
     return (v["ubody"]["ssim"] >= base["ubody"]["ssim"] - 0.002) and (v["ubody"]["face_lpips"] <= base["ubody"]["face_lpips"] + 0.002)
 
+
+def grad_diag():
+    """amendment 6: per loss term, the weighted gradient on every trainable parameter group of a checkpoint, from the same
+    fixed training batches (diag_per_source per source, both groups of a batch from one source; StyleUNet noise seeded per
+    batch). GUAVA's loss is split into its raw-render and refined-render parts (their sum is GUAVA's loss). Per batch and
+    group, the Gram matrices of the term gradients are written, raw (G) and Adam-preconditioned (Gp: g * lr_group /
+    (sqrt(v) + eps), v = the checkpoint's exp_avg_sq; with betas (0, 0.99) this is the step's update). No parameter changes."""
+    ck = torch.load(a.grad_diag, map_location="cpu", weights_only=False)
+    inf.load_state_dict(ck["model"]); ren.load_state_dict(ck["render_model"]); opt.load_state_dict(ck["optimizer"]); dstep = int(ck["step"]); del ck
+    inf.train(); ren.train()
+    names = {id(p): "inf." + n for n, p in inf.named_parameters()} | {id(p): "ren." + n for n, p in ren.named_parameters()}
+    plist, grp, P = [], [], []
+    for g in opt.param_groups:
+        for p in g["params"]:
+            st = opt.state.get(p, {}); plist.append(p); grp.append(".".join(names[id(p)].split(".")[:3]))
+            P.append((g["lr"] / (st["exp_avg_sq"].sqrt() + g["eps"])).flatten().float().cpu() if "exp_avg_sq" in st else torch.zeros(p.numel()))
+    G_ = sorted(set(grp)); gidx = {g: [i for i, x in enumerate(grp) if x == g] for g in G_}
+    Pg = {g: torch.cat([P[i] for i in gidx[g]]) for g in G_}; del P
+    TERMS = ["raw_full", "raw_crops", "ref_full", "ref_crops", "cloth", "arcface", "edge", "sil", "reg", "flat", "sap_normal", "sap_dnormal",
+             "scan_normal", "scan_dnormal", "scan_depth", "scan_chamfer", "gram"]
+    X = {g: torch.zeros(len(TERMS), int(Pg[g].numel())) for g in G_}
+    idx = {s: [] for s in src_names}; i = 10**9; ds_ = GroupSampler()
+    while any(len(v) < 2 * a.diag_per_source for v in idx.values()):
+        s = ds_.draw(i)[0]
+        if len(idx[s]) < 2 * a.diag_per_source: idx[s].append(i)
+        i += 1
+    batches = [(s, v[j:j + 2]) for s, v in idx.items() for j in range(0, len(v), 2)]
+    fo = open(out / "grad_diag.jsonl", "w"); t0 = time.time()
+    def one(k, s, ii):
+        """forward + per-term gradients of one batch (into X); locals (the graph) are freed on return."""
+        GSTAT.clear(); batch = torch.utils.data.default_collate([ds_[j] for j in ii]); meta_b = [json.loads(m) for m in batch.pop("meta")]
+        batch = to_dev(batch, dev); tgt = flat(batch["target"]); torch.manual_seed(1000 + k)
+        vg, ug, _ = inf(batch["source"])
+        av = Ubody_Gaussian(cfg.MODEL, rep(vg, a.n_tgt, a.n_src), rep(ug, a.n_tgt, a.n_src), pruning=False); av.init_ehm(inf.ehm)
+        assets = av(tgt); rr = ren(assets, tgt["render_cam_params"], bg=0.0)
+        extra = {"uv_point_xyz": ug["local_pos"], "uv_point_scale": ug["scales"], "vertices": inf.smplx_deform_res["vertices"], "uv_point_opacity": ug["opacities"],
+                 "vertex_opacity": vg["opacities"], "vertex_scale": vg["scales"]}
+        lf, _ = lossm({"renders": rr["renders"]}, tgt, extra, OFF + dstep); lw, _ = lossm({"renders": rr["raw_renders"]}, tgt, extra, OFF + dstep)
+        if k == 0:                                                        # the split sums to GUAVA's loss
+            la_, _ = lossm(rr, tgt, extra, OFF + dstep); tot = sum(v for kk, v in la_.items())
+            assert abs(float(tot) - float(sum(lf.values()) + sum(lw.values()) - lw["local_xyz_loss"] - lw["local_scale_loss"])) < 1e-4 * max(1.0, float(tot))
+        T = {"raw_full": lw["image_loss"] + lw["perpetual_loss"], "raw_crops": lw["head_loss"] + lw["hand_loss"],
+             "ref_full": lf["image_loss"] + lf["perpetual_loss"], "ref_crops": lf["head_loss"] + lf["hand_loss"], "reg": lf["local_xyz_loss"] + lf["local_scale_loss"]}
+        T["arcface"] = arcface_loss(rr["renders"], tgt["image"] * tgt["mask"], tgt)[0] * a.arcface_weight
+        pl = pilot_losses(rr, tgt, assets); T.update({"cloth": pl.get("cloth_loss"), "edge": pl.get("edge_loss"), "sil": pl.get("sil_loss")})
+        tsrc = [m["source"] for m in meta_b for _ in range(a.n_tgt)]
+        gl = geometry_losses(tgt, assets, tsrc, load_scans(meta_b) if SCANW else [None] * len(tsrc), vg["positions"].shape[1], dstep)
+        T.update({"flat": gl.get("flat_loss"), "sap_normal": gl.get("normal_loss"), "sap_dnormal": gl.get("dnormal_loss"), "scan_normal": gl.get("scan_normal_loss"),
+                  "scan_dnormal": gl.get("scan_dnormal_loss"), "scan_depth": gl.get("scan_depth_loss"), "scan_chamfer": gl.get("scan_chamfer_loss")})
+        if TEX: T["gram"] = texture_losses(rr, tgt, dstep)[0].get("gram_loss")
+        done = []
+        for ti, nm in enumerate(TERMS):
+            L = T.get(nm)
+            if L is None or not L.requires_grad or float(L) == 0.0: continue
+            gs = torch.autograd.grad(L, plist, retain_graph=True, allow_unused=True)
+            for g in G_:
+                X[g][ti] = torch.cat([(gs[i] if gs[i] is not None else torch.zeros_like(plist[i])).detach().flatten().float().nan_to_num_() for i in gidx[g]]).cpu()
+            done.append(ti); del gs
+        rec = {"batch": k, "source": s, "items": ii, "pairs": meta_b, "values": {nm: float(T[nm]) for nm in TERMS if T.get(nm) is not None},
+               "terms": [TERMS[t] for t in done], "groups": {}, **GSTAT}
+        return rec, done
+
+    for k, (s, ii) in enumerate(batches):
+        rec, done = one(k, s, ii)
+        for g in G_:
+            x = X[g][done].double(); xp = x * Pg[g].double()
+            rec["groups"][g] = {"n": int(x.shape[1]), "G": (x @ x.T).tolist(), "Gp": (xp @ xp.T).tolist()}
+            X[g].zero_()
+        fo.write(json.dumps(rec) + "\n"); fo.flush()
+        torch.cuda.empty_cache()
+        log_print(f"grad-diag batch {k + 1}/{len(batches)} {s} terms {len(done)} {time.time() - t0:.0f}s peak {torch.cuda.max_memory_allocated() / 2**30:.1f} GB")
+    fo.close(); (out / "grad_diag_info.json").write_text(json.dumps({"checkpoint": a.grad_diag, "step": dstep, "terms": TERMS, "groups": {g: int(Pg[g].numel()) for g in G_},
+                                                                    "batches": len(batches), "seconds": time.time() - t0, "git": git_sha()}, indent=1))
+
+
+if a.grad_diag:
+    grad_diag(); sys.exit(0)
 
 # ------------------------------------------------------------------------------------------------- loop
 log = open(out / "train_log.jsonl", "a"); step, best, base = 0, None, None

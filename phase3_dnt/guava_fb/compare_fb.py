@@ -11,13 +11,20 @@
   compose side-by-side mp4s / zoom crops and the summary table from the per-model results.
   showcase --models baseline=ckpt candidate=ckpt, after eval + geometry of both: the validation targets with the largest
           per-target gain of the candidate (distinct take groups) for the D-Normal cosine (best per track + the median-gain
-          target), coverage miss and zoomed clothing LPIPS; figures + selection.json (gains, share of targets improved)."""
+          target), coverage miss and zoomed clothing LPIPS; figures + selection.json (gains, share of targets improved).
+  rawref  (amendment 6, diagnostic) per model: the raw rasterised RGB (first 3 of the 32 Gaussian feature channels, which
+          GUAVA's loss also supervises) vs the refined render, on the full image, the clothing box (256) and the face box (128,
+          as the validator): PSNR / SSIM / LPIPS / L1 and high-pass luminance detail (correlation with the ground truth and
+          energy ratio render / ground truth, masked Gaussian blur sigma 2 px). --tracks may include ubody (a20 val rule).
+          Example crops at fixed target positions (1/6, 1/2, 5/6 of each track's list, chosen before any result)."""
 import argparse, json, math, os, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ap = argparse.ArgumentParser()
-ap.add_argument("--part", choices=["eval", "timing", "geometry", "compose", "showcase"], required=True)
+ap.add_argument("--part", choices=["eval", "timing", "geometry", "compose", "showcase", "rawref"], required=True)
+ap.add_argument("--max-per-group", type=int, default=0, help="smoke tests only: at most this many targets per validation group")
+ap.add_argument("--fig-labels", default="", help="rawref: labels whose example crops are composed into one figure once all exist")
 ap.add_argument("--per", type=int, default=3, help="showcase: examples per measure")
 ap.add_argument("--models", nargs="+", required=True, help="label=checkpoint")
 ap.add_argument("--out", required=True); ap.add_argument("--data-root", default="/dev/shm/ubx858_guava_fb/data")
@@ -79,6 +86,11 @@ from submodules.lpipsPyTorch import LPIPS
 # ----------------------------------------------------------------------------- validation set (= guava_fb_train.build_val, v1b grouping)
 tracks = [t for t in a.tracks.split(",") if t]; jobs, meta = [], []
 for s in tracks:
+    if s == "ubody":                                                         # a20's validation clips and face conversion
+        fconv, eye_copy = F.load_face_conv()
+        for c in F.a20_split()[1]:
+            jobs.append((str(c), fconv.get(c.name, {}), eye_copy)); meta.append({"source": s, "subject": c.name, "pair_group": c.name})
+        continue
     for e in json.loads((Path(a.data_root) / s / "index.json").read_text())["clips"]:
         if e.get("split") == "val":
             jobs.append((str(Path(a.data_root) / s / e["name"]), None, True))
@@ -105,9 +117,11 @@ for s in tracks:
             src = (take, next(k for k in clips[take]["keys"] if clips[take]["recs"][k]["view"] == v0))
             tg = [(i, k) for i in ii for k in clips[i]["keys"] if clips[i]["recs"][k]["view"] != v0]
             step = max(1, math.ceil(len(tg) / caps[s])); G.append((src, tg[::step][:caps[s]])); GROUPSRC[g] = (src, v0)
+    elif s == "ubody":                                                       # exact a20 rule
+        for i in cis: G.append(((i, clips[i]["keys"][0]), [(i, k) for k in clips[i]["keys"][1::4]]))
     else:
         for i in cis: G.append(((i, clips[i]["keys"][0]), [(i, k) for k in clips[i]["keys"][1::a.val_step]][:caps.get(s, 150)]))
-    VAL[s] = G
+    VAL[s] = [(src, tg[:a.max_per_group]) for src, tg in G] if a.max_per_group else G
 
 _, inf, ren, _ = F.setup_a20(dev); inf.eval(); ren.eval(); lp = LPIPS("vgg", "0.1").to(dev)
 NV = F.NV; CLOTH_JOINTS = torch.tensor([0, 1, 2, 3, 6, 9, 13, 14, 16, 17], device=dev)
@@ -267,6 +281,93 @@ if a.part == "showcase":
     (od / "selection.json").write_text(json.dumps({"baseline": la, "candidate": lb, "share": share,
                                                    "selected": {p: [{"track": k[0], "tgt": k[1], "kind": t, "gain": v} for t, v, k in sel] for p, sel in SEL.items()}}, indent=1))
     print(json.dumps(share, indent=1)); sys.exit(0)
+
+
+# ----------------------------------------------------------------------------- raw vs refined (amendment 6)
+if a.part == "rawref":
+    import scan_geom as SG
+    fg = F.FaceGeom(inf, dev)
+
+    def lum(x): return 0.299 * x[:, :1] + 0.587 * x[:, 1:2] + 0.114 * x[:, 2:3]
+
+    def detail(r, g, m, sigma=2.0):
+        hr = lum(r) - SG.blur_masked(lum(r), m, sigma); hg = lum(g) - SG.blur_masked(lum(g), m, sigma)
+        er, eg = (hr ** 2 * m).sum(), (hg ** 2 * m).sum()
+        return float((hr * hg * m).sum() / (er * eg).sqrt().clamp(min=1e-12)), float((er / eg.clamp(min=1e-12)).sqrt())
+
+    def crops_metrics(pre, x, g, m, row):
+        row.update({f"{pre}_lpips": float(lp(x, g)), f"{pre}_ssim": float(cal_ssim(x, g)), f"{pre}_l1": float((x - g).abs().mean())})
+        row[f"{pre}_detail_corr"], row[f"{pre}_detail_energy"] = detail(x, g, m)
+
+    flat_t = {s: [ref for _, tg in G for ref in tg] for s, G in VAL.items()}
+    EXPOS = {s: {tuple(v[int(len(v) * f)]) for f in (1 / 6, 1 / 2, 5 / 6)} for s, v in flat_t.items() if v}
+    KEYS = [f"{st}_{k}" for st in ("raw", "ref") for k in ("psnr", "ssim", "lpips", "cloth_lpips", "cloth_ssim", "cloth_l1", "cloth_detail_corr", "cloth_detail_energy",
+                                                          "face_lpips", "face_ssim", "face_l1", "face_detail_corr", "face_detail_energy")]
+    for label in models:
+        step = load(label); od = out / label; od.mkdir(exist_ok=True); rows = []; ex = {}; n_empty = {}
+        with torch.no_grad():
+            for s, G in VAL.items():
+                for src, tg in G:
+                    av = avatar(src)
+                    for ref in tg:
+                        t = to_dev(F.collate1(fbd.target_info(*ref)), dev); g = t["image"] * t["mask"]; m = t["mask"][:, :1]
+                        if float((m > 0.5).sum()) < 64: n_empty[s] = n_empty.get(s, 0) + 1; continue     # empty matte (e.g. a UBody frame): PSNR undefined
+                        torch.manual_seed(0); rr = ren(av(t), t["render_cam_params"], bg=0.0)
+                        R_ = {"raw": rr["raw_renders"].clamp(0, 1), "ref": rr["renders"].clamp(0, 1)}
+                        row = {"track": s, "tgt": f"{clips[ref[0]]['name']}/{ref[1]}"}
+                        for st, x in R_.items(): row.update({f"{st}_psnr": float(cal_psnr(x, g)), f"{st}_ssim": float(cal_ssim(x, g)), f"{st}_lpips": float(lp(x, g))})
+                        o = inf.ehm(t["smplx_coeffs"], t["flame_coeffs"]); itf = F.batch_invtanfov(t, 1, dev)
+                        px, _ = F.project_px(o["vertices"][:, CLOTH_VID], t["w2c_cam"], itf)
+                        lo = torch.quantile(px[0], 0.02, dim=0); hi = torch.quantile(px[0], 0.98, dim=0)
+                        box = [int(lo[0].clamp(0, 511)), int(hi[0].clamp(0, 511)), int(lo[1].clamp(0, 511)), int(hi[1].clamp(0, 511))]
+                        E = {}
+                        if box[1] - box[0] >= 8 and box[3] - box[2] >= 8:
+                            gc, mc = crop256(g, box), (crop256(m, box) > 0.5).float(); E["cloth"] = [gc]
+                            for st, x in R_.items(): xc = crop256(x, box); crops_metrics(f"{st}_cloth", xc, gc, mc, row); E["cloth"].append(xc)
+                        hp, _ = F.project_px(o["vertices"][:, fg.head_vid], t["w2c_cam"], itf); fb_, side, inside = F.face_boxes(hp)
+                        x0, y0, x1, y1 = fb_[0].clamp(0, 512).round().long().tolist()
+                        if float(inside[0]) >= 0.5 and float(side[0]) >= 4 and x1 - x0 >= 2 and y1 - y0 >= 2:
+                            fc = lambda x: torch.nn.functional.interpolate(x[:, :, y0:y1, x0:x1], (128, 128), mode="bilinear", antialias=True, align_corners=False)
+                            gf, mf = fc(g), (fc(m) > 0.5).float(); E["face"] = [gf]
+                            for st, x in R_.items(): xf = fc(x); crops_metrics(f"{st}_face", xf, gf, mf, row); E["face"].append(xf)
+                        if tuple(ref) in EXPOS[s]: ex[(s, row["tgt"])] = {k: [z[0].cpu() for z in v] for k, v in E.items()} | {"row": dict(row)}
+                        rows.append(row)
+                print(label, s, "done", len(rows), flush=True)
+        def mean(x): x = [v for v in x if v is not None]; return float(np.mean(x)) if x else None
+        summ = {s: {k: mean([r.get(k) for r in rows if r["track"] == s]) for k in KEYS} | {"n": sum(r["track"] == s for r in rows),
+                                                                                           "n_face": sum(r["track"] == s and "raw_face_lpips" in r for r in rows), "n_empty_matte_skipped": n_empty.get(s, 0)} for s in VAL}
+        (od / "rawref.json").write_text(json.dumps({"label": label, "checkpoint": models[label], "step": step, "summary": summ, "rows": rows}, indent=0))
+        torch.save(ex, od / "rawref_examples.pt")
+        print(label, json.dumps({s: {k: (round(v, 4) if isinstance(v, float) else v) for k, v in d.items()} for s, d in summ.items()}), flush=True)
+    labs = [l for l in a.fig_labels.split(",") if l]
+    if labs and all((out / l / "rawref_examples.pt").exists() for l in labs):
+        EXS = {l: torch.load(out / l / "rawref_examples.pt", weights_only=False) for l in labs}; keys = sorted(EXS[labs[0]], key=lambda k: (tracks.index(k[0]), k[1]))
+
+        def u8(x, S=256):
+            x = torch.nn.functional.interpolate(x[None], (S, S), mode="bilinear", align_corners=False)[0]
+            return np.ascontiguousarray((x.clamp(0, 1).permute(1, 2, 0).numpy() * 255).astype(np.uint8)[..., ::-1])
+
+        def lab(img, txt):
+            for i, s_ in enumerate(txt):
+                (w, h), bl = cv2.getTextSize(s_, cv2.FONT_HERSHEY_SIMPLEX, .45, 1); y = 4 + i * (h + bl + 6)
+                cv2.rectangle(img, (2, y - 2), (8 + w, y + h + bl + 1), (0, 0, 0), -1); cv2.putText(img, s_, (5, y + h), cv2.FONT_HERSHEY_SIMPLEX, .45, (255, 255, 255), 1, cv2.LINE_AA)
+            return cv2.copyMakeBorder(img, 2, 2, 2, 2, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+        for part in ("cloth", "face"):
+            rows_img = []
+            for k in keys:
+                if not all(part in EXS[l].get(k, {}) for l in labs): continue
+                tiles = [lab(u8(EXS[labs[0]][k][part][0]), (k[0], k[1].split("/")[0][:30]))]
+                for l in labs:
+                    r_ = EXS[l][k]["row"]
+                    for j, st in ((1, "raw"), (2, "ref")):
+                        tiles.append(lab(u8(EXS[l][k][part][j]), (f"{l} {'raw' if st == 'raw' else 'refined'}", f"LPIPS {r_[f'{st}_{part}_lpips']:.3f}  detail r {r_[f'{st}_{part}_detail_corr']:.2f}")))
+                rows_img.append(np.concatenate(tiles, 1))
+            if rows_img:
+                hd = np.full((40, rows_img[0].shape[1], 3), 255, np.uint8)
+                cv2.putText(hd, f"{part}: ground truth | " + " | ".join(f"{l} raw (Gaussians only), {l} refined" for l in labs) + " -- fixed target positions, not selected by result",
+                            (8, 26), cv2.FONT_HERSHEY_SIMPLEX, .5, (0, 0, 0), 1, cv2.LINE_AA)
+                cv2.imwrite(str(out / f"rawref_{part}.jpg"), np.concatenate([hd] + rows_img, 0), [cv2.IMWRITE_JPEG_QUALITY, 92])
+    sys.exit(0)
 
 
 # ----------------------------------------------------------------------------- timing
