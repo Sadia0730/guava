@@ -20,7 +20,8 @@ CAT = {"image (raw)": ["raw_full", "raw_crops"], "image (refined)": ["ref_full",
 IMG = CAT["image (raw)"] + CAT["image (refined)"] + CAT["silhouette"]
 GEO = CAT["geometry (Sapiens)"] + CAT["geometry (scan)"]
 OBJ = {"B": IMG + CAT["regularisers"], "C": IMG + CAT["regularisers"] + CAT["geometry (Sapiens)"],
-       "D": IMG + CAT["regularisers"] + GEO + CAT["texture (Gram)"]}       # D: Sapiens here on all sources (D used it on bedlam2 / motionx / ubc)
+       "D": IMG + CAT["regularisers"] + GEO + CAT["texture (Gram)"]}
+SAP_SRC = {"D": {"bedlam2", "motionx", "ubc"}}     # pilot D: flattening + Sapiens only on these sources' targets (diagnostic measures them everywhere)
 PAIRS = [("image", IMG, "geometry (Sapiens)", CAT["geometry (Sapiens)"]), ("image", IMG, "geometry (scan)", CAT["geometry (scan)"]),
          ("image (raw)", CAT["image (raw)"], "image (refined)", CAT["image (refined)"]), ("image", IMG, "texture (Gram)", CAT["texture (Gram)"]),
          ("geometry (Sapiens)", CAT["geometry (Sapiens)"], "geometry (scan)", CAT["geometry (scan)"])]
@@ -37,6 +38,12 @@ def load(d):
 
 
 def module(g): return ".".join(g.split(".")[:2])
+
+
+def objective(label, src):                         # the pilot's objective on a batch from this source
+    o = OBJ[label[0]]
+    if label[0] in SAP_SRC and src not in SAP_SRC[label[0]]: o = [t for t in o if t not in CAT["geometry (Sapiens)"]]
+    return o
 
 
 report, md = {}, []
@@ -60,13 +67,12 @@ for spec in a.runs:
         for key, kname in (("Gp", "update"), ("G", "gradient")):
             term_norm, term_share, cat_share, pair_cos = {}, {}, {}, {}
             for r in recs:
-                Gm = gram(r, gs, key); T = r["terms"]; wo = vec(T, obj); uu = float(wo @ Gm @ wo)
-                for i, t in enumerate(T):
-                    term_norm.setdefault(t, []).append(float(np.sqrt(max(Gm[i, i], 0))))
-                    if t in obj and uu > 0: term_share.setdefault(t, []).append(float(Gm[i] @ wo) / uu)
-                for c, sel in CAT.items():
-                    w = vec(T, sel)
-                    if w.any() and uu > 0 and any(t in obj for t in sel): cat_share.setdefault(c, []).append(float(w @ Gm @ wo) / uu)
+                Gm = gram(r, gs, key); T = r["terms"]; ob = objective(label, r["source"]); wo = vec(T, ob); uu = float(wo @ Gm @ wo)
+                for i, t in enumerate(T): term_norm.setdefault(t, []).append(float(np.sqrt(max(Gm[i, i], 0))))   # norm: batches where the term is non-zero
+                if uu > 0:                                                    # shares: every batch (0 where a term is absent / not in this batch's objective)
+                    for t in obj: term_share.setdefault(t, []).append(float(Gm[T.index(t)] @ wo) / uu if t in T and t in ob else 0.0)
+                    for c, sel in CAT.items():
+                        if any(t in obj for t in sel): cat_share.setdefault(c, []).append(float(vec(T, [t for t in sel if t in ob]) @ Gm @ wo) / uu)
                 for n1, s1, n2, s2 in PAIRS:
                     w1, w2 = vec(T, s1), vec(T, s2); a1, a2 = float(w1 @ Gm @ w1), float(w2 @ Gm @ w2)
                     if a1 > 0 and a2 > 0: pair_cos.setdefault(f"{n1} vs {n2}", []).append(float(w1 @ Gm @ w2) / np.sqrt(a1 * a2))
@@ -80,10 +86,9 @@ for spec in a.runs:
     for s in sorted({r["source"] for r in recs}):
         rr = [r for r in recs if r["source"] == s]; d_ = {}
         for r in rr:
-            Gm = gram(r, shared, "Gp"); T = r["terms"]; wo = vec(T, obj); uu = float(wo @ Gm @ wo)
+            Gm = gram(r, shared, "Gp"); T = r["terms"]; ob = objective(label, s); wo = vec(T, ob); uu = float(wo @ Gm @ wo)
             for c, sel in CAT.items():
-                w = vec(T, sel)
-                if w.any() and uu > 0 and any(t in obj for t in sel): d_.setdefault("share " + c, []).append(float(w @ Gm @ wo) / uu)
+                if uu > 0 and any(t in obj for t in sel): d_.setdefault("share " + c, []).append(float(vec(T, [t for t in sel if t in ob]) @ Gm @ wo) / uu)
             for n1, s1, n2, s2 in PAIRS[:3]:
                 w1, w2 = vec(T, s1), vec(T, s2); a1, a2 = float(w1 @ Gm @ w1), float(w2 @ Gm @ w2)
                 if a1 > 0 and a2 > 0: d_.setdefault(f"cos {n1} vs {n2}", []).append(float(w1 @ Gm @ w2) / np.sqrt(a1 * a2))

@@ -672,3 +672,35 @@ Checkpoints: pilot B and pilot C latest.pt at 8k (pilot D at 8k later with the s
   between raw and refined image terms; fraction of batches with cosine < 0. "Shared layers" = parameter groups where both
   image and geometry gradients are non-zero. Wording used in the report (fixed now): a term group "dominates" a layer if its
   update share is > 0.5; geometry and image "conflict" on a layer if their cosine is < 0 in more than half the batches.
+
+### GUAVA-FB status note (user decision 2026-10-30; not an amendment, no criterion changed)
+After pilot C's comparison (amendment 4) and the amendment 6 diagnostic:
+- **Pilot B at 8k is the main development checkpoint** and the baseline / recipe for the next controlled experiment. The
+  refined renders users see favour B over C: clothing-box LPIPS 4D-DRESS 0.381 / 0.381, BEDLAM2 0.313 / 0.318, Motion-X
+  0.257 / 0.262, UBody 0.312 / 0.320; UBody face LPIPS 0.192 / 0.194 (B / C). C's raw clothing LPIPS is also worse on all
+  four tracks (0.395 / 0.399, 0.326 / 0.330, 0.270 / 0.274, 0.352 / 0.361), so the refiner is not hiding a better C.
+- **Pilot C is kept only as the geometry-supervision ablation**: its checkpoint, configuration and results are preserved
+  unchanged (SHA-256 in RUNLOG 81); it is not extended beyond 8k and is no longer a leading candidate.
+- **a20 remains the fallback** for upper-body and face preservation. Neither B nor C is an accepted final model: B misses
+  the registered best.pt thresholds (UBody SSIM 0.8163 < 0.8193, face LPIPS 0.1918 > 0.1873).
+- Interpretation of amendment 6 (B): update shares and cosines describe the directions of the Adam steps at one checkpoint.
+  Adam's steps are not a fixed budget shared between terms, so a geometry share of 0.13 does not show that geometry took
+  progress from the image terms, and the diagnostic does not establish why C regresses on clothing appearance. A causal
+  claim needs a controlled intervention.
+- Pilot D's registered comparison (amendment 5) is against B and is unaffected.
+
+### GUAVA-FB amendment 7 (registered 2026-10-31 ~03:30, before the run): recipe B full run (8k -> 30k)
+User request (2026-10-31): full training of recipe B (the main development checkpoint, status note above), with loss curves
+of every loss term and the total.
+- **Run `guava_fb_B30k`:** pilot B's latest.pt (8k; SHA-256 1eae210b...8087) is **copied** (pilot B's directory is not touched)
+  into the new run directory and resumed with pilot B's exact options to 30,000 iterations. Pilot B already ran on the 30k
+  schedule (lr 5e-5 -> x0.1, `--stop-iter 8000`), the sampler is deterministic per item and the optimiser / scheduler state is
+  restored, so the result equals an uninterrupted 30k run of recipe B. Seed 0. GPU 5 (user choice; idle at launch).
+- **Validation / checkpoints:** registered validator every 2k (10k ... 30k), best.pt rule unchanged (eligible: UBody SSIM >=
+  0.8193 and face LPIPS <= 0.1873; best = highest mean full-body SSIM). Validation data only. latest.pt + best.pt during the
+  run; at 30k latest.pt is deleted only if a best.pt exists — if no checkpoint is eligible, latest.pt (30k) is kept and
+  reported, since deleting it would leave no model (code change in this commit).
+- **Success ("recipe B full run gives an accepted checkpoint"):** an eligible checkpoint exists. Reported whether or not it
+  passes: loss curves of every logged term and the total (`plot_losses.py`, pilot B 0-8k + this run), validation curves, and
+  at the end the amendment 3 / 5 comparison (`compare_fb.py` eval / geometry / timing, `--part rawref`) of best.pt (else the
+  30k model) against pilot B 8k and v1b_10k. a20 remains the fallback either way. No change to pilots C (ablation) or D.

@@ -182,11 +182,18 @@ def interp_records(r0, r1, n):
     return outl
 
 
+def cloth_box(t):
+    """amendment 3's clothing box: 2-98 % quantiles of the projected torso / upper-arm / thigh vertices."""
+    px, _ = F.project_px(inf.ehm(t["smplx_coeffs"], t["flame_coeffs"])["vertices"][:, CLOTH_VID], t["w2c_cam"], F.batch_invtanfov(t, 1, dev))
+    lo = torch.quantile(px[0], 0.02, dim=0); hi = torch.quantile(px[0], 0.98, dim=0)
+    return [int(lo[0].clamp(0, 511)), int(hi[0].clamp(0, 511)), int(lo[1].clamp(0, 511)), int(hi[1].clamp(0, 511))]
+
+
 # ----------------------------------------------------------------------------- showcase (selected examples, baseline vs candidate)
 if a.part == "showcase":
-    import normal_prior as NP
-    la, lb = list(models); R = {}
-    for l in (la, lb):
+    import normal_prior as NP, scan_geom as SG
+    labs = list(models); la, lb = labs[:2]; R = {}                           # baseline, candidate, then reference columns (e.g. pilot C)
+    for l in labs:
         for f in ("eval", "geometry"):
             for r in json.loads((out / l / f"{f}.json").read_text())["rows"]: R.setdefault(l, {}).setdefault((r["track"], r["tgt"]), {}).update(r)
     REF = {(s, f"{clips[ref[0]]['name']}/{ref[1]}"): (src, ref) for s, G in VAL.items() for src, tg in G for ref in tg}
@@ -198,15 +205,23 @@ if a.part == "showcase":
     def top(g, n):
         seen, sel = set(), []
         for v, k in g:
-            if v > 0 and grp(k) not in seen: seen.add(grp(k)); sel.append(("best", v, k))
             if len(sel) == n: break
+            if v > 0 and grp(k) not in seen: seen.add(grp(k)); sel.append(("best", v, k))
         return sel
-    MEAS = {"geometry": ("geo_cos_dnormal", 1), "coverage": ("miss_frac", -1), "zoom": ("zoom_lpips", -1)}
+
+    def pick(g, n):                                                          # largest gains (distinct take groups) + the median-gain target + the largest loss
+        return top(g, n) + ([("median", *g[len(g) // 2]), ("largest loss", *g[-1])] if g else [])
+    store = SG.ScanStore(a.scan_root) if a.scan_root else None
+    MEAS = {"geometry": ("geo_cos_dnormal", 1), "coverage": ("miss_frac", -1), "zoom": ("zoom_lpips", -1), "cloth": ("cloth_lpips", -1)}
+    if store is not None: MEAS |= {"scan": ("scan_cos_rendered", 1), "outer": ("miss_outer", -1)}
     G = {p: gains(*ms) for p, ms in MEAS.items()}
-    SEL = {"geometry": [x for s in VAL for x in top([y for y in G["geometry"] if y[1][0] == s], 1)] + [("median", *G["geometry"][len(G["geometry"]) // 2])],
-           "coverage": top(G["coverage"], a.per), "zoom": top(G["zoom"], a.per)}
+    SEL = {p: pick(G[p], a.per) for p in MEAS}
+    SEL["geometry"] = [x for s in VAL for x in top([y for y in G["geometry"] if y[1][0] == s], 1)] + pick(G["geometry"], 0)
+
+    def scan(t, ref):
+        return SG.render_scans([tuple(torch.from_numpy(x).to(dev) for x in store.get(clips[ref[0]]["name"], ref[1]))], t["w2c_cam"], F.batch_invtanfov(t, 1, dev))
     sap = NP.SapiensNormal(a.sapiens, dev, sign=(1.0, -1.0, -1.0)); T = {}
-    for l in (la, lb):
+    for l in labs:
         load(l); cache = {}
         with torch.no_grad():
             for part, sel in SEL.items():
@@ -214,12 +229,17 @@ if a.part == "showcase":
                     src, ref = REF[k]; d = T.setdefault((part, k), {})
                     if src not in cache: cache[src] = avatar(src)
                     av = cache[src]; t = to_dev(F.collate1(fbd.target_info(*ref)), dev); d["gt"] = (t["image"] * t["mask"])[0].cpu(); d["m"] = (t["mask"][0, :1] > 0.5).cpu()
-                    if part == "geometry":
-                        if "Np" not in d: d["Np"] = sap(t["image"])[0].cpu()
+                    if part in ("geometry", "scan"):
+                        if "Np" not in d:
+                            if part == "geometry": d["Np"] = sap(t["image"])[0].cpu(); d["mt"] = d["m"]
+                            else: Ns, _, Ls = scan(t, ref); d["Np"] = Ns[0].cpu(); d["mt"] = (Ls[0] >= 0).cpu()
                         Nr, Dr, Ar = NP.render_geometry(ren, av(t), t["render_cam_params"], t["w2c_cam"]); Nd = NP.depth_to_normal(Dr, F.batch_invtanfov(t, 1, dev))
                         d[l] = (Nr[0].cpu(), Nd[0].cpu(), (Ar[0] > 0.5).cpu())
-                    elif part == "coverage":
+                    elif part in ("coverage", "outer"):
                         r, al = render(av, t); d[l] = (r[0].cpu(), al[0].cpu())
+                        if part == "outer" and "Ls" not in d: d["Ls"] = scan(t, ref)[2][0].cpu()
+                    elif part == "cloth":
+                        b = d.setdefault("box", cloth_box(t)); d["gt"] = crop256(t["image"] * t["mask"], b)[0].cpu(); d[l] = crop256(render(av, t)[0], b)[0].cpu()
                     else:
                         tz = to_dev(F.collate1(fbd.target_info_zoom(*ref, center="band_median", factor=2.0, min_cover=0.0)), dev)
                         d["gt"] = (tz["image"] * tz["mask"])[0].cpu(); d[l] = render(av, tz)[0][0].cpu()
@@ -248,37 +268,45 @@ if a.part == "showcase":
         for h, t in zip(heads, rows[0]): cv2.putText(hd, h, (x + 8, 54), cv2.FONT_HERSHEY_SIMPLEX, .6, (0, 0, 0), 2, cv2.LINE_AA); x += t.shape[1]
         cv2.imwrite(str(path), np.concatenate([hd] + [np.concatenate(r, 1) for r in rows], 0), [cv2.IMWRITE_JPEG_QUALITY, 92])
 
+    def overlay(gt, m, al, red, blue=None):                                  # red = pixels of `red` not covered (alpha < 0.5); cyan = spill / blue = covered
+        base = gt * 0.35; miss = red & (al < 0.5)
+        base[0][miss], base[1][miss], base[2][miss] = 1.0, 0.1, 0.1
+        if blue is not None: base[0][blue], base[1][blue], base[2][blue] = 0.1, 0.9, 1.0
+        return u8(base)
+
     od = out / "showcase"; od.mkdir(exist_ok=True); share = {}
     for part, (m, sg) in MEAS.items():
         share[part] = {"measure": m, "n": len(G[part]), "candidate_better": int(sum(v > 0 for v, _ in G[part])), "mean_gain": float(np.mean([v for v, _ in G[part]]))}
-    rows = []
-    for tag, v, k in SEL["geometry"]:
-        d = T[("geometry", k)]; b = sq(d["m"]); rk = [R[l][k] for l in (la, lb)]
-        nrm = lambda n, msk: u8((n * .5 + .5) * msk)
-        rows.append([tile(u8(d["gt"]), b, txt=(f"{k[0]} ({tag} gain)", k[1].split("/")[0][:40])), tile(nrm(d["Np"], d["m"]), b)]
-                    + [tile(nrm(d[l][0], d[l][2]), b, txt=(f"cos {r['geo_cos_rendered']:.3f}",)) for l, r in zip((la, lb), rk)]
-                    + [tile(nrm(d[l][1], d[l][2]), b, txt=(f"cos {r['geo_cos_dnormal']:.3f}",)) for l, r in zip((la, lb), rk)])
-    s = share["geometry"]
-    grid(rows, ["input", "Sapiens (target)", f"{la} normal", f"{lb} normal", f"{la} D-Normal", f"{lb} D-Normal"],
-         f"geometry: {lb} > {la} on D-Normal cosine for {s['candidate_better']}/{s['n']} targets; rows = best per track + median-gain target", od / "geometry_wins.jpg")
-    rows = []
-    for tag, v, k in SEL["coverage"]:
-        d = T[("coverage", k)]; b = sq(d["m"]); m = d["m"][0]; ov = []
-        for l in (la, lb):
-            al = d[l][1][0]; base = d["gt"] * 0.35; miss = m & (al < 0.5); spill = ~m & (al > 0.5)
-            base[0][miss], base[1][miss], base[2][miss] = 1.0, 0.1, 0.1; base[0][spill], base[1][spill], base[2][spill] = 0.1, 0.9, 1.0
-            ov.append(tile(u8(base), b, txt=(f"miss {R[l][k]['miss_frac'] * 100:.1f}%  spill {R[l][k]['spill_frac'] * 100:.1f}%",)))
-        rows.append([tile(u8(d["gt"]), b, txt=(k[0], k[1][:40])), tile(u8(d[la][0]), b), tile(u8(d[lb][0]), b)] + ov)
-    s = share["coverage"]
-    grid(rows, ["ground truth", la, lb, f"{la} coverage", f"{lb} coverage"],
-         f"coverage (red = person not covered, cyan = spill): {lb} misses less on {s['candidate_better']}/{s['n']} targets", od / "coverage_wins.jpg")
-    rows = []
-    for tag, v, k in SEL["zoom"]:
-        d = T[("zoom", k)]
-        rows.append([tile(u8(d["gt"]), txt=(k[1][:40],))] + [tile(u8(d[l]), txt=(f"LPIPS {R[l][k]['zoom_lpips']:.3f}  SSIM {R[l][k]['zoom_ssim']:.3f}",)) for l in (la, lb)])
-    s = share["zoom"]
-    grid(rows, ["ground truth (2x zoom)", la, lb], f"2x clothing zoom: {lb} lower LPIPS on {s['candidate_better']}/{s['n']} targets", od / "zoom_wins.jpg")
-    (od / "selection.json").write_text(json.dumps({"baseline": la, "candidate": lb, "share": share,
+    nrm = lambda n, msk: u8((n * .5 + .5) * msk)
+    for part, (m, sg) in MEAS.items():
+        rows = []
+        for tag, v, k in SEL[part]:
+            d = T[(part, k)]; rk = {l: R[l][k] for l in labs}; lab0 = (f"{k[0]}: {tag} ({v:+.3f})", k[1].split("/")[0][:40])
+            if part in ("geometry", "scan"):
+                b = sq(d["m"]); c1, c2 = ("geo_cos_rendered", "geo_cos_dnormal") if part == "geometry" else ("scan_cos_rendered", "scan_cos_dnormal")
+                rows.append([tile(u8(d["gt"]), b, txt=lab0), tile(nrm(d["Np"], d["mt"]), b)]
+                            + [tile(nrm(d[l][0], d[l][2]), b, txt=(f"cos {rk[l][c1]:.3f}",)) for l in labs]
+                            + [tile(nrm(d[l][1], d[l][2]), b, txt=(f"cos {rk[l][c2]:.3f}",)) for l in labs])
+            elif part == "coverage":
+                b = sq(d["m"]); mm = d["m"][0]
+                rows.append([tile(u8(d["gt"]), b, txt=lab0)] + [tile(u8(d[l][0]), b) for l in labs]
+                            + [tile(overlay(d["gt"], mm, d[l][1][0], mm, ~mm & (d[l][1][0] > 0.5)), b, txt=(f"miss {rk[l]['miss_frac'] * 100:.1f}%  spill {rk[l]['spill_frac'] * 100:.1f}%",)) for l in labs])
+            elif part == "outer":
+                b = sq(d["m"]); mm = d["m"][0]; og = (d["Ls"][0] == 5) & mm
+                rows.append([tile(u8(d["gt"]), b, txt=lab0)] + [tile(u8(d[l][0]), b) for l in labs]
+                            + [tile(overlay(d["gt"], mm, d[l][1][0], og, og & (d[l][1][0] >= 0.5)), b, txt=(f"outer miss {rk[l]['miss_outer'] * 100:.1f}%",)) for l in labs])
+            elif part == "cloth":
+                rows.append([tile(u8(d["gt"]), txt=lab0)] + [tile(u8(d[l]), txt=(f"LPIPS {rk[l]['cloth_lpips']:.3f}  SSIM {rk[l]['cloth_ssim']:.3f}",)) for l in labs])
+            else:
+                rows.append([tile(u8(d["gt"]), txt=lab0)] + [tile(u8(d[l]), txt=(f"LPIPS {rk[l]['zoom_lpips']:.3f}  SSIM {rk[l]['zoom_ssim']:.3f}",)) for l in labs])
+        s = share[part]; title = (f"{part}: {lb} better than {la} on {m} for {s['candidate_better']}/{s['n']} targets (mean gain {s['mean_gain']:+.4f}); "
+                                  f"rows = largest gains (distinct takes), median-gain target, largest loss; {', '.join(labs[2:]) or 'no'} reference")
+        heads = {"geometry": ["input", "Sapiens (target)"] + [f"{l} normal" for l in labs] + [f"{l} D-Normal" for l in labs],
+                 "scan": ["input", "scan normal (target)"] + [f"{l} normal" for l in labs] + [f"{l} D-Normal" for l in labs],
+                 "coverage": ["ground truth"] + labs + [f"{l} coverage" for l in labs], "outer": ["ground truth"] + labs + [f"{l} outer garment" for l in labs],
+                 "cloth": ["ground truth (clothing box)"] + labs, "zoom": ["ground truth (2x zoom)"] + labs}[part]
+        grid(rows, heads, title, od / f"{part}_wins.jpg")
+    (od / "selection.json").write_text(json.dumps({"baseline": la, "candidate": lb, "references": labs[2:], "share": share,
                                                    "selected": {p: [{"track": k[0], "tgt": k[1], "kind": t, "gain": v} for t, v, k in sel] for p, sel in SEL.items()}}, indent=1))
     print(json.dumps(share, indent=1)); sys.exit(0)
 
@@ -366,7 +394,8 @@ if a.part == "rawref":
                 hd = np.full((40, rows_img[0].shape[1], 3), 255, np.uint8)
                 cv2.putText(hd, f"{part}: ground truth | " + " | ".join(f"{l} raw (Gaussians only), {l} refined" for l in labs) + " -- fixed target positions, not selected by result",
                             (8, 26), cv2.FONT_HERSHEY_SIMPLEX, .5, (0, 0, 0), 1, cv2.LINE_AA)
-                cv2.imwrite(str(out / f"rawref_{part}.jpg"), np.concatenate([hd] + rows_img, 0), [cv2.IMWRITE_JPEG_QUALITY, 92])
+                fn = f"rawref_{part}.jpg" if labs == ["B", "C"] else f"rawref_{part}_{''.join(labs)}.jpg"   # B,C = amendment 6's first figure
+                cv2.imwrite(str(out / fn), np.concatenate([hd] + rows_img, 0), [cv2.IMWRITE_JPEG_QUALITY, 92])
     sys.exit(0)
 
 

@@ -698,5 +698,5 @@ if a.smoke:
 if step >= a.iters:
     if best is None: log_print("NO ELIGIBLE CHECKPOINT: registered best.pt criterion failed")
     lt = out / "checkpoints/latest.pt"
-    if lt.exists(): lt.unlink()
+    if lt.exists() and best is not None: lt.unlink()                     # no eligible checkpoint: keep the final model (amendment 7)
     log_print("DONE", best)
