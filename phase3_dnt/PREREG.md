@@ -689,7 +689,7 @@ After pilot C's comparison (amendment 4) and the amendment 6 diagnostic:
   claim needs a controlled intervention.
 - Pilot D's registered comparison (amendment 5) is against B and is unaffected.
 
-### GUAVA-FB amendment 7 (registered 2026-10-31 ~03:30, before the run): recipe B full run (8k -> 30k)
+### GUAVA-FB amendment 7 (registered 2026-10-31 00:03, commit b8d667c1, before the run started at 00:10): recipe B full run (8k -> 30k)
 User request (2026-10-31): full training of recipe B (the main development checkpoint, status note above), with loss curves
 of every loss term and the total.
 - **Run `guava_fb_B30k`:** pilot B's latest.pt (8k; SHA-256 1eae210b...8087) is **copied** (pilot B's directory is not touched)
