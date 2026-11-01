@@ -152,7 +152,7 @@ def ub_work(args):
         with tempfile.TemporaryDirectory(dir=TMP) as td:
             subprocess.run([FFMPEG, "-loglevel", "error", "-i", clip["video"], "-f", "image2", "-r", "30", f"{td}/%06d.png"], check=True)
             n_ext = len(os.listdir(td))
-            if n_ext != clip["video_frames"]:
+            if not 0 <= n_ext - clip["video_frames"] <= 2:                                       # trailing extra frames are harmless (0-based from the start)
                 raise RuntimeError(f"ffmpeg -r 30 gave {n_ext} frames, annotations {clip['video_frames']}")
             t2 = time.time(); crops, jpgs = [], []
             for fr, gi in zip(clip["frames"], g):
@@ -210,8 +210,11 @@ def write_tracked(dst, res, keys, alphas, flame_shape, meta):
 
 
 def main():
+    global E, SPLIT
     ap = argparse.ArgumentParser(); ap.add_argument("--clips", default=""); ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--smpl-iters", type=int, default=600); a = ap.parse_args()
+    ap.add_argument("--smpl-iters", type=int, default=600)
+    ap.add_argument("--split", default=str(SPLIT)); ap.add_argument("--E", default=str(E)); a = ap.parse_args()
+    SPLIT, E = Path(a.split), Path(a.E)
     import cv2, torch, torchvision
     import multiprocessing as mp
     sys.path.insert(0, str(cb.GUAVA)); from tools import eval_3dpw_standard as ev

@@ -9,13 +9,14 @@ import numpy as np, torch, torchvision
 
 HERE = Path(__file__).resolve().parent; ROOT = HERE.parents[1]
 ap = argparse.ArgumentParser(); ap.add_argument("--methods", required=True); ap.add_argument("--subset", default="")
-ap.add_argument("--tag", default="full"); a = ap.parse_args()
-E = Path("/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1")
+ap.add_argument("--tag", default="full"); ap.add_argument("--split", default=str(HERE / "avatar_test_v1.json"))
+ap.add_argument("--E", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1"); a = ap.parse_args(); a.split = str(Path(a.split).resolve())
+E = Path(a.E)
 sys.path.insert(0, str(ROOT)); os.chdir(ROOT)
 from main.metrics import psnr, ssim, l1_loss                                                         # noqa: E402
 from submodules.lpipsPyTorch import LPIPS                                                            # noqa: E402
 dev = torch.device("cuda:0"); lp = LPIPS("vgg", "0.1").to(dev).eval()
-split = json.loads((HERE / "avatar_test_v1.json").read_text())["clips"]
+split = json.loads(Path(a.split).read_text())["clips"]
 if a.subset: keep = set(json.loads(Path(a.subset).read_text())["clips"]); split = [c for c in split if c["id"] in keep]
 load = lambda p: (torchvision.io.read_image(str(p))[:3].float() / 255.0)[None].contiguous().to(dev)              # noqa: E731
 (E / "scores").mkdir(parents=True, exist_ok=True)

@@ -50,6 +50,8 @@ ap.add_argument("--face-min-px", type=float, default=48.0); ap.add_argument("--f
 ap.add_argument("--smoke", action="store_true"); ap.add_argument("--smoke-iters", type=int, default=200)
 ap.add_argument("--max-minutes", type=float, default=0, help="stop training after this wall time (timing runs only)")
 ap.add_argument("--resume", action="store_true")
+ap.add_argument("--init-ckpt", default="", help="start from this checkpoint's weights, fresh optimiser (continuation pilots; both arms alike)")
+ap.add_argument("--base-val-log", default="", help="train_log.jsonl whose iteration-0 validation is the a20 reference of the best.pt rule")
 ap.add_argument("--stop-iter", type=int, default=0, help="stop at this iteration; the lr schedule still runs over --iters (pilots)")
 ap.add_argument("--self-target-p", type=float, default=0.0, help="prob. that one target of a non-cross-view source is the source frame itself")
 ap.add_argument("--same-frame-p", type=float, default=0.0, help="cross-view sources: prob. per target of the same moment from another camera")
@@ -622,10 +624,19 @@ if a.resume and (out / "checkpoints/latest.pt").exists():
     if a.gan_weight > 0 and "disc" in ck: DISC.load_state_dict(ck["disc"]); OPT_D.load_state_dict(ck["disc_opt"])
     step, best, base = ck["step"], ck["best"], ck["a20_val"]; del ck
     log_print("resumed at", step)
+if a.init_ckpt and step == 0:
+    ck = torch.load(a.init_ckpt, map_location="cpu", weights_only=False)
+    inf.load_state_dict(ck["model"]); ren.load_state_dict(ck["render_model"]); log_print("init weights from", a.init_ckpt, "step", ck.get("step")); del ck
+if a.base_val_log and base is None:
+    base = next(j for j in map(json.loads, open(a.base_val_log)) if j.get("split") == "val" and j.get("iter") == 0)
+    log_print("best.pt reference (a20, iteration 0 of)", a.base_val_log, json.dumps({"ubody": base.get("ubody")}))
 ds = GroupSampler()
 dl = torch.utils.data.DataLoader(ds, batch_size=a.n_src, sampler=FromSampler(step * a.n_src), num_workers=a.workers,
                                  persistent_workers=a.workers > 0, prefetch_factor=4 if a.workers > 0 else None)
 it = iter(dl)                                                        # fork the workers before the main process opens LMDBs
+if a.init_ckpt and a.base_val_log and VAL and step == 0:              # the initial weights' validation, for the record
+    v0 = validate(); log.write(json.dumps({"split": "val", "iter": 0, "init": a.init_ckpt, "eligible": eligible(v0, base), **v0}) + "\n"); log.flush()
+    log_print("val iter 0 (init)", json.dumps(v0))
 if base is None and VAL:
     base = validate(); log.write(json.dumps({"split": "val", "iter": 0, **base}) + "\n"); log.flush(); log_print("val iter 0 (a20)", json.dumps(base))
 inf.train(); ren.train(); t0 = time.time(); t_data = 0.0; nonfinite = []; torch.cuda.reset_peak_memory_stats(); n0 = step

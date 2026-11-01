@@ -38,9 +38,12 @@ ap.add_argument("--sprint-ckpt", default="/raid/ubx858/outputs/dnt/eval_programm
 ap.add_argument("--data-root", default="", help="local copy of E/data (random LMDB reads over SMB are slow)")
 ap.add_argument("--timing", type=int, default=0, help="clean recon timing on an idle GPU: N clips (alternating datasets), no renders")
 ap.add_argument("--reps", type=int, default=10)
+ap.add_argument("--split", default=str(HERE / "avatar_test_v1.json"))
+ap.add_argument("--E", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1")
+ap.add_argument("--raw", action="store_true", help="also write the raw Gaussian render (first 3 feature channels, no refiner) to <row>_raw")
 a = ap.parse_args()
-SPLIT = json.loads((HERE / "avatar_test_v1.json").read_text())
-E = Path("/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1")
+SPLIT = json.loads(Path(a.split).read_text())
+E = Path(a.E)
 OUT = E / "renders" / a.row
 DATA = Path(a.data_root) if a.data_root else E / "data"
 LOCAL = Path("/dev/shm/ubx858_eval/renders") / a.row                                               # written here, then one bulk copy per clip
@@ -96,9 +99,14 @@ def build(src):
     torch.cuda.synchronize(); return av, (time.perf_counter() - t0) * 1000
 
 
+_RAW = {}
+
+
 @torch.no_grad()
 def render(av, t):
-    torch.manual_seed(0); return ren(av(t), t["render_cam_params"], bg=0.0)["renders"].clamp(0, 1)[0]
+    torch.manual_seed(0); rr = ren(av(t), t["render_cam_params"], bg=0.0)
+    _RAW["last"] = rr["raw_renders"].clamp(0, 1)[0] if a.raw else None
+    return rr["renders"].clamp(0, 1)[0]
 
 
 def u8(x):
@@ -136,6 +144,16 @@ def metric_H(c):
 
 
 S512 = np.array([[0.5, 0, -0.25], [0, 0.5, -0.25], [0, 0, 1.0]])                                    # pixel-index 1024 -> 512
+
+
+def fit_track(fitter, img, prev_box, **kw):
+    """SPRINT fit with a tracking fallback: if the detector finds no person, reuse the previous frame's box (else the whole image)."""
+    try:
+        return fitter.fit(img, **kw), 0
+    except RuntimeError as e:
+        if "no person" not in str(e): raise
+        h, w = img.shape[:2]; box = prev_box if prev_box is not None else [0, 0, w - 1, h - 1]
+        return fitter.fit(img, box=box, **kw), 1
 
 
 def main():
@@ -177,11 +195,13 @@ def main():
                 t = to_dev(F.collate1(fbd.target_info(0, k)), dev)
                 torch.cuda.synchronize(); t0 = time.perf_counter(); r = render(av, t); torch.cuda.synchronize(); tr.append(time.perf_counter() - t0)
                 torchvision.io.write_png(u8(r), str(od / f"{k}.png"))
+                if a.raw:
+                    (od / "raw").mkdir(exist_ok=True); torchvision.io.write_png(u8(_RAW["last"]), str(od / "raw" / f"{k}.png"))
         else:                                                                                      # fb_sprint
             sf = c["source_frame"]; tf = [int(k.split("_")[1]) for k in fj["test"]]
             ori = original_frames(c, [sf] + tf); Hm = metric_H(c)
-            if not warm: fitter.fit(ori[sf])                                                     # warm-up (not timed)
-            rs = fitter.fit(ori[sf]); shp = rs["shape"]
+            if not warm: fit_track(fitter, ori[sf], None)                                         # warm-up (not timed)
+            rs, src_fb = fit_track(fitter, ori[sf], None); shp = rs["shape"]
             with tempfile.TemporaryDirectory(dir="/dev/shm") as td:
                 key = fj["source"]; SAF.write_tracked(Path(td), name, key, rs)
                 cl = F.load_clips_parallel([(td, None, True)], workers=1); fbd = F.FBData(cfg, cl)
@@ -190,9 +210,9 @@ def main():
             av, ms = build(src)
             info["recon_ms"] = ms + rs["times"]["total"] * 1000; info["recon_ms_model"] = ms; info["sprint_fit_ms"] = rs["times"]["total"] * 1000
             info["sprint_fit_times_s"] = rs["times"]; info["recon_input"] = "first frame (SPRINT fit, own box / crop / matte)"
-            tr, tfit = [], []
+            tr, tfit, nfb, pbox = [], [], 0, rs["box"]
             for k, f in zip(fj["test"], tf):
-                r_ = fitter.fit(ori[f], iters=0, shape_lock=shp); tfit.append(r_["times"]["total"])
+                r_, fb_ = fit_track(fitter, ori[f], pbox, iters=0, shape_lock=shp); nfb += fb_; pbox = r_["box"]; tfit.append(r_["times"]["total"])
                 rr = dict(r_["record"]); rr["smplx_coeffs"] = r_["raw_smplx"]
                 comp = F.compact_record(rr, shp); sm = {kk: torch.as_tensor(v.copy()) for kk, v in comp["smplx"].items()}
                 sm.update({"joints_offset": torch.zeros(55, 3), "head_scale": torch.ones(3), "hand_scale": torch.ones(3)})
@@ -206,10 +226,15 @@ def main():
                 img = u8(r).permute(1, 2, 0).numpy()
                 wp = cv2.warpPerspective(img, W, (512, 512), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
                 torchvision.io.write_png(torch.from_numpy(wp).permute(2, 0, 1).contiguous(), str(od / f"{k}.png"))
-            info["sprint_drive_s_per_frame"] = float(np.mean(tfit))
+            info["sprint_drive_s_per_frame"] = float(np.mean(tfit)); info["detector_fallback_frames"] = nfb; info["detector_fallback_source"] = src_fb
         info["render_ms_per_frame"] = float(np.mean(tr) * 1000); info["gpu"] = GPU
         od_final.mkdir(parents=True, exist_ok=True)
-        for p_ in sorted(od.iterdir()): shutil.copyfile(p_, od_final / p_.name)
+        for p_ in sorted(od.iterdir()):
+            if p_.is_dir():                                                                        # raw renders -> renders/<row>_raw/...
+                rd = OUT.parent / f"{a.row}_raw" / ds / name; rd.mkdir(parents=True, exist_ok=True)
+                for q_ in sorted(p_.iterdir()): shutil.copyfile(q_, rd / q_.name)
+                (rd / "run.json").write_text(json.dumps({"method": f"{a.row}_raw", "note": "first 3 Gaussian feature channels, no refiner"}))
+            else: shutil.copyfile(p_, od_final / p_.name)
         (od_final / "run.json").write_text(json.dumps(info, indent=1)); shutil.rmtree(od); print(json.dumps({"id": c["id"], **{k: v for k, v in info.items() if k != "sprint_fit_times_s"}}), flush=True)
 
 

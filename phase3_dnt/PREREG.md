@@ -822,3 +822,69 @@ tables, which use other resolutions / crops / backgrounds; stated in the caption
   GART's published People-Snapshot protocol fits test poses -> extra row "GART + test-pose fitting" (ExAvatar's NeuMan protocol
   likewise -> extra row if run). Budget: 8 sequences; GART / GUAVA rows on all; ExAvatar / GaussianAvatar on all 8 iff the
   projected time on the GPUs free at launch is <= 48 h, otherwise the 4 People-Snapshot subjects first.
+
+## GUAVA-FB improvement phase 1: diagnostics (registered 2026-11-01 10:30, before any diagnostic is computed; user brief)
+Goal (user): close the gap to GART while keeping single-image creation and inference speed; improve the practical SPRINT pipeline
+separately. GART trains on the first half of each clip, GUAVA-FB sees one image: stated with every comparison. AvatarTest-v1 stays
+fixed: its results (RUNLOG 85) were already inspected and are descriptive only; nothing is tuned or selected on it, and the final
+test evaluation is reserved for the one configuration selected on validation data.
+- **ValBench (development replica of the test protocol, validation data only):** UBody = a20's 10 validation clips (UBody
+  SMPL-X annotations as GT, the AvatarTest-v1 subject / >= 60 GT-frame rules), BEDLAM2 = GUAVA-FB's 10 validation clips (all
+  full-body rows). Same conversion, crops, StyleMatte masks, GT x mask on black, scorer and first-frame / first-half / latter-half
+  protocol as AvatarTest-v1 (`eval_split/` scripts with a different split file and output root `O/eval/valbench_v1/`). Rows run on
+  it: GUAVA-FB [GT] (B30k best.pt), its raw Gaussian render (first 3 feature channels, no refiner), GUAVA-FB [SPRINT], GART.
+- **A (quality under GT inputs), per target pixel inside GT-mask OR render coverage:** errors (L1, squared error -> PSNR,
+  SSIM map) split by (i) body region of the GT SMPL-X surface hit by the pixel (head, hands, torso, arms, legs, feet) and
+  "off-body" (mask pixels no body surface covers: hair, loose clothing, held objects); (ii) source visibility of that surface
+  (vertex visible in the source frame's rasterisation, depth-tested); (iii) source-to-target view angle (angle between body
+  forward axes, bins 0-30 / 30-60 / 60-120 / >120 deg); (iv) motion (root-aligned body-joint distance source -> target, terciles);
+  (v) coverage (miss = mask > 0.5 and render < 0.02 in all channels; spill = mask < 0.5 and render > 0.02). The same breakdown
+  for GART and for GUAVA-FB's raw render. Share of total squared error per bin is reported, so the dominant source is visible.
+- **B (SPRINT degradation), validation targets of ValBench, every GT-assisted variant labelled "diagnostic":** SPRINT outputs
+  are mapped into the metric crop camera (orientation through the rotation between SPRINT's crop-centre camera and the metric
+  camera; translation keeps SPRINT's ray and image size: depth scaled by true focal / SPRINT's assumed focal). Variants:
+  2 x 2 source fit (GT record vs SPRINT fit) x driving (GT vs SPRINT-mapped); the actual row (SPRINT camera + warp) vs SPRINT-mapped
+  (the camera / intrinsics effect); from S_gt x D_gt, one component swapped to SPRINT's at a time: root orientation, root
+  translation, body pose (21 joints), hands, face (jaw + expression); source side: SPRINT shape only, SPRINT source pose + camera
+  only. Same scorer; per dataset and per clip.
+- Outputs `O/eval/valbench_v1/` and `O/reports/improve/`; no training in this phase.
+- **ValBench UBody extension (2026-11-01 10:55, before any model is run on ValBench):** only 5 of a20's 10 UBody val clips have
+  >= 60 GT frames. Added: UBody TRAINING-split videos never used by GUAVA-FB / a20 (not in the 269 tracked c2t clips), identity
+  (OSX rule) disjoint from all c2t identities and from both official test lists; 150-450 frames, 720 px high; drawn round-robin
+  over scenes with numpy default_rng(20261101) until 15 more clips pass the same >= 60 GT-frame rule. SPRINT trained on all
+  non-test UBody videos (incl. a20's val clips), so the SPRINT confound is the same for every ValBench UBody clip (stated).
+- **ValBench BEDLAM2 extension (2026-11-01 11:05, before any model is run on ValBench):** 10 val clips = 356 test frames only.
+  Added the next 20 subjects of the SAME rule GUAVA-FB's validation used (convert_bedlam2.plan: val-job clips, subjects in neither
+  test nor the training pool, MOYO excluded, ordered by SHA-1(subject), one clip per subject, moving-camera job first, most
+  full-body rows): subjects 11-30 of that order -> 30 BEDLAM2 clips. Never in any training; SPRINT selected on these jobs (stated).
+
+## GUAVA-FB improvement phase 2: hypotheses and pilots (registered 2026-11-01 15:40, after the phase-1 diagnostics, before any intervention run)
+Diagnostics (validation only; `guava_fb/IMPROVE_NOTES.md`): ValBench reproduces the test pattern (GART vs GUAVA-FB [GT]: UBody 20.06 vs
+19.06 dB, BEDLAM2 26.71 vs 26.13; GUAVA-FB [SPRINT] 16.68 / 21.92). A: largest error class = off-body pixels (garments, hair, held
+objects; 24 % / 33 % of GUAVA-FB's squared error, GART +2.0 / +2.3 dB there); self-reconstruction of the source is high (BEDLAM2
+35.6 dB, UBody 24.3) and quality drops with pose / view change -> generalisation (non-skinned garments, unseen surfaces), not texture
+capacity, limits GT-input quality. B: 2 x 2 (source x driving, UBody / BEDLAM2 PSNR): GT/GT 19.06 / 26.13, GT/SPRINT 16.87 / 20.95,
+SPRINT/GT 17.05 / 22.58, SPRINT/SPRINT 16.91 / 22.09 (own camera); SPRINT's camera assumption costs nothing (mapped into the true
+camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -3.4 / -4.5 dB, all driving -2.2 / -5.2).
+- **H1 (SPRINT pipeline; inference only; strongest evidence):** per-frame 2D misalignment of SPRINT's raw driving estimate.
+  Intervention: each driving frame refined by k Adam iterations of sprint_avatar_fit's own objective (DWPose keypoints + StyleMatte
+  mask + priors to SPRINT's prediction; shape locked to the source fit) instead of k = 0. Source fit unchanged (150 iterations).
+  Arms on ValBench: control k = 0 (existing renders), k = 20, k = 60; same model (B28k), frames, warp and scorer. Measured: per
+  dataset PSNR / SSIM / LPIPS / L1, per-clip deltas, SPRINT time per frame (GPU-synchronised, median of 200 frames, DWPose CPU part
+  separate). Decision: adopt the smallest k whose all-frame PSNR gain is >= 80 % of the best arm's gain, iff that arm gains
+  >= 0.3 dB all-frame PSNR and >= 0.005 LPIPS and neither dataset regresses (PSNR -0.1 dB or LPIPS +0.003); otherwise H1 rejected.
+  Budget ~1.5 GPU-h; no training.
+- **H2 (avatar; training only):** loose garments / hair need Gaussians farther from the SMPL-X surface than GUAVA's offset hinge
+  allows (`threshold_local_xyz` 3.0; on dress clips 4-6 % of UV Gaussians already exceed it). Single intervention: threshold 3.0 ->
+  6.0. Control and intervention identical otherwise: init = B30k best.pt weights (fresh Adam), lr 8e-6 constant (B30k's schedule
+  value at 28k), 4,000 iterations, seed 0, recipe B options, registered validator at 2k / 4k with a20's reference values (B30k
+  iteration-0 log). Measured at 4k: ValBench GUAVA-FB [GT] per dataset + per clip, diag_regions off-body PSNR / SSE share,
+  miss / spill, UBody eligibility, creation / render time and memory. Decision: H2 supported iff vs control: BEDLAM2 off-body
+  PSNR >= +0.3 dB AND neither dataset's image PSNR lower by > 0.05 dB AND LPIPS not higher by > 0.002 AND UBody eligibility holds
+  AND spill not up by > 0.5 pt. Stopping rule: smoke 200 it (finite losses, renders aligned); abort an arm on non-finite loss or if
+  UBody val SSIM at 2k falls below the eligibility threshold by > 0.005. Budget ~2 x 1.5 GPU-h (GPU 5).
+- **H3 (source fit; not run now):** SPRINT's source fit alone costs 2.0 / 3.6 dB under GT driving (shape 0.7 / 2.1); more
+  source-refinement iterations or a multi-frame-free shape prior are one-time costs, but the 2 x 2 non-additivity makes the deployed
+  gain uncertain; ranked third.
+- AvatarTest-v1: untouched by these choices; only an adopted configuration gets one final test evaluation, reported with the
+  disclosure that earlier test results were inspected.
