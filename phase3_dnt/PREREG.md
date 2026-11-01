@@ -789,3 +789,6 @@ User instruction (2026-10-31): start the GUAVA-FB rows and the released GUAVA ro
   Recon input (one image / first half of the clip) and recon time (avatar creation from the source, CUDA-synchronised, GPU
   model stated; + SPRINT fit for the SPRINT row; training time per clip for the baselines). Caption caveats: as registered
   above, plus "UBody clips are upper body only; full-body baselines may struggle there (per-dataset numbers)".
+- **Correction (2026-10-31 21:05, before any row was rendered):** the SPRINT row is rendered at **512** (GUAVA's output size; its
+  StyleUNet refiner works at 512) in SPRINT's crop camera and warped into the metric 512 crop by the exact homography (bilinear),
+  not rendered at 1024 — rendering at 1024 would run the refiner off its operating point. Everything else unchanged.
