@@ -704,3 +704,38 @@ of every loss term and the total.
   passes: loss curves of every logged term and the total (`plot_losses.py`, pilot B 0-8k + this run), validation curves, and
   at the end the amendment 3 / 5 comparison (`compare_fb.py` eval / geometry / timing, `--part rawref`) of best.pt (else the
   30k model) against pilot B 8k and v1b_10k. a20 remains the fallback either way. No change to pilots C (ablation) or D.
+
+## AvatarTest-v1: own avatar test split (registered 2026-10-31 19:15, before any model is evaluated on it)
+User decision (2026-10-31): GUAVA's 58-ID test set behind its Table 2 is not released (phase2/G0_GUAVA_RELEASE.md §3), so we use
+our own test split, kept as a JSON (which datasets, what portion, exact clips / frames) and reused by other projects. Every row of
+the GUAVA-style table is **run** on it; paper numbers from GUAVA's split are not used as comparisons.
+- **Files:** `eval_split/avatar_test_v1.json` (SHA-256 1212a8e8...f14e) + `avatar_test_v1.md` (readable list); builder
+  `eval_split/build_avatar_test_split.py` (CPU; reads only split lists and GT annotations, no model output). Never edited:
+  any change is a new version (v2).
+- **Composition** (one clip per identity; 70 clips, 5,010 test frames):
+
+  | part | data | GT SMPL-X | clips | GT frames | recon / test frames | share of clips / test frames |
+  |---|---|---|---|---|---|---|
+  | UBody | upper body, real video (30 fps); C1 clips (UBody official intra-scene test list, 135 identities) | UBody release (pseudo-GT, valid_label != 0) | 30 | 7,065 | 3,525 / 3,540 | 42.9 % / 70.7 % |
+  | BEDLAM2 | full body, synthetic video; identity-disjoint test of `bedlam_split_proposal.json` (SPRINT val jobs; 2 static, 19 rotating, 19 translating cameras) | exact (render labels), labelled rows 6 fps with the whole body in view | 40 | 2,931 | 1,461 / 1,470 | 57.1 % / 29.3 % |
+
+- **UBody subject / frames (model-free):** annotated boxes linked into person tracks (greedy, IoU >= 0.3, gaps <= 30 frames);
+  subject = the track with the most valid GT frames; frames without a valid subject annotation dropped; a clip is kept iff >= 60
+  GT frames remain. This removed 6 of C1's 36 clips (ConductMusic_S34_Trim13_scene001 1, Entertainment_S6_Trim2_scene002 0,
+  Olympic_S14_Trim4_scene001 35, Online_class_S1_Trim31 32, VideoConference_S14_Trim8 0, VideoConference_S19_Trim14 0 GT
+  frames). Frame indices are on UBody's ffmpeg -r 30 timeline (the GT's), not OpenCV's count.
+- **Held-out checks (all pass):** UBody identities are in the official test list and in none of a20's / GUAVA-FB's UBody clips;
+  SPRINT's UBody rows exclude both official test lists. BEDLAM2 test subjects and their outfits are excluded from GUAVA-FB's
+  training pool and validation. Disclosed: 38 of the 40 BEDLAM2 subjects appear in other BEDLAM2 jobs SPRINT trained on, and
+  SPRINT selected checkpoints on the val jobs these clips come from; released GUAVA may have trained on UBody clips.
+- **Protocol (GUAVA Table 2):** per clip, the ordered GT frame list; source = its first frame (single-image methods see only
+  this); recon frames = the first half (the only footage per-subject methods may train on); test frames = the latter half
+  (every method is scored on exactly these). Metrics: GUAVA `main/metrics.py` PSNR, L1, SSIM, LPIPS-VGG on the 512 person
+  crop (GUAVA-FB perspective crop: 1.1 x the GT-mesh box), GT = image x StyleMatte mask on black; mean per clip, then
+  frame-weighted; reported per part (UBody, BEDLAM2) and overall. Recon input and recon time columns as GUAVA's table.
+- **Table rows (user):** GUAVA (released), ExAvatar, GART, GaussianAvatar, **GUAVA-FB [SMPL-X GT]** (driven by the GT of each
+  test frame), **GUAVA-FB [SPRINT]** (source avatar from SPRINT's fit of the source frame, driven by SPRINT's per-frame output).
+  GUAVA-FB = `guava_fb_B30k` best.pt (28k, SHA-256 3ee8e012...0ab), the checkpoint the user calls final; SPRINT = SPRINT from
+  scratch EMA 128k (`eval_programme/sprint_scratch/best_ema.pt`). Baselines: official code, trained per clip on the recon frames
+  only with the GT SMPL-X (body-model conversion for SMPL-based methods stated), rendered into the same crop. The conversion of
+  each row's inputs is registered before that row runs. Nothing is tuned on this split; every number is reported as it comes out.
