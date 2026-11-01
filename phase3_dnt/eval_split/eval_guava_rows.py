@@ -8,13 +8,17 @@ background) into E/renders/<row>/<dataset>/<clip>/<key>.png, plus run.json per c
              per test frame by SPRINT raw with the shape lock (Avatar A's SL); rendered at 512 in SPRINT's crop camera (GUAVA's
              output size) and warped into the metric crop with the exact homography (SPRINT crop -> original -> metric crop).
 Seed 0 before every inference / render call (StyleUNet noise), as fb_common / compare_fb.
-Usage: CUDA_VISIBLE_DEVICES=1 python eval_guava_rows.py --row fb_gt [--clips id,id]"""
+--timing N: reconstruction time only (PREREG: avatar creation from the source, CUDA-synchronised, GPU stated): N clips alternating
+UBody / BEDLAM2, 3 warm-up builds, --reps timed builds per clip (median), median over clips; the SPRINT row adds SPRINT's fit of
+the source image timed the same way. -> E/reports/recon_timing_<row>.json
+Usage: CUDA_VISIBLE_DEVICES=1 python eval_guava_rows.py --row fb_gt [--clips id,id] [--timing 10]"""
 from __future__ import annotations
 
 import argparse
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,10 +35,15 @@ ap.add_argument("--clips", default=""); ap.add_argument("--sprint-iters", type=i
 ap.add_argument("--fb-ckpt", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/runs/guava_fb_B30k/checkpoints/best.pt")
 ap.add_argument("--guava-ckpt", default=str(ROOT / "assets/GUAVA/checkpoints/best_160000.pt"))
 ap.add_argument("--sprint-ckpt", default="/raid/ubx858/outputs/dnt/eval_programme/sprint_scratch/best_ema.pt")
+ap.add_argument("--data-root", default="", help="local copy of E/data (random LMDB reads over SMB are slow)")
+ap.add_argument("--timing", type=int, default=0, help="clean recon timing on an idle GPU: N clips (alternating datasets), no renders")
+ap.add_argument("--reps", type=int, default=10)
 a = ap.parse_args()
 SPLIT = json.loads((HERE / "avatar_test_v1.json").read_text())
 E = Path("/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1")
 OUT = E / "renders" / a.row
+DATA = Path(a.data_root) if a.data_root else E / "data"
+LOCAL = Path("/dev/shm/ubx858_eval/renders") / a.row                                               # written here, then one bulk copy per clip
 clips = SPLIT["clips"]
 if a.clips: want = a.clips.split(","); clips = [c for c in clips if c["id"] in want]
 
@@ -134,8 +143,10 @@ def main():
     for c in clips:
         ds, name = c["dataset"], c["clip"]; od = OUT / ds / name
         if (od / "run.json").exists(): continue
-        cdir = E / "data" / ds / name; fj = json.loads((E / "base" / ds / name / "frames.json").read_text())
+        cdir = DATA / ds / name; fj = json.loads((E / "base" / ds / name / "frames.json").read_text())
         if not (cdir / "meta.json").exists(): print("missing data", c["id"], flush=True); continue
+        od_final = od; od = LOCAL / ds / name
+        if od.exists(): shutil.rmtree(od)
         od.mkdir(parents=True, exist_ok=True); info = {"method": a.row, **CK, "gpu": GPU, "n_test": len(fj["test"])}
         if a.row in ("fb_gt", "guava"):
             cl = F.load_clips_parallel([(str(cdir), None, True)], workers=1)
@@ -197,7 +208,44 @@ def main():
                 torchvision.io.write_png(torch.from_numpy(wp).permute(2, 0, 1).contiguous(), str(od / f"{k}.png"))
             info["sprint_drive_s_per_frame"] = float(np.mean(tfit))
         info["render_ms_per_frame"] = float(np.mean(tr) * 1000); info["gpu"] = GPU
-        (od / "run.json").write_text(json.dumps(info, indent=1)); print(json.dumps({"id": c["id"], **{k: v for k, v in info.items() if k != "sprint_fit_times_s"}}), flush=True)
+        od_final.mkdir(parents=True, exist_ok=True)
+        for p_ in sorted(od.iterdir()): shutil.copyfile(p_, od_final / p_.name)
+        (od_final / "run.json").write_text(json.dumps(info, indent=1)); shutil.rmtree(od); print(json.dumps({"id": c["id"], **{k: v for k, v in info.items() if k != "sprint_fit_times_s"}}), flush=True)
 
 
-main()
+def timing():
+    ub = [c for c in clips if c["dataset"] == "ubody"]; b2 = [c for c in clips if c["dataset"] == "bedlam2"]
+    sel = [x for pair in zip(ub, b2) for x in pair][:a.timing]; per = []
+    for c in sel:
+        ds, name = c["dataset"], c["clip"]; fj = json.loads((E / "base" / ds / name / "frames.json").read_text()); cdir = DATA / ds / name
+        if a.row == "fb_sprint":
+            ori = original_frames(c, [c["source_frame"]])[c["source_frame"]]
+            for _ in range(3): fitter.fit(ori)
+            tf = []
+            for _ in range(a.reps):
+                torch.cuda.synchronize(); t0 = time.perf_counter(); rs = fitter.fit(ori); torch.cuda.synchronize(); tf.append((time.perf_counter() - t0) * 1000)
+            td = tempfile.mkdtemp(dir="/dev/shm"); SAF.write_tracked(Path(td), name, fj["source"], rs)
+            cl = F.load_clips_parallel([(td, None, True)], workers=1); fbd = F.FBData(cfg, cl)
+        else:
+            cl = F.load_clips_parallel([(str(cdir), None, True)], workers=1); tf = [0.0]
+            if a.row == "guava":
+                raw = F.load_pkl(cdir / "optim_tracking_ehm.pkl"); ids = F.load_pkl(cdir / "id_share_params.pkl")
+                cl[0]["flame"] = {k: raw[k]["flame_coeffs"] for k in raw}; cl[0]["flame_shape"] = np.asarray(ids["flame_shape"], np.float32).reshape(300)
+                fbd = FBDataRel(cfg, cl)
+            else:
+                fbd = F.FBData(cfg, cl)
+        src = to_dev(F.collate1(fbd.source_info(0, fj["source"])), dev)
+        for _ in range(3): build(src)
+        tb = [build(src)[1] for _ in range(a.reps)]
+        per.append({"id": c["id"], "build_ms": float(np.median(tb)), "fit_ms": float(np.median(tf))})
+        print(per[-1], flush=True)
+    out = {"row": a.row, "gpu": GPU, "n_clips": len(per), "reps": a.reps, "build_ms_median": float(np.median([p["build_ms"] for p in per])),
+           "fit_ms_median": float(np.median([p["fit_ms"] for p in per])), "per_clip": per,
+           "note": "build = GUAVA inference from the prepared source (image features -> Gaussians); fit = SPRINT source fit (DWPose CPU + "
+                   "StyleMatte + SPRINT + 150 refinement steps) for the SPRINT row; GT rows assume the source record is given"}
+    out["recon_ms_median"] = out["build_ms_median"] + out["fit_ms_median"]
+    (E / "reports").mkdir(parents=True, exist_ok=True); (E / "reports" / f"recon_timing_{a.row}.json").write_text(json.dumps(out, indent=1))
+    print(json.dumps({k: v for k, v in out.items() if k != "per_clip"}), flush=True)
+
+
+timing() if a.timing else main()

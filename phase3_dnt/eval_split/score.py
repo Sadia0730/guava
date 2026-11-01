@@ -17,7 +17,7 @@ from submodules.lpipsPyTorch import LPIPS                                       
 dev = torch.device("cuda:0"); lp = LPIPS("vgg", "0.1").to(dev).eval()
 split = json.loads((HERE / "avatar_test_v1.json").read_text())["clips"]
 if a.subset: keep = set(json.loads(Path(a.subset).read_text())["clips"]); split = [c for c in split if c["id"] in keep]
-load = lambda p: (torchvision.io.read_image(str(p))[:3].float() / 255.0)[None].to(dev)              # noqa: E731
+load = lambda p: (torchvision.io.read_image(str(p))[:3].float() / 255.0)[None].contiguous().to(dev)              # noqa: E731
 (E / "scores").mkdir(parents=True, exist_ok=True)
 for m in a.methods.split(","):
     per, missing = {}, {}

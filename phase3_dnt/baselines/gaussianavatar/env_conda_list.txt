@@ -1,0 +1,299 @@
+# packages in environment at /dev/shm/ubx858_baselines/gaussianavatar/env:
+#
+# Name                    Version                   Build  Channel
+_libgcc_mutex             0.1                        main  
+_openmp_mutex             5.1                      52_gnu  
+absl-py                   2.3.1           py310h06a4308_0  
+addict                    2.4.0                    pypi_0    pypi
+alsa-lib                  1.2.15.3             h47b2149_0  
+annotated-types           0.8.0                    pypi_0    pypi
+aom                       3.14.0               h145e769_0  
+asttokens                 3.0.2                    pypi_0    pypi
+attr                      2.5.2                h47b2149_0  
+attrs                     26.1.0                   pypi_0    pypi
+blas                      1.0                         mkl  
+blinker                   1.9.0                    pypi_0    pypi
+brotlicffi                1.2.1.0         py310h7354ed3_0  
+bzip2                     1.0.8                h5eee18b_6  
+c-ares                    1.34.8               hd44998d_0  
+ca-certificates           2026.10.23           hbd8a1cb_0    conda-forge
+cairo                     1.18.6               ha82d1dd_0  
+certifi                   2026.10.23         pyhd3eb1b0_1  
+cffi                      2.1.1           py310h3b52fac_0  
+charset-normalizer        3.4.7           py310h06a4308_0  
+chumpy                    0.70                     pypi_0    pypi
+click                     8.5.0                    pypi_0    pypi
+cloudpickle               3.1.2                    pypi_0    pypi
+comm                      0.2.3                    pypi_0    pypi
+configargparse            1.9.0                    pypi_0    pypi
+contourpy                 1.3.2                    pypi_0    pypi
+cuda-cccl                 11.8.89                       0    nvidia/label/cuda-11.8.0
+cuda-cudart               11.8.89                       0    nvidia
+cuda-cudart-dev           11.8.89                       0    nvidia/label/cuda-11.8.0
+cuda-cupti                11.8.87                       0    nvidia
+cuda-driver-dev           11.8.89                       0    nvidia/label/cuda-11.8.0
+cuda-libraries            11.8.0                        0    nvidia
+cuda-libraries-dev        11.8.0                        0    nvidia/label/cuda-11.8.0
+cuda-nvcc                 11.8.89                       0    nvidia/label/cuda-11.8.0
+cuda-nvrtc                11.8.89                       0    nvidia
+cuda-nvrtc-dev            11.8.89                       0    nvidia/label/cuda-11.8.0
+cuda-nvtx                 11.8.86                       0    nvidia
+cuda-profiler-api         11.8.86                       0    nvidia/label/cuda-11.8.0
+cuda-runtime              11.8.0                        0    nvidia
+cuda-version              12.9                 h4f385c5_4    nvidia
+cycler                    0.12.1                   pypi_0    pypi
+dash                      4.5.0                    pypi_0    pypi
+dav1d                     1.5.3                h12c9f22_1  
+dbus                      1.16.2               h5bd4931_0  
+decorator                 5.3.1                    pypi_0    pypi
+diff-gaussian-rasterization 0.0.0                    pypi_0    pypi
+exceptiongroup            1.3.1                    pypi_0    pypi
+executing                 2.3.0                    pypi_0    pypi
+expat                     2.9.0                h7354ed3_0  
+fastjsonschema            2.22.2                   pypi_0    pypi
+ffmpeg                    8.1.2                h76dcffe_2  
+fftw                      3.3.11               hba8e2a3_0  
+filelock                  4.0.12          py310h06a4308_0  
+flask                     3.1.3                    pypi_0    pypi
+fontconfig                2.18.2               h9ad01e1_1  
+fonttools                 4.65.0                   pypi_0    pypi
+freeglut                  3.2.2                h215f996_4    conda-forge
+freetype                  2.14.3               h93b6a7b_0  
+fribidi                   1.0.16               h10f3c28_1  
+fvcore                    0.1.5.post20221221          pypi_0    pypi
+gdk-pixbuf                2.44.6               h8a2e0e6_0  
+gettext                   0.25.1               hd8bbc44_2  
+gettext-tools             0.25.1               hc68a75d_2  
+giflib                    5.2.2                h5eee18b_0  
+glib                      2.88.3               h617169b_2  
+glib-tools                2.88.3               h9fad118_2  
+glslang                   15.3.0               h24f8bec_1  
+gmp                       6.3.0                haace2f4_1  
+gmpy2                     2.3.1           py310h1cd8627_0  
+graphite2                 1.3.15               h9ba177b_0  
+grpcio                    1.83.0          py310h1a2b75e_3  
+gstreamer-orc             0.4.44               h6664e14_0  
+gtest                     1.18.0               hf01770c_0  
+harfbuzz                  12.3.0               h572a7f1_2  
+icu                       78.3                 h53478e7_1  
+idna                      3.20            py310h06a4308_0  
+imageio                   2.33.1                   pypi_0    pypi
+importlib-metadata        9.0.1                    pypi_0    pypi
+intel-gmmlib              22.9.0               h24d9097_0  
+intel-media-driver        26.1.0               h7354ed3_0  
+intel-openmp              2023.0.0         h9e868ea_25371  
+iopath                    0.1.10                   pypi_0    pypi
+ipython                   8.39.0                   pypi_0    pypi
+ipywidgets                8.1.9                    pypi_0    pypi
+itsdangerous              2.2.0                    pypi_0    pypi
+jack                      1.9.22               h8fd242f_0  
+janus                     2.0.0                    pypi_0    pypi
+jedi                      0.20.1                   pypi_0    pypi
+jinja2                    3.1.6           py310h06a4308_1  
+joblib                    1.6.0                    pypi_0    pypi
+jpeg                      9f                   he7e78df_1  
+jsonschema                4.26.0                   pypi_0    pypi
+jsonschema-specifications 2025.9.1                 pypi_0    pypi
+jupyter-core              5.9.1                    pypi_0    pypi
+jupyterlab-widgets        3.0.17                   pypi_0    pypi
+kiwisolver                1.5.1                    pypi_0    pypi
+lame                      3.100                hbd0596d_2  
+lcms2                     2.19                 he283960_0  
+ld_impl_linux-64          2.44                 h9e0c5a2_3  
+leptonica                 1.87.0               h3b8441c_0  
+lerc                      4.1.0                h912f75b_2  
+libabseil                 20260526.0      cxx17_h459b208_1  
+libarchive                3.8.8                h54a5bc8_1  
+libasprintf               0.25.1               ha6c9436_2  
+libasprintf-devel         0.25.1               ha6c9436_2  
+libass                    0.17.5               h682e061_0  
+libavif                   1.4.2                h571aff8_0  
+libcap                    2.78                 h2f14ded_0  
+libcublas                 11.11.3.6                     0    nvidia
+libcublas-dev             11.11.3.6                     0    nvidia/label/cuda-11.8.0
+libcufft                  10.9.0.58                     0    nvidia
+libcufft-dev              10.9.0.58                     0    nvidia/label/cuda-11.8.0
+libcufile                 1.14.1.1                      4    nvidia
+libcufile-dev             1.4.0.31                      0    nvidia/label/cuda-11.8.0
+libcurand                 10.3.10.19                    0    nvidia
+libcurand-dev             10.3.0.86                     0    nvidia/label/cuda-11.8.0
+libcusolver               11.4.1.48                     0    nvidia
+libcusolver-dev           11.4.1.48                     0    nvidia/label/cuda-11.8.0
+libcusparse               11.7.5.86                     0    nvidia
+libcusparse-dev           11.7.5.86                     0    nvidia/label/cuda-11.8.0
+libdeflate                1.22                 h5eee18b_0  
+libdrm                    2.4.134              h22c3c2f_1  
+libegl                    1.7.0                h4cac700_3  
+libexpat                  2.9.0                h7354ed3_0  
+libffi                    3.4.8                h06d3fd0_3  
+libflac                   1.5.0                hb705b29_1  
+libgcc                    15.2.0               h69a1729_8  
+libgcc-ng                 15.2.0               h166f726_8  
+libgettextpo              0.25.1               h64fc44f_2  
+libgettextpo-devel        0.25.1               h64fc44f_2  
+libgfortran               15.2.0               h166f726_8  
+libgfortran-ng            15.2.0               h166f726_8  
+libgfortran5              15.2.0               hc633d37_8  
+libgl                     1.7.0                hb0f338c_3  
+libglib                   2.88.3               h722c6ac_2  
+libglu                    9.0.3                h5888daf_1    conda-forge
+libglvnd                  1.7.0                h47b2149_3  
+libglx                    1.7.0                h71acf41_3  
+libgomp                   15.2.0               h4751f2c_8  
+libgrpc                   1.83.0               h5409774_3  
+libiconv                  1.18                 h75a1612_0  
+libltdl                   2.6.2                h416670d_0  
+libnpp                    11.8.0.86                     0    nvidia
+libnpp-dev                11.8.0.86                     0    nvidia/label/cuda-11.8.0
+libnvjpeg                 11.9.0.86                     0    nvidia
+libnvjpeg-dev             11.9.0.86                     0    nvidia/label/cuda-11.8.0
+libogg                    1.3.5                h5a08620_2  
+libopengl                 1.7.0                h4cac700_3  
+libopenjpeg               2.5.4                h47b2149_2  
+libopus                   1.6.1                h9f10d21_1  
+libpciaccess              0.19                 h5739cea_1  
+libpng                    1.6.56               h22898a0_0  
+libprotobuf               7.35.1               h8a8b077_1  
+libre2-11                 2025.11.05           h7354ed3_2  
+librsvg                   2.62.1               hcee6305_1  
+libsndfile                1.2.2                ha54c36a_1  
+libstdcxx                 15.2.0               h39759b7_8  
+libstdcxx-ng              15.2.0               hc03a8fd_8  
+libtheora                 1.2.0                h32ad74f_1  
+libtiff                   4.7.1                h029b1ac_0  
+libuuid                   1.41.5               h5eee18b_0  
+libva                     2.23.0               h80f46ad_0  
+libvorbis                 1.3.7                h536e056_1  
+libvpl                    2.16.0               h76b8884_0  
+libvpx                    1.16.0               h4b463fa_0  
+libwebp                   1.6.0                h089d785_0  
+libwebp-base              1.6.0                hb7bb969_0  
+libxcb                    1.17.0               h9b100fa_0  
+libxml2                   2.15.3               he45aeb6_0  
+libzlib                   1.3.2                h47b2149_0  
+lightning-utilities       0.15.3                   pypi_0    pypi
+lpips                     0.1.4                    pypi_0    pypi
+lz4-c                     1.9.4                h7354ed3_5  
+markdown                  3.10.3          py310h06a4308_0  
+markupsafe                3.0.3           py310h47b2149_0  
+matplotlib                3.10.9                   pypi_0    pypi
+matplotlib-inline         0.2.2                    pypi_0    pypi
+mkl                       2023.1.0         h213fc3f_46344  
+mkl-service               2.4.0           py310h5eee18b_2  
+mkl_fft                   1.3.11          py310h5eee18b_0  
+mkl_random                1.2.8           py310h1128e8f_0  
+mpc                       1.3.1                h5eee18b_0  
+mpfr                      4.2.1                hcba2a6a_1  
+mpg123                    1.33.7               h77133cf_0  
+mpmath                    1.3.0           py310h06a4308_0  
+narwhals                  2.28.0                   pypi_0    pypi
+nbformat                  5.11.1                   pypi_0    pypi
+ncurses                   6.6                  hfaaeb4e_0  
+nest-asyncio              1.6.0                    pypi_0    pypi
+networkx                  3.3             py310h06a4308_0  
+numpy                     1.23.5          py310h5f9d8c6_1  
+numpy-base                1.23.5          py310hb5e798b_1  
+open3d                    0.18.0                   pypi_0    pypi
+opencv-python             4.8.1.78                 pypi_0    pypi
+openh264                  2.6.0                ha05cbb4_1  
+openjpeg                  2.5.2                h0d4d230_1  
+openssl                   3.6.5                h781a0a9_0    conda-forge
+packaging                 26.3            py310h06a4308_0  
+pandas                    2.3.3                    pypi_0    pypi
+pango                     1.56.4               h3ae9cb3_1  
+parso                     0.8.7                    pypi_0    pypi
+pcre2                     10.49                h9438ae6_0  
+pexpect                   4.9.0                    pypi_0    pypi
+pillow                    10.1.0                   pypi_0    pypi
+pip                       23.3.1          py310h06a4308_0  
+pixman                    0.46.4               h86ba9f7_1  
+platformdirs              4.12.4                   pypi_0    pypi
+plotly                    7.1.0                    pypi_0    pypi
+plyfile                   1.0.3                    pypi_0    pypi
+portalocker               4.4.2                    pypi_0    pypi
+prompt-toolkit            3.0.53                   pypi_0    pypi
+protobuf                  7.35.1          py310h7354ed3_0  
+pthread-stubs             0.3                  h47b2149_2  
+ptyprocess                0.7.0                    pypi_0    pypi
+pulseaudio                17.0                 h7354ed3_2  
+pulseaudio-client         17.0                 he44e37d_2  
+pulseaudio-daemon         17.0                 h545a120_2  
+pure-eval                 0.2.4                    pypi_0    pypi
+pycparser                 3.11            py310h06a4308_0  
+pydantic                  2.14.2                   pypi_0    pypi
+pydantic-core             2.50.2                   pypi_0    pypi
+pygments                  2.21.0                   pypi_0    pypi
+pyopengl                  3.1.7                    pypi_0    pypi
+pyparsing                 3.3.3                    pypi_0    pypi
+pyquaternion              0.9.9                    pypi_0    pypi
+pysocks                   1.7.1           py310h06a4308_2  
+python                    3.10.13              h955ad1f_0  
+python-dateutil           3.0.0                    pypi_0    pypi
+pytorch                   2.0.1           py3.10_cuda11.8_cudnn8.7.0_0    pytorch
+pytorch-cuda              11.8                 h7e8668a_6    pytorch
+pytorch-mutex             1.0                        cuda    pytorch
+pytorch3d                 0.7.4                    pypi_0    pypi
+pytz                      2026.6                   pypi_0    pypi
+pyyaml                    6.0.3                    pypi_0    pypi
+re2                       2025.11.05           h71b5c5c_2  
+readline                  8.3                  hc2a1206_0  
+referencing               0.37.0                   pypi_0    pypi
+requests                  2.34.2          py310h06a4308_1  
+retrying                  1.4.2                    pypi_0    pypi
+rpds-py                   0.30.0                   pypi_0    pypi
+scikit-learn              1.7.2                    pypi_0    pypi
+scipy                     1.15.3          py310h525edd1_0  
+setuptools                80.10.2         py310h06a4308_0  
+shaderc                   2025.5               h5594cd2_2  
+simple-knn                0.0.0                    pypi_0    pypi
+six                       1.17.0                   pypi_0    pypi
+smplx                     0.1.28                   pypi_0    pypi
+soxr                      0.1.3                h6d1b9b4_1  
+spirv-tools               2026.4               h24d9097_0  
+sqlite                    3.53.4               h795bf6d_0  
+stack-data                0.6.3                    pypi_0    pypi
+svt-av1                   3.1.2                h7354ed3_1  
+sympy                     1.14.0          py310h06a4308_1  
+tabulate                  0.10.0                   pypi_0    pypi
+tbb                       2021.8.0             hdb19cb5_0  
+tensorboard               2.21.0          py310h06a4308_0  
+tensorboard-data-server   0.7.2           py310h04fe016_0  
+termcolor                 3.3.0                    pypi_0    pypi
+tesseract                 5.5.2                h64b2be7_1  
+threadpoolctl             3.7.0                    pypi_0    pypi
+tk                        8.6.15               h54e0aa7_0  
+torchaudio                2.0.2               py310_cu118    pytorch
+torchmetrics              1.2.1                    pypi_0    pypi
+torchtriton               2.0.0                     py310    pytorch
+torchvision               0.15.2              py310_cu118    pytorch
+tqdm                      4.70.0          py310h7040dfc_0  
+traitlets                 5.16.1                   pypi_0    pypi
+trimesh                   4.0.10                   pypi_0    pypi
+typing-extensions         4.16.0          py310h06a4308_0  
+typing-inspection         0.4.4                    pypi_0    pypi
+typing_extensions         4.16.0          py310h06a4308_0  
+tzdata                    2026.6                   pypi_0    pypi
+urllib3                   2.8.0           py310h06a4308_1  
+wayland                   1.25.0               h9bbe5da_1  
+wayland-protocols         1.49                 h6789b02_0  
+wcwidth                   0.9.4                    pypi_0    pypi
+werkzeug                  3.1.9           py310h06a4308_0  
+wheel                     0.48.0          py310h06a4308_0  
+widgetsnbextension        4.0.16                   pypi_0    pypi
+xorg-libice               1.1.2                h0525522_1  
+xorg-libsm                1.2.6                h984eb1c_1  
+xorg-libx11               1.8.14               h65de747_0  
+xorg-libxau               1.0.12               h9b100fa_0  
+xorg-libxdmcp             1.1.5                h9b100fa_0  
+xorg-libxext              1.3.7                h1ce37a7_0  
+xorg-libxfixes            6.0.2                h5f4defd_0  
+xorg-libxi                1.8.4                h72d95de_0  
+xorg-libxrender           0.9.13               h5f4defd_0  
+xorg-libxtst              1.2.6                h8424592_0  
+xorg-libxxf86vm           1.1.7                hb03c661_0    conda-forge
+xorg-xorgproto            2025.1               h47b2149_0  
+xz                        5.8.4                h140a991_0  
+yacs                      0.1.8                    pypi_0    pypi
+zipp                      4.1.2                    pypi_0    pypi
+zlib                      1.3.2                h47b2149_0  
+zstd                      1.5.7                h11fc155_0  

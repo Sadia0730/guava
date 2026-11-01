@@ -792,3 +792,33 @@ User instruction (2026-10-31): start the GUAVA-FB rows and the released GUAVA ro
 - **Correction (2026-10-31 21:05, before any row was rendered):** the SPRINT row is rendered at **512** (GUAVA's output size; its
   StyleUNet refiner works at 512) in SPRINT's crop camera and warped into the metric 512 crop by the exact homography (bilinear),
   not rendered at 1024 — rendering at 1024 would run the refiner off its operating point. Everything else unchanged.
+
+### AvatarTest-v1 status (2026-11-01 09:30): budget rule applied
+Measured per-clip times (2 clips each, NVIDIA L40S): GART 2.4 / 2.9 min (UBody / BEDLAM2); GaussianAvatar 117 / 31 min; ExAvatar
+2.7 h / 52.5 min (incl. its own preprocessing and face fitting). Free GPUs at launch: 0-3. GART ran all 70 clips (done).
+GaussianAvatar: 87.7 h / 2 GPUs = 43.9 h <= 48 h -> all 70 clips (GPUs 0, 2). ExAvatar: 125 h / 2 GPUs = 62.6 h > 48 h ->
+**subset24** (GPUs 1, 3). Reported: the subset24 table with all methods + the 70-clip table without ExAvatar. (A runner bug
+idled GaussianAvatar from 02:08 to 09:27; no effect on any number.)
+
+## PublicBench-v1: People-Snapshot + NeuMan (registered 2026-11-01 09:40, before any data conversion or run; user decision)
+User decision (2026-11-01): a second GUAVA-FB evaluation on People-Snapshot and NeuMan (ZJU-MoCap dropped for now: only 1 of
+its 6 subjects is on disk). Every method is rerun; nothing is tuned on these sets. Each set keeps its PUBLISHED split and pose
+source; rendering, crops and metrics are AvatarTest-v1's (so absolute numbers are not directly comparable with the papers'
+tables, which use other resolutions / crops / backgrounds; stated in the caption).
+- **People-Snapshot** (InstantAvatar protocol, as GART / GaussianAvatar): male-3-casual, male-4-casual, female-3-casual,
+  female-4-casual; train / test frames = InstantAvatar's START_END (GART lib_data/instant_avatar_people_snapshot.py:
+  e.g. male-3-casual train [0, 455, step 4], test [456, 675, step 4]); poses = InstantAvatar's Anim-NeRF-refined SMPL for
+  train and test frames (the protocol's pose source; if not obtainable, the dataset's reconstructed_poses.hdf5, stated);
+  camera = the dataset's calibration. Source (single-image methods) = the first training frame.
+- **NeuMan** (official split, as NeuMan / HUGS get_data_splits: every k-th frame held out, test = first half of the held-out
+  frames, train = the rest): bike, citron, jogging, seattle (the earlier GUAVA-FB plan's 4 sequences); poses = NeuMan's
+  smpl_output_optimized (+ its alignment to the COLMAP cameras), camera = COLMAP per frame. Source = the first training frame.
+- **Inputs (all methods):** AvatarTest-v1's conversion and contract (perspective person crop from the projected GT mesh clipped
+  to the image, 1.1 x, 1024 -> 512; StyleMatte mask; GT = image x mask on black). GT is SMPL here: GART / GaussianAvatar get it
+  directly; GUAVA-FB, released GUAVA and ExAvatar get SMPL-X 2020 fitted to the GT SMPL mesh (pose + one shape per sequence,
+  through the SMPL-X -> SMPL vertex correspondence; hands / face neutral; residual reported). GUAVA-FB [SPRINT] uses SPRINT only.
+- **Rows / scoring / table:** as AvatarTest-v1 (same six rows, same scorer and layout, per dataset + overall). Baselines: same
+  adapters, train on the published train frames only, render the test frames; no test-time pose fitting in the main table;
+  GART's published People-Snapshot protocol fits test poses -> extra row "GART + test-pose fitting" (ExAvatar's NeuMan protocol
+  likewise -> extra row if run). Budget: 8 sequences; GART / GUAVA rows on all; ExAvatar / GaussianAvatar on all 8 iff the
+  projected time on the GPUs free at launch is <= 48 h, otherwise the 4 People-Snapshot subjects first.
