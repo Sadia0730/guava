@@ -53,3 +53,73 @@ alignment + source fit consistency, not any single 3D component. Detector misses
 BEDLAM2 clip (source frame + 3 frames): tracking fallback added (previous box, else whole image).
 
 ## Hypotheses (PREREG phase 2): H1 driving refinement (inference) > H2 offset hinge 3 -> 6 (training) > H3 source fit.
+
+## Pilots (PREREG phase 2; ValBench, 3,512 test frames; scores `O/reports/improve/valbench_scores/<row>_vb.json`)
+One factor per arm, against the arm's control; PSNR / SSIM / LPIPS, frame-weighted; per-clip counts vs the control.
+| arm | UBody (20 clips) | BEDLAM2 (30) | all | per clip vs control | cost (idle L40S) | decision |
+|---|---|---|---|---|---|---|
+| SPRINT row, deployed (raw driving k = 0, largest box) | 16.68 / 0.732 / 0.2345 | 21.92 / 0.867 / 0.1111 | 18.10 / 0.769 / 0.2009 | control | driving 239-266 ms / frame | - |
+| H1 driving refinement k = 20 | 17.79 / 0.755 / 0.2148 | 23.64 / 0.889 / 0.0921 | 19.39 / 0.792 / 0.1814 | PSNR up 49 / 50 | +35 ms | not chosen (57 % of k = 60's gain) |
+| H1 driving refinement k = 60 | 18.93 / 0.774 / 0.1989 | 24.21 / 0.895 / 0.0873 | 20.37 / 0.807 / 0.1685 | PSNR up 50 / 50 | +109-116 ms GPU (refine) | **adopted** |
+| H1b + subject tracking, stale-box fallback (vs k = 60) | 19.19 / 0.786 / 0.1934 | 24.01 / 0.892 / 0.0904 | 20.50 / 0.815 / 0.1653 | 2 up (+4.13, +3.24), 3 BEDLAM2 down (-3.24, -2.36, -0.62) | 0 | **rejected** |
+| H1c + subject tracking, nearest-centre fallback (vs k = 60) | 19.19 / 0.786 / 0.1934 | 24.21 / 0.895 / 0.0873 | 20.55 / 0.816 / 0.1645 | 2 up (+4.13, +3.24), 48 within 1e-5 dB | 0 | **adopted** |
+| GT row, B28k (start of H2) | 19.06 / 0.783 / 0.1872 | 26.13 / 0.918 / 0.0700 | 20.98 / 0.820 / 0.1553 | - | build 54 ms, render 12.2 ms | reference |
+| H2 control: 4k continuation, hinge 3.0 (vs B28k) | 19.00 / 0.782 / 0.1879 | 26.12 / 0.918 / 0.0702 | 20.94 / 0.819 / 0.1559 | -0.27 .. +0.36 dB | 1.0 h train | control; UBody not eligible at 4k |
+| H2 hinge 3.0 -> 6.0 (vs control) | 19.00 / 0.782 / 0.1879 | 26.11 / 0.918 / 0.0702 | 20.94 / 0.819 / 0.1559 | -0.13 .. +0.05 dB | 1.0 h train; same speed | **not supported** |
+| GART (trains on the first half of each clip) | 20.06 / 0.809 / 0.1765 | 26.71 / 0.918 / 0.0732 | 21.87 / 0.839 / 0.1484 | - | per-clip training | reference |
+
+H2 details (diag_regions; `O/reports/improve/diag_regions_v1/gt_H2*.json`): BEDLAM2 off-body PSNR 14.06 vs control 14.10 (rule
+needs >= +0.3); UBody off-body 10.95 vs 10.96; spill 7.14 vs 7.18 % (BEDLAM2). Validator at 4k: UBody SSIM 0.819254 (control
+0.819324, threshold 0.819331) -> neither arm eligible at 4k. Manipulation check (`h2_offsets.json`): share of UV Gaussians beyond
+3.0 on the dress clips 3.8 -> 4.1 % (vcam_050) and 5.8 -> 6.2 % (vcam_179); the hinge term was ~1.6e-4 of a ~0.2 total loss. In
+a 4k continuation at lr 8e-6 the relaxed hinge barely changed the offsets, so this pilot does not test whether the hinge limits
+garments when training from scratch. The control's own 4k drift (-0.27 .. +0.36 dB per clip vs B28k) is larger than the arm
+difference: a training intervention needs > ~0.3 dB per-clip effects to be visible at this scale.
+
+H1 where the gain sits (diag_silhouette.py, band 5 px around the StyleMatte matte; `diag_silhouette_h1.json`): UBody 74-76 % of
+the SSE reduction is inside the eroded matte (body-part alignment), 8-9 % in the band, 16-17 % outside; BEDLAM2 36 / 34 / 30 %,
+the same profile as replacing SPRINT driving by GT driving (34 / 42 / 24 %). Miss / spill of the matte: UBody 14.8 / 7.3 % ->
+5.8 / 5.7 % (k = 60 + H1c), BEDLAM2 8.9 / 16.3 % -> 5.1 / 9.5 % (GT-driven 3.1 / 6.8 %). Caveat: the refinement fits each target
+frame's own DWPose keypoints and StyleMatte matte (available at inference, no GT) and the metric's mask is the same StyleMatte
+matte; on UBody (pseudo-GT poses) the refined row spills less than the GT-driven row (5.7 vs 7.7 %) and has higher PSNR (19.19 vs
+19.06) with worse LPIPS (0.193 vs 0.187), so it is NOT evidence that SPRINT driving beats GT driving. H1c's UBody source subject is
+the split's subject box (a user's click); BEDLAM2 takes the largest box.
+
+Timing / memory (idle GPU 5, L40S; `O/reports/improve/timing_models/timing.json`, `h1_timing_mem.json`, `h1_timing.json`):
+avatar build (creation from one image, model only) B28k 54.5 ms, H2 arms 54.9 / 55.2 ms; render 12.24 ms / frame (p90 14.7) for
+all three; 207k Gaussians; peak 4.0 GB. SPRINT per driving frame (median of 178 frames, two sessions): k = 0 239-266 ms, k = 60
+324-365 ms; the GPU refinement adds 109-116 ms in both sessions, DWPose's CPU part (130-177 ms) moves with host load; peak SPRINT
+memory 1.56 GB for k = 0 and k = 60. Creation with SPRINT (source fit, 150 iterations) is unchanged by H1 / H1c.
+
+Visuals (rows picked by fig_examples.py's fixed rules; middle test frame): `O/reports/improve/figures/sprint_examples.jpg`
+(typical = median-change clip, worst = smallest gain, plus the two wrong-person clips; remaining failure: Online_class_S2, where
+SPRINT driving crouches the lower body of a standing person and k = 60 does not correct it) and `h2_examples.jpg` (typical, worst = dress vcam_050, dress vcam_179).
+
+## Decision (2026-11-01)
+- SPRINT pipeline: adopt k = 60 per-frame driving refinement + H1c subject tracking (inference only; model unchanged = B28k, so the
+  registered UBody / face requirements hold as before). ValBench all-frame 18.10 -> 20.55 dB, LPIPS 0.2009 -> 0.1645; cost +109-116
+  ms GPU per driving frame, no memory change, creation unchanged.
+- Avatar under GT inputs: no change. H2 (the one training intervention tested) failed its rule; the gap to GART on ValBench stays
+  UBody -1.00 dB / BEDLAM2 -0.58 dB (off-body pixels remain the largest error class).
+- AvatarTest-v1: one final evaluation of the selected SPRINT pipeline as an extra row (PREREG "final test evaluation"), pending the
+  user's go-ahead (GPU job > 15 min).
+
+## Reproducible commands (repo root /home/ubx858/guava; O = /vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb)
+Environment: `export PYTHONNOUSERSITE=1 PYTHONPATH=/tmp/pytorch3d-torch22:/tmp/guava-cuda-torch22:/raid/ubx858/datasets/eval_assets/pylib:/raid/ubx858/outputs/dnt/guava_shims PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=<gpu>`;
+PY = /home/ubx858/miniconda3/envs/guava/bin/python; EV = a local copy of `O/eval/valbench_v1` (random LMDB reads over SMB are slow).
+```
+cd phase3_dnt/eval_split
+$PY eval_guava_rows.py --row fb_sprint --drive-iters 60 --track-subject --track-nearest --name fb_sprint_k60_trkc --split valbench_v1.json --E $EV   # selected pipeline
+$PY eval_guava_rows.py --row fb_sprint --drive-iters {0,20,60} [--track-subject] --split valbench_v1.json --E $EV                                       # H1 / H1b arms
+$PY score.py --methods fb_sprint,fb_sprint_k60,fb_sprint_k60_trkc --split valbench_v1.json --E $EV --tag vb
+$PY time_sprint.py --ks 0,60 --n 200 --out h1_timing_mem.json                                                      # idle GPU
+$PY diag_silhouette.py --E $EV --methods fb_sprint,fb_sprint_k60,fb_sprint_k60_trkc,fb_gt,gart --base fb_sprint --out diag_silhouette_h1.json
+$PY diag_regions.py --E $EV --split valbench_v1.json --methods gt_H2ctrl,gt_H2off6 --out <dir>; $PY diag_report.py <dir> fb_gt,gt_H2ctrl,gt_H2off6
+$PY fig_examples.py --E $EV --cols "GT,fb_sprint:SPRINT k=0 (deployed),fb_sprint_k60:k=60 (H1),fb_sprint_k60_trkc:k=60 + H1c,fb_gt:GT-driven (diag.),gart:GART (half clip)" --pair fb_sprint,fb_sprint_k60_trkc --extra ubody/Olympic_S6_Trim23_scene001,ubody/ConductMusic_S29_Trim13 --out sprint_examples.jpg
+$PY fig_examples.py --E $EV --cols "GT,fb_gt:B28k (start),gt_H2ctrl:H2 control 4k,gt_H2off6:H2 hinge 6 4k,gart:GART (half clip)" --pair gt_H2ctrl,gt_H2off6 --extra bedlam2/20240808_1_250_ai1105_vcam__seq_000179 --out h2_examples.jpg
+cd ../guava_fb
+$PY guava_fb_train.py --out guava_fb_H2off6 --offset-threshold 6.0 <the RUNLOG 89 options>                         # H2 arm (control: 3.0)
+(cd ../eval_split && $PY eval_guava_rows.py --row fb_gt --name gt_H2off6 --fb-ckpt $O/runs/guava_fb_H2off6/checkpoints/latest.pt --split valbench_v1.json --E $EV)
+$PY compare_fb.py --part timing --models B28k=$O/runs/guava_fb_B30k/checkpoints/best.pt H2ctrl=$O/runs/guava_fb_H2ctrl/checkpoints/latest.pt H2off6=$O/runs/guava_fb_H2off6/checkpoints/latest.pt --out <dir>
+$PY diag_offsets_h2.py h2_offsets.json   (from phase3_dnt/guava_fb; B28k / H2ctrl / H2off6 by default; reproduces h2_offsets.json exactly)
+```

@@ -918,3 +918,29 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   into this file before their runs (session log: H1b 14:59:38, run 14:59:48; H1c 15:51:31, run 15:51:36; their "15:05" / "15:55"
   labels are late) but NOT committed before running, a deviation from the commit-before-run rule; they are committed with their
   results. Neither rule was changed after a result was seen.
+- **H2 result (2026-11-01 17:11, applying the rule; 4k latest.pt of each arm):** ValBench GUAVA-FB [GT], intervention (hinge 6.0) vs
+  control (3.0): BEDLAM2 off-body PSNR 14.06 vs 14.10 (-0.04 dB; required >= +0.3) -> FAILS; image PSNR UBody 19.0030 vs 19.0031,
+  BEDLAM2 26.115 vs 26.120 (within 0.05); LPIPS within 0.0001; spill BEDLAM2 7.14 vs 7.18 %, UBody 7.79 vs 7.79 %; registered
+  validator at 4k: UBody SSIM 0.819254 (control 0.819324; threshold 0.819331) -> neither arm eligible at 4k (both eligible at 2k).
+  Per clip (off6 - control): PSNR -0.13 .. +0.05 dB (largest drop on the dress clip vcam_050), LPIPS within 0.0006. **H2 not
+  supported.** Manipulation check (5 diagnosis clips, source pose): Gaussians beyond 3.0 on the dress clips 3.8 -> 4.1 % and
+  5.8 -> 6.2 % (B28k 4.1 / 6.1 %); offset hinge term 1.6e-4 -> 2e-5 of a total loss ~0.2. In this bounded continuation (4k it,
+  lr 8e-6) relaxing the hinge barely changed the offsets; whether the hinge limits garments when training from scratch is untested.
+  For scale: the control's own 4k continuation moved per-clip PSNR by -0.27 .. +0.36 dB vs B28k (larger than the arm difference).
+- **Record correction 2 (2026-11-01 17:18):** in commit 42b7f692 the H1c result's "17:10" was written at 17:08 and the first record
+  correction's "17:15" at 17:09 (session log); text otherwise unchanged. Committed entries are corrected by notes, not edited.
+
+## GUAVA-FB improvement phase 3: final test evaluation (registered 2026-11-01 17:17, before any run of the selection on AvatarTest-v1)
+- Selected on validation data only (phase 2): B28k unchanged + SPRINT driving refined per frame with k = 60 + H1c subject tracking.
+  H2 failed; no model change. Nothing in this phase was tuned on AvatarTest-v1.
+- One run on AvatarTest-v1 (all 70 clips; same conversion, crops, StyleMatte masks, 512 px, black background, scorer, LPIPS VGG,
+  frame-weighted aggregation as RUNLOG 85). Reported as an EXTRA row "GUAVA-FB [SPRINT, refined + tracked]" next to the
+  registered GUAVA-FB [SPRINT] row, which stays as is (k = 0, largest box); per dataset, overall and per clip vs [SPRINT],
+  regressions included. No decision depends on the result.
+- Caption disclosures: (1) AvatarTest-v1 results (RUNLOG 85) were inspected before this phase; this is the only test run of the
+  selection. (2) The refinement fits each target frame's own DWPose keypoints and StyleMatte matte (inference-time signals, no GT);
+  the metric's mask is the same StyleMatte matte. (3) UBody source subject = the split's subject box (as a user's click); BEDLAM2
+  = largest box. (4) GART trains on the first half of each clip; GUAVA-FB uses one image.
+- Command: `eval_guava_rows.py --row fb_sprint --drive-iters 60 --track-subject --track-nearest --name fb_sprint_k60_trkc
+  --data-root <local copy of E/data>` (E = O/eval/avatar_test_v1), then `score.py --methods fb_sprint_k60_trkc --tag full`.
+- Runs only after the user's go-ahead (GPU job > 15 min; ~1.5-2 GPU-h at the ValBench rate).
