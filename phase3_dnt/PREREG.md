@@ -739,3 +739,53 @@ the GUAVA-style table is **run** on it; paper numbers from GUAVA's split are not
   scratch EMA 128k (`eval_programme/sprint_scratch/best_ema.pt`). Baselines: official code, trained per clip on the recon frames
   only with the GT SMPL-X (body-model conversion for SMPL-based methods stated), rendered into the same crop. The conversion of
   each row's inputs is registered before that row runs. Nothing is tuned on this split; every number is reported as it comes out.
+
+### AvatarTest-v1 addendum 1 (registered 2026-10-31 20:10, before any conversion, model run or baseline run): rows, inputs, baselines
+User instruction (2026-10-31): start the GUAVA-FB rows and the released GUAVA row, and set up ExAvatar, GART and GaussianAvatar
+(official code, default settings). Output root E = `O/eval/avatar_test_v1/` (O = the GUAVA-FB output root on /vault; nothing on
+/raid; baseline environments / code under /dev/shm, rebuilt by a setup script in the repo). Only final outputs are kept.
+- **Test-data conversion (all rows share it):** every GT frame of every clip -> GUAVA tracked format (FORMAT.md):
+  - BEDLAM2: `convert_bedlam2.py`'s geometry, crop, StyleMatte and writer, unchanged, on all of the clip's frames (no 40-row cap).
+  - UBody: SMPL-X v1.1 (flat_hand_mean False, as OSX) -> SMPL-X 2020: poses copied (the two models share template, joint
+    regressor and pose correctives), hands + the v1.1 hand mean (GUAVA's layer is flat-hand), jaw copied, eyes 0, exp50 =
+    `expr_maps_to_smplx2020.npz` v11_expr10_to_2020_exp50 @ expr10, betas200 = least-squares map of the v1.1 shape basis onto
+    the 2020 basis (all vertices) applied to the clip's MEDIAN betas10 over its GT frames (one shape per clip; the per-frame
+    vertex error of using the median is reported), translation pelvis-aligned. Camera = the annotation's per-frame
+    (focal, princpt) (OSX virtual camera, unchanged).
+  - Crop (precision of the split's rule): the perspective crop is aimed at, and sized by, the projected GT-mesh box
+    **clipped to the image** (UBody clips show the upper body; for BEDLAM2 rows the whole body is in view, so nothing
+    changes); 1.1 x, 1024 px; scored at 512 (antialiased resize), GT = image x StyleMatte alpha on black, saved as 8-bit PNG
+    once (`E/gt512/`). Conversion checks reported: converted-vs-source mesh distance (mm), reprojection (px at 512).
+  - FLAME fields for released GUAVA: flame expression = exp50 (SMPL-X 2020's expression basis on the head = FLAME 2020's),
+    jaw / eyes copied, eyelids 0, flame_shape = least-squares fit of FLAME's shape basis to the clip's SMPL-X 2020 head
+    (rest pose); EHM-vs-SMPL-X-2020 head vertex error reported. head / hand scale 1, joint offsets 0.
+- **Rows (one image = the clip's source frame):**
+  - GUAVA-FB [SMPL-X GT]: `guava_fb_B30k` best.pt (28k), source = the GT record + crop of the source frame, targets = the GT
+    records of the test frames (GUAVA-FB evaluation code, `fb_common`, seed 0 before every inference call).
+  - GUAVA (released, best_160000.pt, GUAVA's EHM model with the FLAME head), same source / targets with the FLAME fields above;
+    per-record camera via the camera patch (bit-exact to GUAVA when the invtanfov is 24, RUNLOG 64).
+  - GUAVA-FB [SPRINT]: SPRINT = from-scratch EMA 128k, deployed setting (no calibration, focal = image width). Source avatar =
+    `sprint_avatar_fit.py` on the source frame's ORIGINAL image (own YOLOX box, own crop, own StyleMatte mask, 150-step
+    refinement). Driving = per test frame, SPRINT raw (no refinement) on its own detector-box crop with the shape lock to the
+    source fit (Avatar A's SL driver). Rendered at 1024 in SPRINT's crop camera and mapped into the metric crop by the exact
+    image homography (SPRINT crop -> original image -> metric crop), then resized to 512. No GT is used in this row.
+- **Baselines (official code, default settings of the repository's monocular-video configuration):** ExAvatar
+  (mks0601/ExAvatar_RELEASE), GART (JiahuiLei/GART), GaussianAvatar (huliangxiao/GaussianAvatar). Each is trained per clip on
+  the recon frames only (512 crops, alpha > 0.5 masks, per-frame intrinsics of the crop) and renders the test frames into the
+  same 512 crop on black. Driving poses = the GT of each frame: SMPL-X 2020 for ExAvatar converted to its own SMPL-X layer
+  (same rig; shape / expression by least squares), its own FLAME face fitting allowed (on recon and test frames, as its
+  pipeline does; stated); SMPL for GART and GaussianAvatar = a neutral SMPL fitted per frame to the GT SMPL-X mesh mapped by
+  the SMPL-X -> SMPL vertex correspondence (PEAR assets/SMPLX2SMPL smplx2smpl.pkl; one betas10 per clip; residual reported).
+  Training-frame pose refinement inside a method's training is its default and is kept; **no test-time pose fitting** in the
+  main table (caption). If a method's published protocol fits test poses, that variant is an extra row. Only the minimal data
+  loader changes needed to read these inputs (e.g. per-frame intrinsics) are made; method code and hyper-parameters unchanged.
+- **Budget rule:** each baseline's wall time per clip is measured on 2 clips (one UBody, one BEDLAM2) and reported before the
+  long runs. GART runs all 70 clips. ExAvatar / GaussianAvatar run all 70 iff (mean measured time per clip x 70) / (free GPUs
+  at launch) <= 48 h; otherwise they run on **subset24** (`eval_split/avatar_test_v1_subset24.json`, drawn now:
+  numpy default_rng(20261031), 12 of the 30 UBody + 12 of the 40 BEDLAM2 clip ids, 1,535 + 463 test frames), and the report
+  gives the subset24 table with ALL methods plus the 70-clip table for the methods run on everything.
+- **Scoring (one script for every row):** renders as 8-bit PNG at 512 vs `E/gt512`; GUAVA `main/metrics.py` functions (PSNR,
+  L1, SSIM 11 px Gaussian, LPIPS-VGG 0.1); mean per clip, frame-weighted over clips; per dataset (UBody, BEDLAM2) and overall.
+  Recon input (one image / first half of the clip) and recon time (avatar creation from the source, CUDA-synchronised, GPU
+  model stated; + SPRINT fit for the SPRINT row; training time per clip for the baselines). Caption caveats: as registered
+  above, plus "UBody clips are upper body only; full-body baselines may struggle there (per-dataset numbers)".

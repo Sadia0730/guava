@@ -1,0 +1,31 @@
+{
+ "name": "AvatarTest-v1 subset24",
+ "seed": 20261031,
+ "rule": "numpy default_rng(20261031); per dataset in order (ubody, bedlam2): choice(sorted clip ids, 12, replace=False)",
+ "clips": [
+  "ubody/ConductMusic_S21_Trim8",
+  "ubody/ConductMusic_S25_Trim5",
+  "ubody/ConductMusic_S35_Trim11",
+  "ubody/Fitness_S1_Trim24",
+  "ubody/Interview_S25_Trim9",
+  "ubody/Magic_show_S2_Trim16",
+  "ubody/Magic_show_S6_Trim14",
+  "ubody/Olympic_S8_Trim11_scene002",
+  "ubody/Online_class_S9_Trim6",
+  "ubody/Singing_S11_Trim4_scene002",
+  "ubody/VideoConference_S17_Trim1_scene001",
+  "ubody/VideoConference_S18_Trim6",
+  "bedlam2/20240731_1_1827_hdri__seq_000095",
+  "bedlam2/20240731_1_1827_hdri__seq_000169",
+  "bedlam2/20240731_1_1827_hdri__seq_000288",
+  "bedlam2/20240731_1_1827_hdri__seq_000291",
+  "bedlam2/20240731_1_1827_hdri__seq_000730",
+  "bedlam2/20240731_1_1827_hdri__seq_000999",
+  "bedlam2/20240731_1_1827_hdri__seq_001497",
+  "bedlam2/20240808_1_250_ai1105_vcam__seq_000056",
+  "bedlam2/20240808_1_250_ai1105_vcam__seq_000147",
+  "bedlam2/20240808_1_250_ai1105_vcam__seq_000148",
+  "bedlam2/20240808_1_250_ai1105_vcam__seq_000220",
+  "bedlam2/20240808_1_250_ai1105_vcam__seq_000237"
+ ]
+}
