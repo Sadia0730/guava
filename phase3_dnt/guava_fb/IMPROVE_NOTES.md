@@ -25,3 +25,31 @@ Largest GART wins = mechanisms (diagA_worst.jpg): held objects present in the so
 loose dress narrowed / hole between the legs (vcam_050 +2.0, vcam_179 +2.0); back views GART saw in training (hdri_568 +4.0);
 source self-occlusion colouring the head (vcam_105 +5.8).
 Gaussian offsets (B28k): dresses push 4-6 % of UV Gaussians past the 3.0 hinge (99.9 % world offset ~12 cm); other clips ~0 %.
+
+## Self-reconstruction (source frame rendered by its own avatar; B28k)
+UBody 24.25 dB / SSIM 0.906 (mid recon frame 19.59, first test frame 17.96); BEDLAM2 35.64 / 0.981 (26.41, 25.54). Texture
+capacity is not the main limit; quality falls with pose / view change (non-skinned garments, unseen surfaces, occlusion).
+
+## B. SPRINT degradation (diag_sprint.py; renders `renders/dB_*`, scores `scores/dB_*_vb.json`; all GT-assisted rows diagnostic)
+PSNR UBody / BEDLAM2 (SSIM, LPIPS in the score files):
+| variant | UBody | BEDLAM2 |
+|---|---|---|
+| GT source x GT driving (= fb_gt) | 19.06 | 26.13 |
+| GT source x SPRINT root orientation only | 16.44 | 22.35 |
+| GT source x SPRINT root translation only | 16.09 | 21.60 |
+| GT source x SPRINT body pose only | 15.66 | 21.60 |
+| GT source x SPRINT hands only | 18.98 | 26.00 |
+| GT source x SPRINT face only | 19.05 | 26.13 |
+| GT source x all SPRINT driving (mapped into the metric camera) | 16.87 | 20.95 |
+| SPRINT source shape only, GT driving | 18.38 | 24.04 |
+| SPRINT source pose + camera only, GT driving | 17.67 | 23.92 |
+| SPRINT source (own crop / matte / fit), GT driving | 17.05 | 22.58 |
+| SPRINT source x SPRINT driving, mapped into the metric camera | 16.81 | 21.54 |
+| SPRINT source x SPRINT driving, own camera + warp (SPRINT on the metric crop image) | 16.91 | 22.09 |
+| deployed row fb_sprint (SPRINT on the original frame) | 16.68 | 21.92 |
+Reading: camera / intrinsics assumption costs nothing; GT-framed input +0.2 dB only; 3D components are not additive (SPRINT's root
+and body errors cancel in 2D); source-only and driving-only costs overlap on UBody (~2 dB each, ~2.2 together) -> per-frame 2D
+alignment + source fit consistency, not any single 3D component. Detector misses (no person) crashed the deployed pipeline on one
+BEDLAM2 clip (source frame + 3 frames): tracking fallback added (previous box, else whole image).
+
+## Hypotheses (PREREG phase 2): H1 driving refinement (inference) > H2 offset hinge 3 -> 6 (training) > H3 source fit.

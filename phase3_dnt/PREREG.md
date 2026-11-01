@@ -888,3 +888,33 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   gain uncertain; ranked third.
 - AvatarTest-v1: untouched by these choices; only an adopted configuration gets one final test evaluation, reported with the
   disclosure that earlier test results were inspected.
+- **H1 result (2026-11-01 14:55, applying the rule):** ValBench all-frame PSNR / LPIPS: k = 0 18.10 / 0.2009, k = 20 19.39 / 0.1814,
+  k = 60 20.37 / 0.1685 (UBody 18.93, BEDLAM2 24.21; GT-driven 19.06 / 26.13). k = 20 reaches 57 % of k = 60's gain (< 80 %) ->
+  **k = 60 adopted**; all conditions met (+2.27 dB, -0.032 LPIPS, no dataset regresses; per clip: PSNR up on 20 / 20 UBody and
+  30 / 30 BEDLAM2 clips, LPIPS up on 19 / 20 and 30 / 30). Cost (idle GPU 5, median per frame): 266 -> 365 ms (+99 ms, refinement
+  116 ms; DWPose CPU 168-177 ms and StyleMatte 63 ms dominate either way).
+- **H1b (registered 2026-11-01 15:05, before running; pipeline correctness):** the deployed fitter takes the LARGEST detected person
+  in every frame; on 2 / 20 UBody ValBench clips this is another person in the source frame and in 62 % / 92 % of the test frames
+  (detector-only check, `reports/subject_check_valbench.json`). Change: the subject is selected once in the source frame by its box
+  (identity selection, as a user click would: the split's subject box for UBody; largest box for single-person BEDLAM2), then
+  tracked: each frame takes the detection with the highest IoU to the previous frame's box (kept if no detection has IoU >= 0.1).
+  No pose / shape / camera GT is used. Arm: k = 60 + tracking vs the adopted k = 60. Adopt iff all-frame PSNR does not drop and
+  the two wrong-person clips improve; reported per clip (other clips must be unchanged up to numerical noise).
+- **H1b result (2026-11-01 15:50):** all-frame PSNR 20.37 -> 20.50, the two wrong-person clips +4.13 / +3.24 dB, BUT 3 single-person
+  BEDLAM2 clips regressed (-3.24 / -2.36 / -0.62 dB): the stale-box fallback locked onto the source frame's box when the first test
+  frame (half a clip later) had no overlapping detection (seq_000515: 17 / 17 test frames). The registered "other clips unchanged"
+  condition fails -> **H1b rejected as implemented.**
+- **H1c (registered 2026-11-01 15:55, before running):** H1b with one change: if no detection has IoU >= 0.1 with the previous box,
+  take the detection whose centre is nearest to the previous box's centre (instead of keeping the stale box). With one detection
+  this equals the deployed largest-box choice. Arm: k = 60 + H1c tracking vs k = 60. Adopt iff all-frame PSNR does not drop, the
+  two wrong-person clips improve, and no other clip changes by more than 0.1 dB PSNR or 0.003 LPIPS.
+- **H1c result (2026-11-01 17:10, applying the rule):** ValBench all-frame PSNR / LPIPS 20.37 / 0.1685 -> 20.55 / 0.1645 (UBody 18.93 ->
+  19.19, BEDLAM2 24.208 -> 24.208); the two wrong-person clips +4.13 dB / -0.056 LPIPS (Olympic_S6) and +3.24 dB / -0.078
+  (ConductMusic_S29); every other clip within 1e-5 dB (47 bit-identical; the three BEDLAM2 clips H1b broke are identical to k = 60;
+  the nearest-centre rule fired on one frame of each and picked the same box). All conditions met -> **H1c adopted** (k = 60 +
+  H1c tracking is the selected SPRINT pipeline). No extra GPU work (IoU / centre distance on the detector's existing boxes).
+- **Record correction (2026-11-01 17:15):** (i) the phase-2 header's "registered 15:40" is wrong: the section was committed in
+  6a3b56f1 at 13:54 CST, before the first intervention run (H1 launched 13:57; H2 control 14:46). (ii) H1b and H1c were written
+  into this file before their runs (session log: H1b 14:59:38, run 14:59:48; H1c 15:51:31, run 15:51:36; their "15:05" / "15:55"
+  labels are late) but NOT committed before running, a deviation from the commit-before-run rule; they are committed with their
+  results. Neither rule was changed after a result was seen.

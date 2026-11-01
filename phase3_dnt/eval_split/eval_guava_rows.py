@@ -40,13 +40,18 @@ ap.add_argument("--timing", type=int, default=0, help="clean recon timing on an 
 ap.add_argument("--reps", type=int, default=10)
 ap.add_argument("--split", default=str(HERE / "avatar_test_v1.json"))
 ap.add_argument("--E", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1")
+ap.add_argument("--track-nearest", action="store_true", help="H1c: if no detection overlaps the previous box, take the nearest-centre detection (not the stale box)")
+ap.add_argument("--track-subject", action="store_true", help="H1b: select the subject once (source box) and track it by IoU, instead of the largest detection per frame")
+ap.add_argument("--name", default="", help="output row name (default: the row, + _k<iters> for driving refinement)")
+ap.add_argument("--drive-iters", type=int, default=0, help="H1: refine each SPRINT driving frame with k iterations of sprint_avatar_fit's objective (0 = raw, deployed)")
 ap.add_argument("--raw", action="store_true", help="also write the raw Gaussian render (first 3 feature channels, no refiner) to <row>_raw")
 a = ap.parse_args()
 SPLIT = json.loads(Path(a.split).read_text())
 E = Path(a.E)
-OUT = E / "renders" / a.row
+ROWNAME = a.name or (a.row + (f"_k{a.drive_iters}" if a.drive_iters else ""))
+OUT = E / "renders" / ROWNAME
 DATA = Path(a.data_root) if a.data_root else E / "data"
-LOCAL = Path("/dev/shm/ubx858_eval/renders") / a.row                                               # written here, then one bulk copy per clip
+LOCAL = Path("/dev/shm/ubx858_eval/renders") / ROWNAME                                               # written here, then one bulk copy per clip
 clips = SPLIT["clips"]
 if a.clips: want = a.clips.split(","); clips = [c for c in clips if c["id"] in want]
 
@@ -146,6 +151,26 @@ def metric_H(c):
 S512 = np.array([[0.5, 0, -0.25], [0, 0.5, -0.25], [0, 0, 1.0]])                                    # pixel-index 1024 -> 512
 
 
+def _iou(a, b):
+    w, h = max(0.0, min(a[2], b[2]) - max(a[0], b[0])), max(0.0, min(a[3], b[3]) - max(a[1], b[1])); i = w * h
+    return i / max((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i, 1e-9)
+
+
+def subject_box(fitter, img, ref):
+    """H1b: detection with the highest IoU to `ref` (None: the largest); `ref` kept if no detection overlaps it (IoU < 0.1)."""
+    B = fitter.det.inference_detector(fitter.s_det, img)
+    if len(B) == 0:
+        if ref is None: h, w = img.shape[:2]; return np.array([0, 0, w - 1, h - 1], np.float64), 1
+        return np.asarray(ref, np.float64), 1
+    if ref is None: return B[int(np.argmax((B[:, 2] - B[:, 0]) * (B[:, 3] - B[:, 1])))], 0
+    v = [_iou(b, ref) for b in B]; j = int(np.argmax(v))
+    if v[j] >= 0.1: return B[j], 0
+    if not a.track_nearest: return np.asarray(ref, np.float64), 1                                  # H1b (rejected): stale box
+    c0 = np.array([(ref[0] + ref[2]) / 2, (ref[1] + ref[3]) / 2]); sz = max(ref[2] - ref[0], ref[3] - ref[1], 1.0)   # H1c: nearest centre
+    d = [np.linalg.norm(np.array([(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]) - c0) / sz for b in B]
+    return B[int(np.argmin(d))], 1
+
+
 def fit_track(fitter, img, prev_box, **kw):
     """SPRINT fit with a tracking fallback: if the detector finds no person, reuse the previous frame's box (else the whole image)."""
     try:
@@ -165,7 +190,7 @@ def main():
         if not (cdir / "meta.json").exists(): print("missing data", c["id"], flush=True); continue
         od_final = od; od = LOCAL / ds / name
         if od.exists(): shutil.rmtree(od)
-        od.mkdir(parents=True, exist_ok=True); info = {"method": a.row, **CK, "gpu": GPU, "n_test": len(fj["test"])}
+        od.mkdir(parents=True, exist_ok=True); info = {"method": ROWNAME, **CK, "gpu": GPU, "n_test": len(fj["test"]), "drive_iters": a.drive_iters}
         if a.row in ("fb_gt", "guava"):
             cl = F.load_clips_parallel([(str(cdir), None, True)], workers=1)
             if a.row == "guava":
@@ -201,7 +226,13 @@ def main():
             sf = c["source_frame"]; tf = [int(k.split("_")[1]) for k in fj["test"]]
             ori = original_frames(c, [sf] + tf); Hm = metric_H(c)
             if not warm: fit_track(fitter, ori[sf], None)                                         # warm-up (not timed)
-            rs, src_fb = fit_track(fitter, ori[sf], None); shp = rs["shape"]
+            if a.track_subject:                                                                  # H1b: identity selection in the source frame
+                ref = None
+                if c["dataset"] == "ubody": b0 = c["bbox_xywh"][c["frames"].index(sf)]; ref = [b0[0], b0[1], b0[0] + b0[2], b0[1] + b0[3]]
+                sbox, src_fb = subject_box(fitter, ori[sf], ref); rs = fitter.fit(ori[sf], box=sbox)
+            else:
+                rs, src_fb = fit_track(fitter, ori[sf], None)
+            shp = rs["shape"]
             with tempfile.TemporaryDirectory(dir="/dev/shm") as td:
                 key = fj["source"]; SAF.write_tracked(Path(td), name, key, rs)
                 cl = F.load_clips_parallel([(td, None, True)], workers=1); fbd = F.FBData(cfg, cl)
@@ -212,8 +243,14 @@ def main():
             info["sprint_fit_times_s"] = rs["times"]; info["recon_input"] = "first frame (SPRINT fit, own box / crop / matte)"
             tr, tfit, nfb, pbox = [], [], 0, rs["box"]
             for k, f in zip(fj["test"], tf):
-                r_, fb_ = fit_track(fitter, ori[f], pbox, iters=0, shape_lock=shp); nfb += fb_; pbox = r_["box"]; tfit.append(r_["times"]["total"])
-                rr = dict(r_["record"]); rr["smplx_coeffs"] = r_["raw_smplx"]
+                if a.track_subject:
+                    td0 = time.perf_counter(); bx, fb_ = subject_box(fitter, ori[f], pbox); tdet = time.perf_counter() - td0
+                    r_ = fitter.fit(ori[f], box=bx, iters=a.drive_iters, shape_lock=shp); r_["times"]["total"] += tdet
+                else:
+                    r_, fb_ = fit_track(fitter, ori[f], pbox, iters=a.drive_iters, shape_lock=shp)
+                nfb += fb_; pbox = r_["box"]; tfit.append(r_["times"]["total"])
+                rr = dict(r_["record"])
+                if a.drive_iters == 0: rr["smplx_coeffs"] = r_["raw_smplx"]                       # deployed: raw SPRINT; H1: refined record
                 comp = F.compact_record(rr, shp); sm = {kk: torch.as_tensor(v.copy()) for kk, v in comp["smplx"].items()}
                 sm.update({"joints_offset": torch.zeros(55, 3), "head_scale": torch.ones(3), "hand_scale": torch.ones(3)})
                 RT = sm["camera_RT_params"]; M4 = torch.eye(4); M4[:3, :4] = RT; w2c = torch.diag(torch.tensor([-1.0, -1.0, 1.0, 1.0])) @ M4
@@ -231,9 +268,9 @@ def main():
         od_final.mkdir(parents=True, exist_ok=True)
         for p_ in sorted(od.iterdir()):
             if p_.is_dir():                                                                        # raw renders -> renders/<row>_raw/...
-                rd = OUT.parent / f"{a.row}_raw" / ds / name; rd.mkdir(parents=True, exist_ok=True)
+                rd = OUT.parent / f"{ROWNAME}_raw" / ds / name; rd.mkdir(parents=True, exist_ok=True)
                 for q_ in sorted(p_.iterdir()): shutil.copyfile(q_, rd / q_.name)
-                (rd / "run.json").write_text(json.dumps({"method": f"{a.row}_raw", "note": "first 3 Gaussian feature channels, no refiner"}))
+                (rd / "run.json").write_text(json.dumps({"method": f"{ROWNAME}_raw", "note": "first 3 Gaussian feature channels, no refiner"}))
             else: shutil.copyfile(p_, od_final / p_.name)
         (od_final / "run.json").write_text(json.dumps(info, indent=1)); shutil.rmtree(od); print(json.dumps({"id": c["id"], **{k: v for k, v in info.items() if k != "sprint_fit_times_s"}}), flush=True)
 

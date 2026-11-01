@@ -403,10 +403,10 @@ if a.part == "rawref":
 if a.part == "timing":
     src = VAL["dress4d"][0][0]; ref = VAL["dress4d"][0][1][0]; t = to_dev(F.collate1(fbd.target_info(*ref)), dev); si = to_dev(F.collate1(fbd.source_info(*src)), dev)
     states = {l: torch.load(p, map_location="cpu", weights_only=False) for l, p in models.items()}
-    T = {l: {"build": [], "frame": []} for l in models}
+    T = {l: {"build": [], "frame": [], "peak": 0.0} for l in models}
     for rnd in range(5):                                                     # interleaved rounds
         for l, st in states.items():
-            inf.load_state_dict(st["model"]); ren.load_state_dict(st["render_model"]); inf.eval(); ren.eval()
+            inf.load_state_dict(st["model"]); ren.load_state_dict(st["render_model"]); inf.eval(); ren.eval(); torch.cuda.reset_peak_memory_stats()
             with torch.no_grad():
                 for _ in range(3): av = avatar(src); render(av, t)        # warm-up
                 for _ in range(4):
@@ -415,8 +415,9 @@ if a.part == "timing":
                 for _ in range(40):
                     torch.cuda.synchronize(); t0 = time.perf_counter(); ren(av(t), t["render_cam_params"], bg=0.0); torch.cuda.synchronize(); T[l]["frame"].append((time.perf_counter() - t0) * 1e3)
                 T[l]["n_gaussians"] = int(av._xyz_deform.shape[1]) if hasattr(av, "_xyz_deform") else None
+            T[l]["peak"] = max(T[l]["peak"], torch.cuda.max_memory_allocated() / 2**30)
     res = {l: {"build_ms": float(np.median(v["build"])), "frame_ms": float(np.median(v["frame"])), "frame_ms_p90": float(np.percentile(v["frame"], 90)),
-               "n_gaussians": v["n_gaussians"], "gpu": torch.cuda.get_device_name(0)} for l, v in T.items()}
+               "n_gaussians": v["n_gaussians"], "peak_mem_gb": v["peak"], "gpu": torch.cuda.get_device_name(0)} for l, v in T.items()}
     (out / "timing.json").write_text(json.dumps(res, indent=1)); print(json.dumps(res, indent=1)); sys.exit(0)
 
 # ----------------------------------------------------------------------------- geometry (measure 7)
