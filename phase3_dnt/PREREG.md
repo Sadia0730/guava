@@ -1085,3 +1085,7 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   disclosed). If none is acceptable, (a) stays.
 - **Budget:** smoke test < 15 GPU-min; the tuning (6 runs x ~1,400 frames) and ValBench-S runs (3 x 1,325 frames) run only after the
   user's go-ahead with the measured cost.
+- **Phase 5 amendment 1 (13:54, before any run, from reading the design against UBody's framing):** in (c), projected hips / knees /
+  ankles of upper-body clips fall below the image, so a box over all 18 points would trigger re-detection almost every frame. (c) uses
+  the projected OpenPose body points 0-17 that fall INSIDE the image; lost = fewer than 4 such points, or the box's long side changes by
+  > 1.5x from the previous box. Nothing else changes.
