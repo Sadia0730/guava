@@ -53,8 +53,6 @@ ap.add_argument("--dwpose-threads", type=int, default=0, help="DWPose onnxruntim
 a = ap.parse_args()
 if not a.fast_backend and a.dwpose_provider != 'CPUExecutionProvider':
     ap.error('--dwpose-provider CUDAExecutionProvider requires --fast-backend')
-if a.fast_backend and a.box_source == 'track':
-    ap.error('--fast-backend omits the mesh/keypoints required by --box-source track')
 SPLIT = json.loads(Path(a.split).read_text())
 E = Path(a.E)
 ROWNAME = a.name or (a.row + (f"_k{a.drive_iters}" if a.drive_iters else ""))
