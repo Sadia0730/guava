@@ -47,6 +47,8 @@ ap.add_argument("--drive-iters", type=int, default=0, help="H1: refine each SPRI
 ap.add_argument("--raw", action="store_true", help="also write the raw Gaussian render (first 3 feature channels, no refiner) to <row>_raw")
 ap.add_argument("--fast-backend", action="store_true", help="opt-in backend skipping unused work for raw driving; source fit unchanged")
 ap.add_argument("--dwpose-provider", default="CPUExecutionProvider", choices=("CPUExecutionProvider", "CUDAExecutionProvider"))
+ap.add_argument("--box-source", default="yolox", choices=("yolox", "mediapipe", "track"), help="PREREG phase 5: driving-frame person box (yolox = H1b/H1c path)")
+ap.add_argument("--box-margin", type=float, default=1.25, help="phase 5: margin on the landmark / keypoint box (mediapipe, track)")
 ap.add_argument("--dwpose-threads", type=int, default=0, help="DWPose onnxruntime threads (0 = SprintFitter's default, 16); bound it on a CPU-saturated host")
 a = ap.parse_args()
 if not a.fast_backend and a.dwpose_provider != 'CPUExecutionProvider':
@@ -70,6 +72,9 @@ if a.row == "fb_sprint":                                    # SPRINT first: it l
     fitter = SAF.SprintFitter(a.sprint_ckpt, "cuda:0", a.sprint_iters, **fitter_kwargs)
 
 import cv2, torch, torchvision                                                                       # noqa: E402
+if a.box_source != "yolox":                                                                          # phase 5 box sources
+    assert a.track_subject and a.track_nearest and a.drive_iters == 0, "box sources need H1c linking for re-detection, k = 0"
+    import box_sources as BS
 if os.environ.get("OMP_NUM_THREADS"): cv2.setNumThreads(int(os.environ["OMP_NUM_THREADS"]))          # bounded OpenCV threads when asked
 sys.path.insert(0, str(HERE.parent / "guava_fb")); sys.path.insert(0, str(HERE))
 import fb_common as F                                                                                # noqa: E402
@@ -252,13 +257,23 @@ def main():
             info["recon_ms"] = ms + rs["times"]["total"] * 1000; info["recon_ms_model"] = ms; info["sprint_fit_ms"] = rs["times"]["total"] * 1000
             info["sprint_fit_times_s"] = rs["times"]; info["recon_input"] = "first frame (SPRINT fit, own box / crop / matte)"
             tr, tfit, nfb, pbox = [], [], 0, rs["box"]
+            if a.box_source == "mediapipe": boxer = BS.MediaPipeBox(a.box_margin)
+            elif a.box_source == "track": boxer = BS.TrackBox(a.box_margin, fitter)
+            pres, perf = rs, {}
             for k, f in zip(fj["test"], tf):
-                if a.track_subject:
+                torch.cuda.synchronize(); te0 = time.perf_counter(); lost = 0
+                if a.box_source != "yolox":                                                     # phase 5: box from MediaPipe / tracking
+                    bx = boxer(ori[f], pbox) if a.box_source == "mediapipe" else boxer(ori[f], pbox, pres, shp)
+                    fb_ = 0
+                    if bx is None: lost = 1; bx, fb_ = subject_box(fitter, ori[f], pbox)       # lost -> YOLOX + H1c
+                    tdet = time.perf_counter() - te0
+                    r_ = fitter.fit(ori[f], box=bx, iters=a.drive_iters, shape_lock=shp); r_["times"]["total"] += tdet
+                elif a.track_subject:
                     td0 = time.perf_counter(); bx, fb_ = subject_box(fitter, ori[f], pbox); tdet = time.perf_counter() - td0
                     r_ = fitter.fit(ori[f], box=bx, iters=a.drive_iters, shape_lock=shp); r_["times"]["total"] += tdet
                 else:
                     r_, fb_ = fit_track(fitter, ori[f], pbox, iters=a.drive_iters, shape_lock=shp)
-                nfb += fb_; pbox = r_["box"]; tfit.append(r_["times"]["total"])
+                nfb += fb_; pbox = r_["box"]; pres = r_; tfit.append(r_["times"]["total"])
                 rr = dict(r_["record"])
                 if a.drive_iters == 0: rr["smplx_coeffs"] = r_["raw_smplx"]                       # deployed: raw SPRINT; H1: refined record
                 comp = F.compact_record(rr, shp); sm = {kk: torch.as_tensor(v.copy()) for kk, v in comp["smplx"].items()}
@@ -269,11 +284,15 @@ def main():
                 t["render_cam_params"] = F.render_cam_params(t["w2c_cam"], t["c2w_cam"], t["invtanfov"], 512)
                 t = to_dev(F.collate1(t), dev)
                 torch.cuda.synchronize(); t0 = time.perf_counter(); r = render(av, t); torch.cuda.synchronize(); tr.append(time.perf_counter() - t0)
+                perf[k] = {"box": [round(float(v), 2) for v in pbox], "lost": lost, "e2e_ms": (time.perf_counter() - te0) * 1000,
+                           "render_ms": tr[-1] * 1000}                                          # box -> SPRINT -> render, synchronised
                 W = S512 @ Hm[f] @ np.linalg.inv(r_["M"].astype(np.float64)) @ np.linalg.inv(S512)
                 img = u8(r).permute(1, 2, 0).numpy()
                 wp = cv2.warpPerspective(img, W, (512, 512), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
                 torchvision.io.write_png(torch.from_numpy(wp).permute(2, 0, 1).contiguous(), str(od / f"{k}.png"))
             info["sprint_drive_s_per_frame"] = float(np.mean(tfit)); info["detector_fallback_frames"] = nfb; info["detector_fallback_source"] = src_fb
+            info.update(box_source=a.box_source, box_margin=a.box_margin if a.box_source != "yolox" else None, per_frame=perf,
+                        lost_frames=int(sum(v["lost"] for v in perf.values())), load_avg=os.getloadavg())
         info["render_ms_per_frame"] = float(np.mean(tr) * 1000); info["gpu"] = GPU
         od_final.mkdir(parents=True, exist_ok=True)
         for p_ in sorted(od.iterdir()):
