@@ -70,7 +70,7 @@ def main():
     a = ap.parse_args()
 
     ok, used = gpu_free(a.gpu)
-    if not ok:
+    if not ok and not os.environ.get("GA_FORCE_GPU"):                 # GA_FORCE_GPU=1: use --gpu as given (shared GPUs with idle residents)
         cand = [g for g in (2, 0, 1, 3) if used[g] < 2048]
         assert cand, f"no free GPU among 0-3: {used}"
         print(f"GPU {a.gpu} busy ({used[a.gpu]} MiB); using GPU {cand[0]}", flush=True)
