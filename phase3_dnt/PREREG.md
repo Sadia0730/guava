@@ -1095,3 +1095,10 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   (SPRINT-seen, reported only) +0.036 dB. Guard passes. (a) fails (needs >= +0.30 dB) -> **H4 not supported**. Both 4k fine-tunes
   sit ~0.06-0.10 dB below the original SPRINT, so 4k steps of either label set do not move the k = 0 avatar quality: the gain H1
   gives is per-frame fitting that this regressor does not absorb from 17k extra labelled rows at this scale.
+- **Phase 5 result (2026-11-02 16:23, applying the rule; `O/reports/improve/p5_report.json`).** Margins chosen on the ValBench-v1 subset: MediaPipe
+  1.25 (PSNR 17.66 / 18.08 / 17.86 for 1.1 / 1.25 / 1.4), track 1.25 (17.74 / 17.93 / 17.85). ValBench-S, PSNR / SSIM / LPIPS, wrong-person / lost
+  frames of 1,325, e2e p50 / p95 ms on the server (host load in brackets): YOLOX + H1c 17.85 / 0.774 / 0.1987, 0 / 0, 889 / 2,156 (~270);
+  MediaPipe 17.32 / 0.762 / 0.2086, 5 / 172, 136 / 1,761 (~380); track 17.39 / 0.761 / 0.2084, 2 / 1, 36 / 85 (~230). Neither alternative
+  meets the quality condition (>= YOLOX - 0.10 dB, LPIPS <= +0.003, wrong-person <= YOLOX) -> **YOLOX + H1c stays**. The first track runs were
+  blocked by a check added in b5f51fb2 (removed in 7c252b12) and rerun; the fast backend's output packing changed in b5f51fb2 mid-phase
+  (YOLOX arm within 0.003 dB of the reference row). Laptop timing not supplied yet (script: eval_split/time_live_boxes.py).
