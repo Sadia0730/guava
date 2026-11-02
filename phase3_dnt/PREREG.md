@@ -1025,3 +1025,21 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   k = 0 loop's extra cost besides SPRINT's 7 ms). The pilot (labelling + 2 fine-tunes + evaluation, > 15 GPU-min) runs only
   after the user's go-ahead with the measured budget.
 - **(iii) avatar training without architecture / Gaussian-count change:** not run in this phase (assessment in IMPROVE_NOTES).
+- **Record correction 4 + H4 amendment 1 (2026-11-02 00:36, before ValBench-S is built and before any H4 run):**
+  (i) In commit 74b9b8f7 an unquoted shell heredoc executed nine back-quoted code names in the H4 entry above as commands (all
+  "command not found" / "permission denied", nothing ran) and dropped them from the text. They read, in order:
+  "built after this registration by `eval_split/build_valbench_s.py`"; "clips of SPRINT's `ubody_labels` VAL split"; "converted
+  with `convert_test.py`"; "**Labels (`phase3_dnt/sprint_distill/h1_label.py`):**"; "mapped into it, `SprintFitter.fit(iters =
+  60)` with"; "**Label use (`dataset/ubody_label_dataset.py` options `rows`, `h1_labels`; default unchanged):**"; "arms
+  (`rows`)". No rule, number or criterion is affected.
+  (ii) The count "20 candidates pass the identity rules (... Movie 9, Speech 5, SignLanguage 5, ConductMusic 1)" used a wrong
+  identity function (only `_Trim` stripped). With the project's rule (`build_avatar_test_split.ub_identity`, OSX: split at
+  `_Trim` / `_scene`), 5 SPRINT-val clips have identities without SPRINT training rows and only 2 pass the video rule: unusable.
+  (The H3 entry's "25,701 rows of their 20 identities" is re-checked with the project's rule: 25,701, unchanged.)
+  (iii) **Amendment: ValBench-S is clip-level held out.** Pool = clips of SPRINT's `ubody_labels` VAL split (no frame of them was
+  used to train SPRINT), not c2t clips (no frame used to train GUAVA-FB / a20), identity (project rule) not in ValBench-v1 or
+  AvatarTest-v1; other clips of the same identity MAY be in SPRINT's or GUAVA-FB's training (disclosed per clip). Video rule
+  relaxed to: readable, 720p or 1080p, <= 600 frames at 30 fps; AvatarTest-v1's subject-track / >= 60 GT-frame rules unchanged.
+  Selection: seeded order (seed 20261102), at most 2 clips per identity, up to 20 clips. Counted before writing this: 55 pool clips,
+  41 with >= 20 SPRINT val rows (~>= 60 annotated frames), 25 identities, 9 scenes. The H4 label set excludes ValBench-S's
+  identities as well. Everything else in H4 is unchanged.
