@@ -978,3 +978,50 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
 - **Record correction 3 (2026-11-02 00:29):** the phase-4 header's "registered 00:25" is late: the section was written at ~00:20 and
   committed in 1b0b94e3 at 00:21:19, before the H3 run started (00:21:30). The two entries above were first labelled 00:47 / 00:45
   and fixed to 00:29 (the clock time when they were written) before committing.
+
+### Phase 4, H4: SPRINT trained on its own offline H1 fits (registered 2026-11-02 00:34, before any H4 run, smoke tests included)
+- **Hypothesis:** fine-tuning SPRINT on H1 fits of its own UBody training images (the k = 60 driving refinement's objective:
+  DWPose keypoints + StyleMatte matte + priors; unreliable fits filtered) recovers part of H1's gain with ONE forward pass
+  (k = 0; live cost unchanged), relative to a matched control fine-tune with the original labels. Expected only on real
+  (UBody-like) clips: BEDLAM2 rows already carry exact GT, which no H1 fit can improve on.
+- **Evaluation set ValBench-S (UBody, built after this registration by , validation only):**
+  clips of SPRINT's  VAL split (2 % of clips held out when SPRINT's UBody rows were built) whose identity has no
+  SPRINT training row, never tracked for GUAVA-FB / a20 (c2t), identity-disjoint from ValBench-v1 and AvatarTest-v1; video rules
+  of ValBench-v1's UBody extension (720p, 150-450 frames at 30 fps) and AvatarTest-v1's subject-track / >= 60 GT-frame rules;
+  converted with  (same protocol: first frame source, latter half test, StyleMatte mask, 512 px, black
+  background). 20 candidates pass the identity rules (counted 00:28; Movie 9, Speech 5, SignLanguage 5, ConductMusic 1).
+- **Labels ():** rows of SPRINT's UBody train split, identities of ValBench-v1 /
+  ValBench-S / AvatarTest-v1 excluded; clips in seeded random order (seed 20261102), up to 20 evenly spaced rows per clip, until
+  24,000 rows. Per row: the stored 512 px context crop, the row's UBody box mapped into it,  with
+  the deployed SPRINT (scratch EMA 128k) and H1's objective / weights unchanged; SPRINT's camera input computed in the original
+  frame (as deployed); the 20 shape offsets free (a training row has no source frame). Kept per row: refined root / body / hand
+  rotations, shape, camera, DWPose keypoints + scores, fit diagnostics.
+- **Filters (fixed now):** drop a row if (F1) < 6 of the 14 body keypoints (OpenPose 0-13) have score >= 0.3 inside the crop;
+  (F2) the refinement raised the keypoint error; (F3) keypoint error after > the 90th percentile of the set; (F4) mask-outside or
+  mask-coverage term after > its 95th percentile. Per-joint validity: a hand's rotations and 2D joints only if >= 15 of its 21
+  keypoints have score >= 0.3; lower body (hips, knees, ankles, feet) only if both knees and ankles do; jaw / eye 2D joints only
+  if nose and both eyes do.
+- **Label use ( options , ; default unchanged):** on the labelled rows the
+  arm replaces UBody's pseudo-GT root / body / hand rotations by the H1 rotations and adds 55-joint 2D targets (the trainer's
+  kinematic SMPL-X joints of the H1 fit projected with its camera into the context crop; has_cam = 1, so the trainer's camera
+  and joint-2D terms apply as for BEDLAM2 rows). Unchanged in both arms: images, augmentation, COCO-17 2D keypoints, UBody face
+  labels (jaw / expression), no shape term on these rows (has_shape = 0).
+- **Fine-tune (both arms identical except the labels):** from SPRINT scratch EMA 128k, 4,000 steps, SPRINT's final batch mix
+  and losses (configs/sprint/sprint_final.yaml), the UBody slice (9 rows of 64) restricted to the same labelled rows in both
+  arms (), lr 3e-5 (backbone x 0.1), warmup 200, cosine to 0.05 x, EMA decay 0.999, seed 20261024, validation (3DPW-val
+  in-loop + the four hold-outs) at step 4,000 only; the step-4,000 EMA weights are evaluated (latest.pt kept, best.pt by the
+  trainer's rule is the same step).
+- **Endpoints:** E1 (primary) ValBench-S, GUAVA-FB [SPRINT] row (B28k) at k = 0 + H1c tracking with the arm's vs the control's
+  SPRINT; references: original SPRINT at k = 0 + H1c and the teacher pipeline (original SPRINT, k = 60 + H1c). E2 ValBench BEDLAM2
+  (30 clips, unseen by SPRINT), arm vs control at k = 0 + H1c. E3 ValBench UBody (SPRINT-seen): reported only. Guard: SPRINT's
+  own validation at 4,000 (EMA): 3DPW-val PA-MPJPE and BEDLAM2-val PA-MPJPE, arm <= control + 1.0 mm.
+- **Rule (all must hold):** (a) E1 all-frame PSNR arm - control >= +0.30 dB and LPIPS arm <= control; (b) E1 PSNR up on
+  >= 2/3 of clips; (c) E2 PSNR arm - control >= -0.10 dB; (d) the guard. Met -> H4 supported (distilled SPRINT becomes the k = 0
+  candidate); reported with the share of the teacher's E1 gain it recovers. Not met -> not supported, reported with per-clip
+  results and label statistics.
+- **Smoke test (< 15 GPU-min) before the pilot:** 200 rows labelled (throughput; projected kinematic wrists / elbows vs the
+  fit's own DWPose-layout points; DWPose hand side vs SMPL-X hand side), 30 training steps per arm (finite losses, H1 rows carry
+  has_cam = 1 and in-crop 2D targets; augmented samples dumped), CPU time of the YOLOX-L detector alone per frame (the lean
+  k = 0 loop's extra cost besides SPRINT's 7 ms). The pilot (labelling + 2 fine-tunes + evaluation, > 15 GPU-min) runs only
+  after the user's go-ahead with the measured budget.
+- **(iii) avatar training without architecture / Gaussian-count change:** not run in this phase (assessment in IMPROVE_NOTES).
