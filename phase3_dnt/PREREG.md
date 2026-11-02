@@ -1056,3 +1056,32 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
 - **Precision note (2026-11-02 11:42):** "unseen by SPRINT" in the H3-finding entry is at the clip level (BEDLAM2 val jobs; UBody official
   test lists). BEDLAM2 subjects recur across jobs: 38 / 40 AvatarTest-v1 BEDLAM2 identities appear in sequences SPRINT trained on (as the
   AvatarTest-v1 table caption states). AvatarTest-v1 UBody identities have no SPRINT training row (checked with `ub_identity`).
+
+## Phase 5: person-box source for the live SPRINT path (registered 2026-11-02 13:54, before any run; user request)
+- **Question:** which box source to use for live driving, with no retraining: (a) YOLOX-L per frame (current reference); (b) MediaPipe
+  Pose per frame; (c) a box tracked from SPRINT's own previous-frame keypoints, with re-detection on loss. Choose by quality
+  first, then speed. Validation only: ValBench-v1 for the one tuned value (margin), ValBench-S (13 UBody clips SPRINT never trained
+  on) for the comparison. AvatarTest-v1 not used.
+- **Common path (all arms):** GUAVA-FB B28k, original SPRINT (scratch EMA 128k), k = 0 (raw driving, the lean backend
+  `sprint_fast_driving.drive_raw`, raw outputs identical to the full fitter per NO_LATENCY_PREREG), the same source fit and H1c
+  source subject (UBody: split box; else largest YOLOX box), same renders and scorer. Only the driving-frame box differs. Bounded threads (OMP 4, ONNX 4).
+- **(a) YOLOX:** detector every frame + H1c linking (IoU with the previous box, nearest-centre fallback). Quality must equal the existing
+  `fb_sprint_k0_trkc` ValBench-S row (checked); this run is for timing and per-frame boxes.
+- **(b) MediaPipe Pose** (mediapipe 0.10.21, legacy Pose, full landmark model, static mode) run on a square region around the previous
+  frame's box (2.0 x its long side, clipped to the frame), so it cannot jump to a person outside that region; box = axis-aligned box of
+  landmarks with visibility >= 0.5, scaled by margin m about its centre, then SPRINT's standard crop rule (square, 1.1 x long side).
+  Lost = no landmarks, < 6 visible landmarks, or IoU with the previous box < 0.1 -> YOLOX + H1c linking for that frame.
+- **(c) Track:** the box for frame t+1 = axis-aligned box of SPRINT's projected body keypoints at frame t (OpenPose body 0-17 of the
+  134-point layout, through the frame's crop camera and back to frame pixels), scaled by margin m, same crop rule. Lost (re-detect with
+  YOLOX + H1c for that frame) if < 50 % of that box lies inside the image, or its long side changes by > 1.5x from the previous box.
+- **Margin tuning (b, c separately), on ValBench-v1 only:** m in {1.1, 1.25, 1.4}, on a seeded subset of 10 UBody + 10 BEDLAM2 clips
+  (seed 20261102); pick the m with the highest all-frame PSNR (ties within 0.05 dB -> lower LPIPS). The chosen m is then fixed.
+- **Report on ValBench-S, per arm:** PSNR / SSIM / LPIPS (all frames and per clip); wrong-person frames = test frames whose chosen box
+  has IoU < 0.3 with the GT subject box (UBody annotation) ; lost / re-detected frames; end-to-end ms / frame p50 / p95 of box ->
+  SPRINT -> GUAVA-FB render (synchronised), on the server with host load recorded, and on the user's laptop (script provided; run by
+  the user).
+- **Choice rule:** quality first: an arm is acceptable iff all-frame PSNR >= (a) - 0.10 dB, LPIPS <= (a) + 0.003, and wrong-person
+  frames <= (a). Among acceptable arms the fastest end-to-end p50 on the laptop wins (server p50 if laptop numbers are not available,
+  disclosed). If none is acceptable, (a) stays.
+- **Budget:** smoke test < 15 GPU-min; the tuning (6 runs x ~1,400 frames) and ValBench-S runs (3 x 1,325 frames) run only after the
+  user's go-ahead with the measured cost.
