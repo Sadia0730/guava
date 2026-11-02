@@ -1043,3 +1043,13 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   Selection: seeded order (seed 20261102), at most 2 clips per identity, up to 20 clips. Counted before writing this: 55 pool clips,
   41 with >= 20 SPRINT val rows (~>= 60 annotated frames), 25 identities, 9 scenes. The H4 label set excludes ValBench-S's
   identities as well. Everything else in H4 is unchanged.
+- **H4 amendment 2 (2026-11-02 00:44, after the label smoke test, before the label run):** smoke test (200 rows, context-crop
+  input): 3.85 rows/s on one process (0.25 s/row); on 9 / 200 rows the fit is non-finite: in the stored 512 px context crop the
+  person is ~200-250 px tall, the 1024 deployment crop is a ~4x upsample, StyleMatte returns an empty matte, and an empty matte
+  turns the mask term into NaN (its distance transform has no zero), so the refinement diverges. Finite rows: keypoint error
+  24.6 -> 8.8 px (1024 crop, median). Changes: (1) labels are fitted on the ORIGINAL video frame (decoded as the crop builder
+  does: ffmpeg -r 30, image2 muxer) with the row's UBody box, exactly as deployed (no `cam_outer`); per row, the frame warped into
+  the context crop must match the stored crop (mean absolute difference <= 4 / 255), else the row is dropped (frame alignment);
+  (2) F0: rows with a non-finite fit are dropped, and the F3 / F4 percentiles are taken over finite rows. Rows are sharded by clip
+  (one decode per clip). The latent empty-matte NaN in sprint_avatar_fit's refinement also affects the deployed pipeline; it is
+  reported, not changed here; whether any ValBench / AvatarTest frame hit it is not checked yet.
