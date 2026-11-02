@@ -93,3 +93,13 @@ if all-frame PSNR gains >=0.20 dB, LPIPS does not worsen, neither dataset loses
 any adoption also requires paired render median/p90 not materially increased
 (existing 2% timing-noise tolerance). More setup time is allowed by the user's
 per-frame constraint, but must be disclosed. Reject non-finite fits.
+
+## Scheduling note (before remaining correctness / quality runs)
+
+No GPU currently meets the initial <2 GB / idle selection rule. The user's
+request authorises the experiments; correctness and bounded validation may use
+an explicitly selected shared GPU with sufficient free memory. GPU 3 currently
+has ~6 GB of 46 GB resident and 4% utilisation. Do not stop existing jobs. Such
+runs are labelled shared/contended and cannot establish idle absolute latency.
+The auto-selection default remains conservative. This changes scheduling only,
+not any quality or timing acceptance rule.

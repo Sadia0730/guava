@@ -6,7 +6,7 @@ export PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH=/tmp/pytorch3d-torch22:/tmp/guava-cuda-torch22:/raid/ubx858/datasets/eval_assets/pylib:/raid/ubx858/outputs/dnt/guava_shims
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 if [ -z "${EXPERIMENT_GPU:-}" ]; then
-  EXPERIMENT_GPU=$(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits | awk -F, '$2 < 2000 && $3 < 5 {gsub(/ /,"",$1); print $1; exit}')
+  EXPERIMENT_GPU=$(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits | awk -F, 'BEGIN {best=2000} $2 < best && $3 < 5 {best=$2; gpu=$1} END {gsub(/ /,"",gpu); if (gpu!="") print gpu}')
 fi
 if [ -z "${EXPERIMENT_GPU:-}" ]; then
   echo 'No idle GPU with less than 2 GB resident memory; retry later.' >&2
