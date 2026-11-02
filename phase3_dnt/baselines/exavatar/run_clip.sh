@@ -7,7 +7,7 @@ set -eo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 source "$HERE/env.sh"
 DS=$1; CLIP=$2; GPU=${3:-auto}; KEEP=${4:-}
-E=/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1
+E=${EVAL_ROOT:-/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1}   # EVAL_ROOT: other splits (PublicBench-v1)
 SID=${DS}__${CLIP}
 CLIPDIR=$EXA_ROOT/inputs/$DS/$CLIP
 WORK=$EXA_ROOT/work/$SID

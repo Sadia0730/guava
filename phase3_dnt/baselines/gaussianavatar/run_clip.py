@@ -26,7 +26,7 @@ BASE = "/dev/shm/ubx858_baselines/gaussianavatar"
 REPO = f"{BASE}/src/GaussianAvatar"
 PY = f"{BASE}/env/bin/python"
 HERE = os.path.dirname(os.path.abspath(__file__))
-E = "/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1"
+E = os.environ.get("EVAL_ROOT", "/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1")   # EVAL_ROOT: other splits
 COMMIT = "d981c62238ef64e89dcc04719d2ebbb4758b080a"
 EPOCHS = 200   # OptimizationParams.epochs default (both stages)
 
