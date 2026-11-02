@@ -98,8 +98,17 @@ PSNR / SSIM / LPIPS. Driving poses are SMPL-X GT except the GUAVA-FB [SPRINT] ro
 
 On subset24, ExAvatar scores UBody 19.66 and BEDLAM2 28.33 dB (GART: 20.09 / 28.31).
 - ExAvatar fails on one BEDLAM2 clip (`bedlam2/20240731_1_1827_hdri__seq_000169`): its DECA face fit finds no face in any test frame, so the official pipeline stops. Its subset columns cover 23 of the 24 clips.
-- A like-for-like subset23 table is being scored.
-- Tables: `O/eval/avatar_test_v1/table_{full,subset24}.md`.
+- Like-for-like subset23 (all methods on the 23 clips ExAvatar completed), UBody / BEDLAM2 PSNR:
+
+  | Method | UBody | BEDLAM2 |
+  |---|---|---|
+  | GART | 20.09 | 28.67 |
+  | ExAvatar | 19.66 | 28.33 |
+  | GUAVA-FB [GT] | 19.36 | 27.54 |
+  | GaussianAvatar | 18.94 | 27.17 |
+  | GUAVA (released) | 19.54 | 25.30 |
+  | GUAVA-FB [SPRINT] | 17.16 | 23.11 |
+- Tables: `O/eval/avatar_test_v1/table_{full,subset24,subset23}.md`.
 
 ## Issues found
 - **Empty-matte NaN.** If StyleMatte returns an empty matte, the refinement's mask term becomes NaN and the fit diverges.
