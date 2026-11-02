@@ -363,7 +363,9 @@ class SprintFitter:
         self._reset(t_init)
 
     # ---------------------------------------------------------------- fit
-    def fit(self, img_rgb, box=None, iters=None, shape_lock=None, _warm=False, _check=False):
+    def fit(self, img_rgb, box=None, iters=None, shape_lock=None, _warm=False, _check=False, cam_outer=None):
+        """cam_outer (H4 labelling): img_rgb is a crop of a larger frame; (3x3 frame px -> img px affine, frame W, frame H) so that
+        SPRINT's camera input describes the crop within the ORIGINAL frame, as deployed. None: img_rgb is the frame (default)."""
         import roma
         iters = self.iters if iters is None else iters
         dev = self.dev; T = {}
@@ -378,7 +380,11 @@ class SprintFitter:
         alpha = self.matting(crop_t)
         torch.cuda.synchronize(); T["matting"] = time.perf_counter() - t1; t1 = time.perf_counter()
         A256 = (np.diag([256 / CROP, 256 / CROP, 1.0]) @ M)[:2]
-        cam = self.ev.cam_feat(A256, W, H, W, 0.0)
+        if cam_outer is None:
+            cam = self.ev.cam_feat(A256, W, H, W, 0.0)
+        else:
+            Ao, W0, H0 = cam_outer
+            cam = self.ev.cam_feat((np.diag([256 / CROP, 256 / CROP, 1.0]) @ M @ np.asarray(Ao, np.float64))[:2], W0, H0, W0, 0.0)
         out = self.sprint(crop_t, cam, shape_lock)
         torch.cuda.synchronize(); T["sprint"] = time.perf_counter() - t1; t1 = time.perf_counter()
         bp0 = out["body_param"]
