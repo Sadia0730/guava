@@ -136,3 +136,17 @@ On subset24 (PSNR / SSIM / LPIPS): ExAvatar UBody 19.66 / 0.798 / 0.191, BEDLAM2
    - H4 failed, so the registered k = 60 + H1c run stands unchanged.
 3. The empty-matte fix, if wanted.
 4. The PublicBench-v1 People-Snapshot zip password.
+
+## Phase 5: person-box source for live driving (decided: YOLOX + H1c stays)
+ValBench-S (13 UBody clips SPRINT never trained on, 1,325 frames), k = 0, original SPRINT, GUAVA-FB B28k. Margins were tuned on a 20-clip ValBench subset; both sources chose 1.25.
+
+| Box source | PSNR / SSIM / LPIPS | Wrong-person frames | Lost frames | e2e p50 / p95 (server) |
+|---|---|---|---|---|
+| YOLOX + H1c (reference) | 17.85 / 0.774 / 0.199 | 0 | 0 | 889 / 2,156 ms |
+| MediaPipe Pose | 17.32 / 0.762 / 0.209 | 5 | 172 | 136 / 1,761 ms |
+| SPRINT-keypoint tracking | 17.39 / 0.761 / 0.208 | 2 | 1 | 36 / 85 ms |
+
+- Quality comes first. Neither alternative is within 0.10 dB of YOLOX, so YOLOX + H1c stays.
+- Tracking is about 24x faster on this host but costs 0.46 dB: the box framing differs from the detector box that SPRINT expects.
+- Server timings come from a shared host at load 230-380. Use them only to compare the three sources.
+- Laptop timing: `eval_split/time_live_boxes.py --margin-mp 1.25 --margin-track 1.25` (to be run by the user).
