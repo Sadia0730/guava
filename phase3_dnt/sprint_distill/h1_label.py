@@ -29,6 +29,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 ANN = Path("/raid/ubx858/outputs/dnt/data/ubody_labels")
 VID = Path("/raid/ubx858/datasets/expanded/UBody/videos")
+MANIFEST = Path("/raid/ubx858/datasets/processed/pear_student/train.jsonl")      # the crop builder's video paths (sequence)
 FFMPEG = "/home/ubx858/miniconda3/envs/guava/lib/python3.10/site-packages/imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2"
 MAD_MAX = 4.0 / 255
 SPRINT = Path("/raid/ubx858/outputs/dnt/eval_programme/sprint_scratch/best_ema.pt")
@@ -97,6 +98,11 @@ def label(a):
     SAF = importlib.util.module_from_spec(spec); spec.loader.exec_module(SAF)
     fitter = SAF.SprintFitter(SPRINT, "cuda:0", 150, dwpose_threads=a.threads)
     t0 = time.time(); n_new = 0; n_rows = sum(len(by_clip[c]) for c in clips)
+    video = {}
+    for line in open(MANIFEST):                                                         # as tools/build_ubody_label_crops.py
+        it = json.loads(line)
+        if it["source"] == "ubody":
+            q = it["sequence"].split("/"); video[(q[0], q[-2], q[-1])] = VID / (it["sequence"] + ".mp4")
 
     def save():
         rr = sorted(done); tmp = shard.with_suffix(".tmp.npz")
@@ -113,7 +119,7 @@ def label(a):
         fno = {r: int(Path(t["path"][r]).stem.split("_")[0]) for r in rows}                # 1-based frame numbers of the extraction
         tmp = Path(tempfile.mkdtemp(dir="/dev/shm", prefix="ubx858_h1lab_"))
         try:
-            subprocess.run([FFMPEG, "-loglevel", "error", "-i", str(VID / sc_ / vd / f"{cl}.mp4"), "-f", "image2", "-r", "30",
+            subprocess.run([FFMPEG, "-loglevel", "error", "-i", str(video[(sc_, vd, cl)]), "-f", "image2", "-r", "30",
                             "-frames:v", str(max(fno.values())), str(tmp / "%06d.bmp")], check=True)
             for r in rows:
                 bgr = cv2.imread(str(tmp / f"{fno[r]:06d}.bmp"))
