@@ -47,6 +47,7 @@ ap.add_argument("--drive-iters", type=int, default=0, help="H1: refine each SPRI
 ap.add_argument("--raw", action="store_true", help="also write the raw Gaussian render (first 3 feature channels, no refiner) to <row>_raw")
 ap.add_argument("--fast-backend", action="store_true", help="opt-in backend skipping unused work for raw driving; source fit unchanged")
 ap.add_argument("--dwpose-provider", default="CPUExecutionProvider", choices=("CPUExecutionProvider", "CUDAExecutionProvider"))
+ap.add_argument("--dwpose-threads", type=int, default=0, help="DWPose onnxruntime threads (0 = SprintFitter's default, 16); bound it on a CPU-saturated host")
 a = ap.parse_args()
 if not a.fast_backend and a.dwpose_provider != 'CPUExecutionProvider':
     ap.error('--dwpose-provider CUDAExecutionProvider requires --fast-backend')
@@ -65,9 +66,11 @@ if a.row == "fb_sprint":                                    # SPRINT first: it l
     spec = importlib.util.spec_from_file_location("sprint_avatar_fit", ROOT / 'phase3_dnt' / fitter_file)
     SAF = importlib.util.module_from_spec(spec); spec.loader.exec_module(SAF)
     fitter_kwargs = {'dwpose_provider': a.dwpose_provider} if a.fast_backend else {}
+    if a.dwpose_threads: fitter_kwargs['dwpose_threads'] = a.dwpose_threads
     fitter = SAF.SprintFitter(a.sprint_ckpt, "cuda:0", a.sprint_iters, **fitter_kwargs)
 
 import cv2, torch, torchvision                                                                       # noqa: E402
+if os.environ.get("OMP_NUM_THREADS"): cv2.setNumThreads(int(os.environ["OMP_NUM_THREADS"]))          # bounded OpenCV threads when asked
 sys.path.insert(0, str(HERE.parent / "guava_fb")); sys.path.insert(0, str(HERE))
 import fb_common as F                                                                                # noqa: E402
 os.chdir(F.ROOT)
