@@ -83,6 +83,7 @@ LOSSES = ("kp", "mask_in", "mask_cov", "prior")
 
 def label(a):
     import shutil, subprocess, tempfile
+    cv2.setNumThreads(a.cv_threads)                                                    # shared machine: bounded threads per worker
     P = json.loads((Path(a.out) / "plan.json").read_text())
     t = train_arrays()
     by_clip = collections.defaultdict(list)                                             # one video decode per clip
@@ -119,7 +120,7 @@ def label(a):
         fno = {r: int(Path(t["path"][r]).stem.split("_")[0]) for r in rows}                # 1-based frame numbers of the extraction
         tmp = Path(tempfile.mkdtemp(dir="/dev/shm", prefix="ubx858_h1lab_"))
         try:
-            subprocess.run([FFMPEG, "-loglevel", "error", "-i", str(video[(sc_, vd, cl)]), "-f", "image2", "-r", "30",
+            subprocess.run([FFMPEG, "-loglevel", "error", "-threads", str(a.ff_threads), "-i", str(video[(sc_, vd, cl)]), "-f", "image2", "-r", "30",
                             "-frames:v", str(max(fno.values())), str(tmp / "%06d.bmp")], check=True)
             for r in rows:
                 bgr = cv2.imread(str(tmp / f"{fno[r]:06d}.bmp"))
@@ -229,6 +230,7 @@ if __name__ == "__main__":
     ap.add_argument("cmd", choices=("plan", "label", "merge")); ap.add_argument("--out", required=True)
     ap.add_argument("--n", type=int, default=24000); ap.add_argument("--per-clip", type=int, default=20)
     ap.add_argument("--shard", type=int, default=0); ap.add_argument("--shards", type=int, default=1); ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--threads", type=int, default=8); ap.add_argument("--allow-missing", action="store_true")
+    ap.add_argument("--threads", type=int, default=8, help="DWPose onnxruntime threads"); ap.add_argument("--allow-missing", action="store_true")
+    ap.add_argument("--cv-threads", type=int, default=2); ap.add_argument("--ff-threads", type=int, default=4)   # + OMP_NUM_THREADS for torch
     a = ap.parse_args()
     {"plan": plan, "label": label, "merge": merge}[a.cmd](a)
