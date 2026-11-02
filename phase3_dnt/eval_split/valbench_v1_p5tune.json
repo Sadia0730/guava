@@ -1,0 +1,26 @@
+{
+ "name": "ValBench-v1 phase-5 margin-tuning subset (seed 20261102, 10 UBody + 10 BEDLAM2)",
+ "seed": 20261102,
+ "clips": [
+  "ubody/ConductMusic_S29_Trim13",
+  "ubody/ConductMusic_S36_Trim4",
+  "ubody/Online_class_S2_Trim6",
+  "ubody/Online_class_S5_Trim1",
+  "ubody/Online_class_S7_Trim15",
+  "ubody/SignLanguage_S147",
+  "ubody/SignLanguage_S182",
+  "ubody/SignLanguage_S207",
+  "ubody/SignLanguage_S227",
+  "ubody/SignLanguage_S62",
+  "bedlam2/20240731_1_1827_hdri__seq_000161",
+  "bedlam2/20240731_1_1827_hdri__seq_000258",
+  "bedlam2/20240731_1_1827_hdri__seq_000374",
+  "bedlam2/20240731_1_1827_hdri__seq_000515",
+  "bedlam2/20240731_1_1827_hdri__seq_000532",
+  "bedlam2/20240731_1_1827_hdri__seq_000925",
+  "bedlam2/20240731_1_1827_hdri__seq_001106",
+  "bedlam2/20240731_1_1827_hdri__seq_001299",
+  "bedlam2/20240731_1_1827_hdri__seq_001503",
+  "bedlam2/20240808_1_250_ai1105_vcam__seq_000050"
+ ]
+}
