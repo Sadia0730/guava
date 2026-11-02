@@ -96,18 +96,18 @@ PSNR / SSIM / LPIPS. Driving poses are SMPL-X GT except the GUAVA-FB [SPRINT] ro
 | GUAVA-FB [SMPL-X GT] | 19.99 / 0.796 / 0.184 | 27.18 / 0.929 / 0.062 | 22.10 / 0.835 / 0.148 |
 | GUAVA-FB [SPRINT] | 17.60 / 0.753 / 0.229 | 22.64 / 0.875 / 0.107 | 19.08 / 0.789 / 0.193 |
 
-On subset24, ExAvatar scores UBody 19.66 and BEDLAM2 28.33 dB (GART: 20.09 / 28.31).
+On subset24 (PSNR / SSIM / LPIPS): ExAvatar UBody 19.66 / 0.798 / 0.191, BEDLAM2 28.33 / 0.932 / 0.064; GART 20.09 / 0.804 / 0.182, 28.31 / 0.931 / 0.067.
 - ExAvatar fails on one BEDLAM2 clip (`bedlam2/20240731_1_1827_hdri__seq_000169`): its DECA face fit finds no face in any test frame, so the official pipeline stops. Its subset columns cover 23 of the 24 clips.
-- Like-for-like subset23 (all methods on the 23 clips ExAvatar completed), UBody / BEDLAM2 PSNR:
+- Like-for-like subset23 (all methods on the 23 clips ExAvatar completed), PSNR / SSIM / LPIPS:
 
-  | Method | UBody | BEDLAM2 |
-  |---|---|---|
-  | GART | 20.09 | 28.67 |
-  | ExAvatar | 19.66 | 28.33 |
-  | GUAVA-FB [GT] | 19.36 | 27.54 |
-  | GaussianAvatar | 18.94 | 27.17 |
-  | GUAVA (released) | 19.54 | 25.30 |
-  | GUAVA-FB [SPRINT] | 17.16 | 23.11 |
+  | Method | UBody | BEDLAM2 | All |
+  |---|---|---|---|
+  | GUAVA (released) | 19.54 / 0.785 / 0.189 | 25.30 / 0.902 / 0.087 | 20.83 / 0.811 / 0.167 |
+  | ExAvatar | 19.66 / 0.798 / 0.191 | 28.33 / 0.932 / 0.064 | 21.60 / 0.828 / 0.163 |
+  | GART | 20.09 / 0.804 / 0.182 | 28.67 / 0.934 / 0.065 | 22.01 / 0.833 / 0.156 |
+  | GaussianAvatar | 18.94 / 0.780 / 0.205 | 27.17 / 0.924 / 0.076 | 20.78 / 0.812 / 0.176 |
+  | GUAVA-FB [SMPL-X GT] | 19.36 / 0.780 / 0.193 | 27.54 / 0.927 / 0.067 | 21.19 / 0.813 / 0.165 |
+  | GUAVA-FB [SPRINT] | 17.16 / 0.737 / 0.238 | 23.11 / 0.874 / 0.114 | 18.49 / 0.768 / 0.210 |
 - Tables: `O/eval/avatar_test_v1/table_{full,subset24,subset23}.md`.
 
 ## Issues found
