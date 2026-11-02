@@ -178,15 +178,115 @@ def verify(args):
     print(json.dumps(out, indent=2), flush=True)
 
 
+PILOT_ARMS = {
+    'fastcpu': ('fb_sprint_k0_trkc_fastcpu', 'CPUExecutionProvider', 150, 0),
+    'fastcuda': ('fb_sprint_k0_trkc_fastcuda_fp32', 'CUDAExecutionProvider', 150, 0),
+    'src500': ('fb_sprint_k0_trkc_fastcuda_src500', 'CUDAExecutionProvider', 500, 0),
+    'cuda_h1_60': ('fb_sprint_k60_trkc_fastcuda_fp32', 'CUDAExecutionProvider', 150, 60),
+}
+
+
+def pilot(args):
+    """Two independent processes at most; new rows only, fixed validation subset."""
+    import shutil
+    report_dir = O / 'reports/no_latency_20261102'
+    report_dir.mkdir(parents=True, exist_ok=True)
+    ids = json.loads((HERE / 'no_latency_subset5.json').read_text())['clips']
+    names = args.arms.split(',')
+    if any(n not in PILOT_ARMS for n in names):
+        raise ValueError(f'Unknown arms: {names}')
+    common = ['--row', 'fb_sprint', '--track-subject', '--track-nearest', '--fast-backend',
+              '--dwpose-threads', '4', '--split', str(HERE / 'valbench_v1.json'), '--E', args.E,
+              '--clips', ','.join(ids)]
+    started = []
+    for first in range(0, len(names), 2):
+        running = []
+        for arm in names[first:first + 2]:
+            row, provider, source_iters, drive_iters = PILOT_ARMS[arm]
+            command = [sys.executable, str(HERE / 'eval_guava_rows.py'), *common,
+                       '--name', row, '--dwpose-provider', provider, '--sprint-iters', str(source_iters),
+                       '--drive-iters', str(drive_iters)]
+            log = (report_dir / f'{arm}.log').open('a')
+            p = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+            running.append((arm, row, p, log))
+            print('START', arm, 'pid', p.pid, flush=True)
+        for arm, row, p, log in running:
+            code = p.wait(); log.close()
+            print('RENDER_DONE', arm, code, flush=True)
+            if code:
+                # The sibling is independent; let it finish rather than killing it.
+                for _, _, sibling, stream in running:
+                    if sibling.poll() is None: sibling.wait()
+                    if not stream.closed: stream.close()
+                raise RuntimeError(f'{arm} failed; inspect {report_dir / (arm + ".log")}')
+            started.append(row)
+    cmd = [sys.executable, str(HERE / 'score.py'), '--methods', ','.join(started),
+           '--split', str(HERE / 'valbench_v1.json'), '--subset', str(HERE / 'no_latency_subset5.json'),
+           '--E', args.E, '--tag', 'nl5']
+    with (report_dir / 'score_nl5.log').open('a') as stream:
+        subprocess.run(cmd, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT, check=True)
+    for row in started:
+        shutil.copy2(Path(args.E) / 'scores' / f'{row}_nl5.json', report_dir / f'{row}_nl5.json')
+    print('SCORED', started, flush=True)
+    report(args)
+
+
+def report(args):
+    import numpy as np
+    rdir = O / 'reports/no_latency_20261102'
+    rows = {}
+    for arm, (row, _, _, _) in PILOT_ARMS.items():
+        p = rdir / f'{row}_nl5.json'
+        if p.exists():
+            data = json.loads(p.read_text())
+            if data['missing_clips'] or len(data['per_clip']) != 5:
+                raise RuntimeError(f'Incomplete pilot scores: {p}')
+            rows[arm] = data
+    old_root = O / 'reports/improve/valbench_scores'
+    ids = json.loads((HERE / 'no_latency_subset5.json').read_text())['clips']
+    references = {}
+    for name in ('fb_sprint', 'fb_sprint_k0_trkc', 'fb_sprint_k60_trkc', 'fb_gt', 'gart'):
+        data = json.loads((old_root / f'{name}_vb.json').read_text())
+        agg = {}
+        for ds in ('ubody', 'bedlam2', 'all'):
+            per = [data['per_clip'][c] for c in ids if ds == 'all' or c.startswith(ds + '/')]
+            n = sum(c['n'] for c in per)
+            agg[ds] = {'clips': len(per), 'frames': n, **{k: sum(c[k] * c['n'] for c in per) / n
+                                                       for k in ('psnr', 'ssim', 'lpips', 'l1')}}
+        references[name] = agg
+    out = {'validation_only': True, 'n_clips': 5, 'n_frames': 426, 'references_on_same_subset': references,
+           'arms': {k: v['aggregate'] for k, v in rows.items()}, 'decisions': {}}
+    if 'fastcpu' in rows:
+        args.method = PILOT_ARMS['fastcpu'][0]
+        verify(args)
+    if 'fastcuda' in rows:
+        baseline = references['fb_sprint_k0_trkc']
+        out['decisions']['N2_gpu_k0_quality'] = all(
+            rows['fastcuda']['aggregate'][ds]['psnr'] >= baseline[ds]['psnr'] - .1
+            and rows['fastcuda']['aggregate'][ds]['lpips'] <= baseline[ds]['lpips'] + .003 for ds in ('ubody', 'bedlam2'))
+    if 'src500' in rows and 'fastcuda' in rows:
+        a = rows['src500']; b = rows['fastcuda']
+        delta = a['aggregate']['all']['psnr'] - b['aggregate']['all']['psnr']
+        up = sum(a['per_clip'][c]['psnr'] > b['per_clip'][c]['psnr'] for c in ids)
+        accepted = (delta >= .2 and up >= 4 and a['aggregate']['all']['lpips'] <= b['aggregate']['all']['lpips']
+                    and all(a['aggregate'][ds]['psnr'] >= b['aggregate'][ds]['psnr'] - .1
+                            and a['aggregate'][ds]['lpips'] <= b['aggregate'][ds]['lpips'] + .003 for ds in ('ubody', 'bedlam2')))
+        out['decisions']['N3_source500'] = {'psnr_delta': delta, 'clips_up': up, 'quality_gate': accepted}
+    out['timing_note'] = 'Shared GPU / CPU contention: these are not idle absolute latency measurements.'
+    (rdir / 'pilot_summary.json').write_text(json.dumps(out, indent=2))
+    print('PILOT_SUMMARY', json.dumps(out), flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('action', choices=('inventory', 'probe', 'benchmark', 'verify'))
+    ap.add_argument('action', choices=('inventory', 'probe', 'benchmark', 'verify', 'pilot', 'report'))
     ap.add_argument('--n', type=int, default=32)
     ap.add_argument('--threads', type=int, default=16)
     ap.add_argument('--name', default='benchmark')
     ap.add_argument('--method', default='fb_sprint_k0_trkc_fastcpu')
     ap.add_argument('--control', default='fb_sprint_k0_trkc')
     ap.add_argument('--E', default='/dev/shm/ubx858_eval/valbench_v1')
+    ap.add_argument('--arms', default='fastcpu,fastcuda,src500,cuda_h1_60')
     args = ap.parse_args()
     globals()[args.action](args)
 
