@@ -944,3 +944,23 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
 - Command: `eval_guava_rows.py --row fb_sprint --drive-iters 60 --track-subject --track-nearest --name fb_sprint_k60_trkc
   --data-root <local copy of E/data>` (E = O/eval/avatar_test_v1), then `score.py --methods fb_sprint_k60_trkc --tag full`.
 - Runs only after the user's go-ahead (GPU job > 15 min; ~1.5-2 GPU-h at the ValBench rate).
+
+## GUAVA-FB improvement phase 4: options that keep live inference cost (registered 2026-11-02 00:25, before any run of this phase)
+- Source: a reviewer note the user pasted on 2026-11-02 ("can you try these?"): (i) test H1c tracking without the k = 60 loop;
+  (ii) train SPRINT to predict H1's refined fits (H1 run offline on training images, unreliable fits filtered; live inference
+  stays one forward pass); (iii) improve avatar training without changing the architecture or Gaussian count. Validation only
+  (ValBench-v1); AvatarTest-v1 is not touched in this phase; phase 3 stays pending.
+- Timing fact behind (ii) (RUNLOG 90, idle GPU 5, median of 178 frames): one SPRINT driving frame at k = 0 is 239-266 ms =
+  DWPose on the CPU 130-154 ms (YOLOX-L detector + whole-body keypoints) + StyleMatte 63 ms + SPRINT forward 7 ms + ~6 ms
+  overhead; k = 60 adds 109-116 ms of GPU refinement. The 12.2 ms figure is the avatar render only. The deployed k = 0 loop
+  computes the keypoints and the matte but uses only the detector box; a lean k = 0 loop (detector + crop + SPRINT) is not timed yet.
+- **H3 (k = 0 + H1c tracking; inference only, no added cost):** deployed SPRINT row (k = 0) with H1c subject tracking
+  (`--track-subject --track-nearest`) vs `fb_sprint` (k = 0, largest box). Subject selection uses the detector boxes only and does
+  not depend on k: the k = 60 rows with and without H1c have bit-identical renders on 47 / 50 clips (two separate runs, md5 of every
+  frame), so on those clips the arm's renders are `fb_sprint`'s, copied. The 3 clips that differ (ubody/ConductMusic_S29_Trim13,
+  ubody/Olympic_S6_Trim23_scene001, bedlam2/20240731_1_1827_hdri__seq_000532) are rerun at k = 0 with H1c (`eval_guava_rows.py
+  --row fb_sprint --track-subject --track-nearest --name fb_sprint_k0_trkc --clips <3 ids>`). Rule (as H1c): adopt for the k = 0
+  pipeline iff all-frame PSNR does not drop, the two wrong-person UBody clips improve, and the BEDLAM2 clip changes by <= 0.1 dB
+  PSNR and <= 0.003 LPIPS. Also reported: the share of the selected pipeline's gain (k = 0 -> k = 60 + H1c, +2.45 dB) that
+  tracking alone gives.
+- (ii) and (iii) are registered below before any of their runs (smoke tests included).
