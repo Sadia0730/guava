@@ -245,7 +245,7 @@ def main():
                 if a.raw:
                     (od / "raw").mkdir(exist_ok=True); torchvision.io.write_png(u8(_RAW["last"]), str(od / "raw" / f"{k}.png"))
         else:                                                                                      # fb_sprint
-            info.update(fast_backend=a.fast_backend, dwpose_provider=a.dwpose_provider)
+            info.update(fast_backend=a.fast_backend, dwpose_provider=a.dwpose_provider, source_fit_iters=a.sprint_iters)
             sf = c["source_frame"]; tf = [int(k.split("_")[1]) for k in fj["test"]]
             ori = original_frames(c, [sf] + tf); Hm = metric_H(c)
             if not warm: fit_track(fitter, ori[sf], None)                                         # warm-up (not timed)
@@ -264,6 +264,7 @@ def main():
             av, ms = build(src)
             info["recon_ms"] = ms + rs["times"]["total"] * 1000; info["recon_ms_model"] = ms; info["sprint_fit_ms"] = rs["times"]["total"] * 1000
             info["sprint_fit_times_s"] = rs["times"]; info["recon_input"] = "first frame (SPRINT fit, own box / crop / matte)"
+            info['gaussians'] = int(av._smplx_xyz.shape[1] + av._uv_local_xyz.shape[1])
             tr, tfit, nfb, pbox = [], [], 0, rs["box"]
             if a.box_source == "mediapipe": boxer = BS.MediaPipeBox(a.box_margin)
             elif a.box_source == "track": boxer = BS.TrackBox(a.box_margin, fitter)

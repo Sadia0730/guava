@@ -1,0 +1,10 @@
+{
+  "purpose": "Validation-only fixed subset for NO_LATENCY_PREREG N1/N2/N3; union of first two UBody, two wrong-person UBody, first two BEDLAM2 clips (five unique clips).",
+  "clips": [
+    "ubody/Olympic_S6_Trim23_scene001",
+    "ubody/Online_class_S7_Trim15",
+    "ubody/ConductMusic_S29_Trim13",
+    "bedlam2/20240731_1_1827_hdri__seq_000568",
+    "bedlam2/20240731_1_1827_hdri__seq_000334"
+  ]
+}
