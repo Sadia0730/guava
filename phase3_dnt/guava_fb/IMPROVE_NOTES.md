@@ -63,6 +63,7 @@ One factor per arm, against the arm's control; PSNR / SSIM / LPIPS, frame-weight
 | H1 driving refinement k = 60 | 18.93 / 0.774 / 0.1989 | 24.21 / 0.895 / 0.0873 | 20.37 / 0.807 / 0.1685 | PSNR up 50 / 50 | +109-116 ms GPU (refine) | **adopted** |
 | H1b + subject tracking, stale-box fallback (vs k = 60) | 19.19 / 0.786 / 0.1934 | 24.01 / 0.892 / 0.0904 | 20.50 / 0.815 / 0.1653 | 2 up (+4.13, +3.24), 3 BEDLAM2 down (-3.24, -2.36, -0.62) | 0 | **rejected** |
 | H1c + subject tracking, nearest-centre fallback (vs k = 60) | 19.19 / 0.786 / 0.1934 | 24.21 / 0.895 / 0.0873 | 20.55 / 0.816 / 0.1645 | 2 up (+4.13, +3.24), 48 within 1e-5 dB | 0 | **adopted** |
+| H3 (phase 4) H1c tracking at k = 0 (vs k = 0) | 16.83 / 0.741 / 0.2316 | 21.92 / 0.867 / 0.1111 | 18.22 / 0.775 / 0.1988 | 2 up (+3.46, +1.82), 48 identical | 0 | **adopted for k = 0** (4.7 % of k60 + H1c's gain) |
 | GT row, B28k (start of H2) | 19.06 / 0.783 / 0.1872 | 26.13 / 0.918 / 0.0700 | 20.98 / 0.820 / 0.1553 | - | build 54 ms, render 12.2 ms | reference |
 | H2 control: 4k continuation, hinge 3.0 (vs B28k) | 19.00 / 0.782 / 0.1879 | 26.12 / 0.918 / 0.0702 | 20.94 / 0.819 / 0.1559 | -0.27 .. +0.36 dB | 1.0 h train | control; UBody not eligible at 4k |
 | H2 hinge 3.0 -> 6.0 (vs control) | 19.00 / 0.782 / 0.1879 | 26.11 / 0.918 / 0.0702 | 20.94 / 0.819 / 0.1559 | -0.13 .. +0.05 dB | 1.0 h train; same speed | **not supported** |
@@ -123,3 +124,31 @@ $PY guava_fb_train.py --out guava_fb_H2off6 --offset-threshold 6.0 <the RUNLOG 8
 $PY compare_fb.py --part timing --models B28k=$O/runs/guava_fb_B30k/checkpoints/best.pt H2ctrl=$O/runs/guava_fb_H2ctrl/checkpoints/latest.pt H2off6=$O/runs/guava_fb_H2off6/checkpoints/latest.pt --out <dir>
 $PY diag_offsets_h2.py h2_offsets.json   (from phase3_dnt/guava_fb; B28k / H2ctrl / H2off6 by default; reproduces h2_offsets.json exactly)
 ```
+
+## Phase 4 (2026-11-02): options that keep the live cost (PREREG phase 4; user request after a reviewer note)
+- **H3, H1c tracking alone at k = 0:** ValBench 18.10 -> 18.22 dB, LPIPS 0.2009 -> 0.1988 (UBody 16.68 -> 16.83; BEDLAM2 unchanged);
+  only the two wrong-person clips change (+3.46 / +1.82 dB). Adopted for the k = 0 pipeline (no cost). It is 4.7 % of the selected
+  pipeline's +2.45 dB: almost all of H1's gain is the per-frame refinement, not the subject choice.
+- **ValBench UBody is SPRINT training data.** All 20 ValBench UBody clips are in SPRINT's UBody training rows (1,932 rows of these
+  clips, every 3rd annotated frame; 25,701 rows of their identities). Every SPRINT row on ValBench UBody is therefore measured on
+  clips SPRINT was fitted to (with UBody's pseudo-GT). ValBench BEDLAM2 and all of AvatarTest-v1 are unseen by SPRINT. The H1 / H1c
+  / H3 decisions compare arms with the same SPRINT and stand; the size of H1's gain on unseen real clips is not measured there.
+  For SPRINT-side changes: **ValBench-S** (`eval_split/valbench_s.json`; 13 UBody clips, 10 identities, 1,325 test frames) = clips
+  of SPRINT's own UBody val split (frames never used for SPRINT), not GUAVA-FB / a20 training clips, identities disjoint from
+  ValBench-v1 / AvatarTest-v1; 4 clips have identities SPRINT never saw, 9 share an identity with other SPRINT / GUAVA-FB clips.
+- **Live cost of the SPRINT loop (CPU timing, `sprint_distill/time_detector.py`, 1280x720, 16 threads, host load ~10):** the YOLOX-L
+  person detector alone is 154 ms / frame (median; p90 160), the DWPose-L keypoints 39 ms. So of the 239-266 ms of a deployed k = 0
+  driving frame, the detector is the largest part; SPRINT's forward is 7 ms; the StyleMatte matte (63 ms) and the keypoints are used
+  only by the k = 60 refinement (+115 ms GPU). A one-pass (k = 0) loop that keeps the per-frame CPU detector stays at ~165 ms / frame;
+  moving the detector to the GPU or detecting every n-th frame (box from the previous fit in between) is the larger live-cost lever.
+- **Latent bug:** an empty StyleMatte matte makes the refinement's mask term NaN (its distance transform has no zero), so the fit
+  diverges (9 / 200 rows of the context-crop label smoke, 1 / 200 on original frames). Not fixed yet; not checked on ValBench /
+  AvatarTest frames.
+- **H4, SPRINT trained on its own offline H1 fits:** registered (PREREG phase 4, amendments 1-2); labels on original frames
+  (smoke: 162 / 200 rows kept, keypoint error 23.3 -> 8.4 px at 1024, H1 moves SPRINT's raw root / body / hands by 2.1 / 6.6 / 18.0
+  deg, frames match the stored crops within 0.7 / 255); pilot waits for the GPU go-ahead.
+- **(iii) avatar training without architecture / Gaussian-count change:** not run. GUAVA-FB's training pairs are already GT
+  (BEDLAM2, 4D-DRESS), SPRINT + refinement refits (UBC, Motion-X clips that fail the alignment filter) or EHM tracks (UBody), so
+  "better aligned pairs" has little headroom by construction; extra garment / geometry supervision was tested (pilots C, D) and did
+  not improve appearance; a 4k continuation drifts +-0.3 dB per clip on its own (H2 control), larger than the effects in question.
+  A credible test needs a new mechanism and a from-scratch run (~7.5 h at 1.1 it/s).

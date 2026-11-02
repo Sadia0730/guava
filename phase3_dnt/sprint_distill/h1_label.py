@@ -202,7 +202,7 @@ def merge(a):
     CMinv = A["C"] @ np.linalg.inv(A["M"]); j2d = np.einsum("nij,nkj->nki", CMinv[:, :2, :2], uv) + CMinv[:, None, :2, 2]
     # sanity: kinematic elbows / wrists vs the fit's own DWPose-layout points (OpenPose 3, 4, 6, 7 = R elbow, R wrist, L elbow, L wrist)
     dwp = A["uv_after"][:, [3, 4, 6, 7]] * CROP; kin = uv[:, [19, 21, 18, 20]]
-    sanity = float(np.median(np.linalg.norm(dwp - kin, axis=-1)))
+    sanity = float(np.median(np.linalg.norm(dwp - kin, axis=-1)[keep])) if keep.any() else None   # kept (finite) rows
     # how far H1 moved SPRINT's raw prediction (degrees, mean over joints) on kept rows
     from scipy.spatial.transform import Rotation as Rot
     def ang(p, q):
