@@ -1,8 +1,8 @@
 {
  "name": "PublicBench-v1",
- "created": "2026-11-01 09:55:12",
+ "created": "2026-11-02 14:05:11",
  "builder": "phase3_dnt/eval_split/convert_publicbench.py split",
- "git_head_at_build": "3c78e5dd6b41e139a1e915087d7d2fe89aba9366",
+ "git_head_at_build": "e9c3ce9e3ec0e55fc2fab601faac1f3262141d0e",
  "why": "Second GUAVA-FB evaluation on public avatar benchmarks with their PUBLISHED train / test splits and pose sources (PREREG 'PublicBench-v1'); rendering, crops and metrics are AvatarTest-v1's, so absolute numbers are not comparable with the papers' tables (other resolutions / crops / backgrounds).",
  "protocol": {
   "frames": "per clip, the ordered list 'frames' = published train frames + published test frames (val frames unused)",
@@ -459,14 +459,47 @@
     668,
     672
    ],
-   "wh": null,
-   "video_frames": null,
-   "masks_hdf5_frames": null,
+   "wh": [
+    1080,
+    1080
+   ],
+   "video_frames": 689,
+   "video_frames_cap_prop": 689,
+   "masks_hdf5_frames": 689,
+   "video_sha256": "5d983bdd76e54e67490e33a6abce3cacc25134749fe7de1b876b2ce8257dddc8",
+   "camera": {
+    "K": [
+     [
+      2664.229745219409,
+      0.0,
+      511.7805539129703
+     ],
+     [
+      0.0,
+      2664.692774216014,
+      567.1254292628388
+     ],
+     [
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "dist": [
+     -0.11669533565245506,
+     0.25150349622566864,
+     -0.0009063230139756063,
+     -0.0009536487738266096,
+     -0.10548419234908941
+    ]
+   },
    "checks": {
     "anim_nerf_rows_match_split": true,
     "train_test_disjoint": true,
     "betas_train_vs_test_max_abs_dev": 0.3091086149215698,
-    "data": "BLOCKED: people_snapshot_public.zip is password-protected (all 192 members ZipCrypto-encrypted); the password comes with the dataset licence agreement. Frame counts / camera filled when the data is readable."
+    "video_frames_eq_masks": true,
+    "split_within_video": true,
+    "data": "available"
    }
   },
   {
@@ -812,14 +845,47 @@
     864,
     870
    ],
-   "wh": null,
-   "video_frames": null,
-   "masks_hdf5_frames": null,
+   "wh": [
+    1080,
+    1080
+   ],
+   "video_frames": 873,
+   "video_frames_cap_prop": 873,
+   "masks_hdf5_frames": 873,
+   "video_sha256": "d4857cf784f728128ddbabb4ffd4a334853e7226a62b998f7879161864ce19c0",
+   "camera": {
+    "K": [
+     [
+      2664.229745219409,
+      0.0,
+      491.7805539129703
+     ],
+     [
+      0.0,
+      2664.692774216014,
+      567.1254292628388
+     ],
+     [
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "dist": [
+     -0.11669533565245506,
+     0.25150349622566864,
+     -0.0009063230139756063,
+     -0.0009536487738266096,
+     -0.10548419234908941
+    ]
+   },
    "checks": {
     "anim_nerf_rows_match_split": true,
     "train_test_disjoint": true,
     "betas_train_vs_test_max_abs_dev": 0.2843974232673645,
-    "data": "BLOCKED: people_snapshot_public.zip is password-protected (all 192 members ZipCrypto-encrypted); the password comes with the dataset licence agreement. Frame counts / camera filled when the data is readable."
+    "video_frames_eq_masks": true,
+    "split_within_video": true,
+    "data": "available"
    }
   },
   {
@@ -1199,14 +1265,47 @@
     642,
     646
    ],
-   "wh": null,
-   "video_frames": null,
-   "masks_hdf5_frames": null,
+   "wh": [
+    1080,
+    1080
+   ],
+   "video_frames": 648,
+   "video_frames_cap_prop": 648,
+   "masks_hdf5_frames": 648,
+   "video_sha256": "704ebfff909fefd72382539e6434a230b798a5d6f054c66c79249b4e59d32035",
+   "camera": {
+    "K": [
+     [
+      2664.229745219409,
+      0.0,
+      511.7805539129703
+     ],
+     [
+      0.0,
+      2664.692774216014,
+      567.1254292628388
+     ],
+     [
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "dist": [
+     -0.11669533565245506,
+     0.25150349622566864,
+     -0.0009063230139756063,
+     -0.0009536487738266096,
+     -0.10548419234908941
+    ]
+   },
    "checks": {
     "anim_nerf_rows_match_split": true,
     "train_test_disjoint": true,
     "betas_train_vs_test_max_abs_dev": 0.4488487243652344,
-    "data": "BLOCKED: people_snapshot_public.zip is password-protected (all 192 members ZipCrypto-encrypted); the password comes with the dataset licence agreement. Frame counts / camera filled when the data is readable."
+    "video_frames_eq_masks": true,
+    "split_within_video": true,
+    "data": "available"
    }
   },
   {
@@ -1524,14 +1623,47 @@
     519,
     523
    ],
-   "wh": null,
-   "video_frames": null,
-   "masks_hdf5_frames": null,
+   "wh": [
+    1080,
+    1080
+   ],
+   "video_frames": 524,
+   "video_frames_cap_prop": 524,
+   "masks_hdf5_frames": 524,
+   "video_sha256": "c9785d7eea41624b64ad779352600ade3645530b6b993b874ba8e0f90cbfa621",
+   "camera": {
+    "K": [
+     [
+      2664.229745219409,
+      0.0,
+      511.7805539129703
+     ],
+     [
+      0.0,
+      2664.692774216014,
+      567.1254292628388
+     ],
+     [
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "dist": [
+     -0.11669533565245506,
+     0.25150349622566864,
+     -0.0009063230139756063,
+     -0.0009536487738266096,
+     -0.10548419234908941
+    ]
+   },
    "checks": {
     "anim_nerf_rows_match_split": true,
     "train_test_disjoint": true,
     "betas_train_vs_test_max_abs_dev": 0.29377350211143494,
-    "data": "BLOCKED: people_snapshot_public.zip is password-protected (all 192 members ZipCrypto-encrypted); the password comes with the dataset licence agreement. Frame counts / camera filled when the data is readable."
+    "video_frames_eq_masks": true,
+    "split_within_video": true,
+    "data": "available"
    }
   },
   {
