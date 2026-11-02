@@ -138,6 +138,11 @@ def original_frames(c, frames):
     """{frame: RGB uint8} of the ORIGINAL video on the GT's timeline."""
     import convert_bedlam2 as cb
     if c["dataset"] == "bedlam2": return cb.decode_frames(c["job"], c["seq"], frames)
+    if c["dataset"] == "peoplesnapshot":                                                             # PublicBench: undistorted frames saved by the converter
+        b = E / "base" / c["dataset"] / c["clip"] / "orig"
+        return {f: cv2.cvtColor(cv2.imread(str(b / f"frame_{f:06d}.png")), cv2.COLOR_BGR2RGB) for f in frames}
+    if c["dataset"] == "neuman":
+        import convert_publicbench as PB; return PB.neuman_images(c["clip"], frames)
     import convert_test as CT
     CT.TMP.mkdir(parents=True, exist_ok=True); out = {}
     with tempfile.TemporaryDirectory(dir=CT.TMP) as td:
@@ -151,6 +156,9 @@ _ANN, _MAPS = {}, {}
 
 def metric_H(c):
     """original px -> 1024 metric crop px (the converter's geometry, recomputed), per GT frame."""
+    if c["dataset"] in ("peoplesnapshot", "neuman"):                                                 # PublicBench: the converter's stored H
+        d = np.load(E / "base" / c["dataset"] / c["clip"] / "crop_h.npz")
+        return {int(str(k).split("_")[1]): h for k, h in zip(d["keys"], d["H"])}
     import convert_bedlam2 as cb
     import convert_test as CT
     if c["dataset"] == "bedlam2":
