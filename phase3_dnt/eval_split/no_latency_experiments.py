@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import sys
 import time
+import subprocess
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -31,7 +32,8 @@ def load_fast():
 def benchmark(args):
     import torch
     import numpy as np
-    import hashlib
+    import cv2
+    cv2.setNumThreads(2)
     fast = load_fast()
     print('LOADING', 'checkpoint', str(CKPT), 'threads', args.threads, flush=True)
     fitter = fast.SprintFitter(CKPT, 'cuda:0', 150, dwpose_threads=args.threads)
@@ -40,18 +42,27 @@ def benchmark(args):
     import convert_bedlam2 as cb
     cb.LOCAL_TMP = CACHE / 'decode'; cb.LOCAL_TMP.mkdir(parents=True, exist_ok=True)
     clips = [c for c in json.loads((HERE / 'valbench_v1.json').read_text())['clips'] if c['dataset'] == 'bedlam2'][:5]
-    frames = []
-    for c in clips:
-        want = c['test_frames'][:max(1, (args.n + 4) // 5)]
-        got = cb.decode_frames(c['job'], c['seq'], want)
-        frames.extend((c['id'], f, got[f]) for f in want if f in got)
-    frames = frames[:args.n]
+    frame_cache = CACHE / f'timing_frames_{args.n}.npz'
+    if frame_cache.exists():
+        with np.load(frame_cache, allow_pickle=False) as z:
+            frames = [(str(c), int(f), z[f'image_{i}'].copy()) for i, (c, f) in enumerate(zip(z['clip_ids'], z['frame_ids']))]
+        print('CACHED_FRAMES', len(frames), flush=True)
+    else:
+        frames = []
+        for c in clips:
+            want = c['test_frames'][:max(1, (args.n + 4) // 5)]
+            print('DECODING', c['id'], len(want), flush=True)
+            got = cb.decode_frames(c['job'], c['seq'], want)
+            frames.extend((c['id'], f, got[f]) for f in want if f in got)
+        frames = frames[:args.n]
+        np.savez(frame_cache, clip_ids=np.asarray([c for c, _, _ in frames]), frame_ids=np.asarray([f for _, f, _ in frames]),
+                 **{f'image_{i}': im for i, (_, _, im) in enumerate(frames)})
     if len(frames) < 5:
         raise RuntimeError('Too few decoded frames')
     shp = fitter.fit(frames[0][2])['shape']
     out = {'gpu': torch.cuda.get_device_name(), 'n_frames': len(frames), 'frames': [(c, f) for c, f, _ in frames],
            'threads': args.threads, 'host_load_at_start': os.getloadavg(),
-           'git': os.popen('git rev-parse HEAD').read().strip(), 'arms': {}, 'equivalence': {}}
+           'git': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'arms': {}, 'equivalence': {}}
     ref = []; ref_h1 = []
     arms = ['cpu_raw_full', 'cpu_raw_lean', 'cpu_h1_60', 'cuda_raw_lean', 'cuda_h1_60']
     for name in arms:
@@ -137,12 +148,45 @@ def probe(args):
     print(p.stdout, flush=True)
 
 
+def verify(args):
+    import hashlib
+    import numpy as np
+    import cv2
+    root = Path(args.E)
+    split = json.loads((HERE / 'valbench_v1.json').read_text())['clips']
+    u = [c['id'] for c in split if c['dataset'] == 'ubody']
+    b = [c['id'] for c in split if c['dataset'] == 'bedlam2']
+    keep = list(dict.fromkeys(u[:2] + ['ubody/Olympic_S6_Trim23_scene001', 'ubody/ConductMusic_S29_Trim13'] + b[:2]))
+    out = {'method': args.method, 'control': args.control, 'clips': {}, 'missing': [], 'png_identical': 0, 'n_frames': 0}
+    for cid in keep:
+        frame_info = json.loads((root / 'base' / cid / 'frames.json').read_text())
+        d = {'frames': len(frame_info['test']), 'png_identical': 0, 'max_pixel_delta': 0, 'mean_pixel_delta': []}
+        for key in frame_info['test']:
+            p = root / 'renders' / args.method / cid / f'{key}.png'
+            q = root / 'renders' / args.control / cid / f'{key}.png'
+            if not p.exists() or not q.exists():
+                out['missing'].append(f'{cid}/{key}'); continue
+            same = hashlib.md5(p.read_bytes()).digest() == hashlib.md5(q.read_bytes()).digest()
+            delta = np.abs(cv2.imread(str(p)).astype(np.int16) - cv2.imread(str(q)).astype(np.int16))
+            d['png_identical'] += int(same); d['max_pixel_delta'] = max(d['max_pixel_delta'], int(delta.max()))
+            d['mean_pixel_delta'].append(float(delta.mean()))
+            out['n_frames'] += 1; out['png_identical'] += int(same)
+        d['mean_pixel_delta'] = float(np.mean(d['mean_pixel_delta'])) if d['mean_pixel_delta'] else None
+        out['clips'][cid] = d
+    target = O / 'reports/no_latency_20261102' / f'{args.method}_equivalence.json'
+    target.parent.mkdir(parents=True, exist_ok=True); target.write_text(json.dumps(out, indent=2))
+    print(json.dumps(out, indent=2), flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('action', choices=('inventory', 'probe', 'benchmark', 'teacher', 'train'))
+    ap.add_argument('action', choices=('inventory', 'probe', 'benchmark', 'verify'))
     ap.add_argument('--n', type=int, default=32)
     ap.add_argument('--threads', type=int, default=16)
     ap.add_argument('--name', default='benchmark')
+    ap.add_argument('--method', default='fb_sprint_k0_trkc_fastcpu')
+    ap.add_argument('--control', default='fb_sprint_k0_trkc')
+    ap.add_argument('--E', default='/dev/shm/ubx858_eval/valbench_v1')
     args = ap.parse_args()
     globals()[args.action](args)
 

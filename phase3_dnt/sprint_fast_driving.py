@@ -48,11 +48,15 @@ class SprintFitter(SprintFitterBase):
             if cudnn.exists():
                 ctypes.CDLL(str(cudnn), mode=ctypes.RTLD_GLOBAL)
         so = ort.SessionOptions(); so.intra_op_num_threads = self.fast_dwpose_threads
-        providers = [provider] if provider == 'CPUExecutionProvider' else [provider, 'CPUExecutionProvider']
+        providers = [provider] if provider == 'CPUExecutionProvider' else [
+            (provider, {'use_tf32': 0}), 'CPUExecutionProvider']
         det = ort.InferenceSession(str(_base.EHMT / 'pretrained/dwpose/yolox_l.onnx'), so, providers=providers)
         pose = ort.InferenceSession(str(_base.EHMT / 'pretrained/dwpose/dw-ll_ucoco_384.onnx'), so, providers=providers)
         if any(s.get_providers()[0] != provider for s in (det, pose)):
             raise RuntimeError(f'{provider} fell back; refusing misleading timing')
+        if provider == 'CUDAExecutionProvider' and any(
+                s.get_provider_options().get(provider, {}).get('use_tf32') != '0' for s in (det, pose)):
+            raise RuntimeError('CUDA provider did not confirm use_tf32=0')
         self.s_det, self.s_pose = det, pose
         self.dwpose_provider = provider
 
@@ -80,13 +84,18 @@ class SprintFitter(SprintFitterBase):
         cam = self.ev.cam_feat(A256, W, H, W, 0.0)
         out = self.sprint(crop_t, cam, shape_lock)
         torch.cuda.synchronize(); T['sprint_and_crop'] = time.perf_counter() - t0 - T['detector']
-        aa = lambda r: roma.rotmat_to_rotvec(r.reshape(-1, 3, 3)).cpu().numpy().astype(np.float32)
         bp = out['body_param']
-        RT = out['pd_cam'][0, :3, :4].cpu().numpy().astype(np.float32)
-        raw = {'global_pose': aa(bp['global_pose'])[0], 'body_pose': aa(bp['body_pose']),
-               'left_hand_pose': aa(bp['left_hand_pose']), 'right_hand_pose': aa(bp['right_hand_pose']),
-               'jaw_pose': aa(bp['jaw_pose']).reshape(1, 3), 'eye_pose': np.zeros((2, 3), np.float32),
-               'exp': bp['exp'][0, :50].cpu().numpy().astype(np.float32),
+        rotations = torch.cat([bp[k].reshape(-1, 3, 3) for k in (
+            'global_pose', 'body_pose', 'left_hand_pose', 'right_hand_pose', 'jaw_pose')])
+        aa = roma.rotmat_to_rotvec(rotations).reshape(-1)
+        nsh = bp['shape'].shape[-1]
+        packed = torch.cat([aa, bp['exp'][0, :50], bp['shape'][0], out['pd_cam'][0, :3, :4].reshape(-1)]).cpu().numpy().astype(np.float32)
+        pose = packed[:159].reshape(53, 3)
+        RT = packed[209 + nsh:].reshape(3, 4)
+        raw = {'global_pose': pose[0], 'body_pose': pose[1:22],
+               'left_hand_pose': pose[22:37], 'right_hand_pose': pose[37:52],
+               'jaw_pose': pose[52:53], 'eye_pose': np.zeros((2, 3), np.float32),
+               'exp': packed[159:209],
                'camera_RT_params': RT, 'body_cam': np.zeros(3, np.float32)}
         Mlr = _base.box_crop_matrix(box, _base.BODY_LR)
         Mp = _base.box_crop_matrix(box, _base.PART)
@@ -97,7 +106,7 @@ class SprintFitter(SprintFitterBase):
                              'M_o2c-hd': M, 'M_c2o-hd': np.linalg.inv(M).astype(np.float32)},
                **{p: {'M_o2c': Mp, 'M_c2o': np.linalg.inv(Mp).astype(np.float32)}
                   for p in ('head_crop', 'left_hand_crop', 'right_hand_crop')}}
-        shape = bp['shape'][0].cpu().numpy()
+        shape = packed[209:209 + nsh]
         torch.cuda.synchronize(); T['total'] = time.perf_counter() - t0
         return {'record': rec, 'raw_smplx': raw, 'shape': shape, 'raw_shape': shape,
                 'box': box, 'M': M, 'times': T, 'cam_feat': cam}

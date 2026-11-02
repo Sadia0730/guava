@@ -5,10 +5,18 @@ cd /home/ubx858/guava
 export PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH=/tmp/pytorch3d-torch22:/tmp/guava-cuda-torch22:/raid/ubx858/datasets/eval_assets/pylib:/raid/ubx858/outputs/dnt/guava_shims
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export CUDA_VISIBLE_DEVICES=${EXPERIMENT_GPU:-2}
+if [ -z "${EXPERIMENT_GPU:-}" ]; then
+  EXPERIMENT_GPU=$(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits | awk -F, '$2 < 2000 && $3 < 5 {gsub(/ /,"",$1); print $1; exit}')
+fi
+if [ -z "${EXPERIMENT_GPU:-}" ]; then
+  echo 'No idle GPU with less than 2 GB resident memory; retry later.' >&2
+  exit 3
+fi
+export CUDA_VISIBLE_DEVICES=$EXPERIMENT_GPU
+echo "Experiment GPU: $CUDA_VISIBLE_DEVICES"
 export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
 case "${1:-}" in
-  inventory|probe|benchmark|teacher|train)
+  inventory|probe|benchmark|verify)
     exec /home/ubx858/miniconda3/envs/guava/bin/python phase3_dnt/eval_split/no_latency_experiments.py "$@" ;;
   eval)
     shift
@@ -16,5 +24,5 @@ case "${1:-}" in
   score)
     shift
     exec /home/ubx858/miniconda3/envs/guava/bin/python phase3_dnt/eval_split/score.py "$@" ;;
-  *) echo 'Expected inventory, benchmark, teacher, train, eval, or score' >&2; exit 2 ;;
+  *) echo 'Expected inventory, probe, benchmark, verify, eval, or score' >&2; exit 2 ;;
 esac

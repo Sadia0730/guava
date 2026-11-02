@@ -63,3 +63,33 @@ the isolated GART baseline env, then require actual CUDA execution. A new
 records host load, and writes benchmark_cuda_threads4.json separately. This
 is a runtime repair and thread-count control, not a change to weights or fit
 objectives. Measure all arms again; do not combine their times across runs.
+
+## N2 precision correction and N1 export batching (before validation runs)
+
+CUDA ran after the library repair. On the busy host, 32-frame median wall ms:
+CPU full k0 2670, CPU lean k0 1828, CPU k60 2827, CUDA lean k0 251, CUDA k60 1002.
+These are contention measurements, not idle performance. Default CUDA provider
+math gave differences up to 0.064 in raw camera translation, so it is not
+accepted as equivalent. ONNX Runtime defaults to TF32; explicitly disable it
+(`use_tf32=0`, official CUDA provider docs) and require confirmation from both
+sessions before any quality evaluation. New runs use separate row names.
+
+Raw output export is batched into one rotation conversion and one GPU-to-CPU
+transfer, preserving all fields and FP32 precision. Repeat the numeric test
+against the full baseline before using it; require <=1e-6 CPU-provider error.
+Detect an idle GPU at launch rather than hardcoding an index. If other jobs
+arrive during a benchmark, disclose contention and do not claim idle latency.
+
+## N3: spend more time once on source fitting, keep k0 driving
+
+Exploratory source-only pilot: 500 source-fit iterations versus the existing
+150, same B28k, original SPRINT, H1c, k0 driving, no extra images or GT. Use the
+same verified backend in both arms. Live pose network and renderer unchanged.
+The fixed validation subset is the union specified in N1 (five unique clips
+because Olympic is already among the first two UBody clips). Compare PSNR /
+LPIPS on all frames, per dataset and per clip. Proceed to full validation only
+if all-frame PSNR gains >=0.20 dB, LPIPS does not worsen, neither dataset loses
+>0.10 dB / +0.003 LPIPS, and >=2/3 clips improve. Report creation time separately;
+any adoption also requires paired render median/p90 not materially increased
+(existing 2% timing-noise tolerance). More setup time is allowed by the user's
+per-frame constraint, but must be disclosed. Reject non-finite fits.
