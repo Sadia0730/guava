@@ -131,7 +131,9 @@ $PY diag_offsets_h2.py h2_offsets.json   (from phase3_dnt/guava_fb; B28k / H2ctr
   pipeline's +2.45 dB: almost all of H1's gain is the per-frame refinement, not the subject choice.
 - **ValBench UBody is SPRINT training data.** All 20 ValBench UBody clips are in SPRINT's UBody training rows (1,932 rows of these
   clips, every 3rd annotated frame; 25,701 rows of their identities). Every SPRINT row on ValBench UBody is therefore measured on
-  clips SPRINT was fitted to (with UBody's pseudo-GT). ValBench BEDLAM2 and all of AvatarTest-v1 are unseen by SPRINT. The H1 / H1c
+  clips SPRINT was fitted to (with UBody's pseudo-GT). ValBench BEDLAM2 and all AvatarTest-v1 clips are unseen by SPRINT at the clip
+  level (BEDLAM2 val jobs; UBody official test lists), but BEDLAM2 subjects recur across jobs (38 / 40 AvatarTest BEDLAM2 identities
+  appear in sequences SPRINT trained on); AvatarTest UBody identities are not in SPRINT's training. The H1 / H1c
   / H3 decisions compare arms with the same SPRINT and stand; the size of H1's gain on unseen real clips is not measured there.
   For SPRINT-side changes: **ValBench-S** (`eval_split/valbench_s.json`; 13 UBody clips, 10 identities, 1,325 test frames) = clips
   of SPRINT's own UBody val split (frames never used for SPRINT), not GUAVA-FB / a20 training clips, identities disjoint from

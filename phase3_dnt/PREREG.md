@@ -1053,3 +1053,6 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   (2) F0: rows with a non-finite fit are dropped, and the F3 / F4 percentiles are taken over finite rows. Rows are sharded by clip
   (one decode per clip). The latent empty-matte NaN in sprint_avatar_fit's refinement also affects the deployed pipeline; it is
   reported, not changed here; whether any ValBench / AvatarTest frame hit it is not checked yet.
+- **Precision note (2026-11-02 11:42):** "unseen by SPRINT" in the H3-finding entry is at the clip level (BEDLAM2 val jobs; UBody official
+  test lists). BEDLAM2 subjects recur across jobs: 38 / 40 AvatarTest-v1 BEDLAM2 identities appear in sequences SPRINT trained on (as the
+  AvatarTest-v1 table caption states). AvatarTest-v1 UBody identities have no SPRINT training row (checked with `ub_identity`).
