@@ -34,7 +34,7 @@ if [ "$GPU" = auto ]; then  # wait (up to 12 h) until a GPU with < 2 GB in use i
   [ -n "$GPU" ] || { echo "no free GPU"; exit 3; }
 fi
 used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i $GPU | tr -d ' ')
-[ "$used" -lt 2048 ] || { echo "GPU $GPU has $used MiB in use"; exit 3; }
+[ -n "${EXA_FORCE_GPU:-}" ] || [ "$used" -lt 2048 ] || { echo "GPU $GPU has $used MiB in use"; exit 3; }   # EXA_FORCE_GPU=1: shared GPU with idle residents
 export CUDA_VISIBLE_DEVICES=$GPU
 # 8 CPU threads per process (shared 224-core host; ExAvatar's CPU-side ops are ~2x faster than with the default
 # all-core thread pools); ExAvatar's tools call `python` from PATH (as after `conda activate`)
