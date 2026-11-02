@@ -964,3 +964,17 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   PSNR and <= 0.003 LPIPS. Also reported: the share of the selected pipeline's gain (k = 0 -> k = 60 + H1c, +2.45 dB) that
   tracking alone gives.
 - (ii) and (iii) are registered below before any of their runs (smoke tests included).
+- **H3 result (2026-11-02 00:29, applying the rule):** ValBench all-frame PSNR / SSIM / LPIPS 18.10 / 0.769 / 0.2009 -> 18.22 /
+  0.775 / 0.1988 (UBody 16.68 -> 16.83 dB; BEDLAM2 21.92, unchanged to all printed digits); wrong-person clips Olympic_S6 +3.46 dB /
+  -0.038 LPIPS, ConductMusic_S29 +1.82 dB / -0.039; bedlam2 seq_000532 unchanged (0.0000 dB). All conditions met -> **H3 adopted for
+  the k = 0 pipeline** (zero added cost). Tracking alone gives 0.11 of the selected pipeline's +2.45 dB (4.7 %); the rest is the
+  k = 60 refinement. With tracking the two clips reach 14.92 / 13.98 dB at k = 0 vs 15.69 / 15.41 at k = 60.
+- **Finding that changes how SPRINT rows on ValBench UBody read (2026-11-02 00:29, checked before any H4 run):** all 20 ValBench
+  UBody clips are in SPRINT's UBody training rows (1,932 rows of these clips, every 3rd annotated frame; 25,701 rows of their 20
+  identities; SPRINT's `ubody_labels` train split), so every SPRINT row on ValBench UBody (k = 0, H1, H1c, H3) is measured on
+  clips SPRINT was trained on with UBody's pseudo-GT. ValBench BEDLAM2 (30 clips) and all of AvatarTest-v1 (30 UBody + 40 BEDLAM2)
+  are unseen by SPRINT (BEDLAM2 val jobs; UBody official test lists). The H1 / H1c / H3 decisions compare arms that share the same
+  SPRINT, so they stand; the size of the H1 gain on unseen real clips is not measured by ValBench UBody.
+- **Record correction 3 (2026-11-02 00:29):** the phase-4 header's "registered 00:25" is late: the section was written at ~00:20 and
+  committed in 1b0b94e3 at 00:21:19, before the H3 run started (00:21:30). The two entries above were first labelled 00:47 / 00:45
+  and fixed to 00:29 (the clock time when they were written) before committing.
