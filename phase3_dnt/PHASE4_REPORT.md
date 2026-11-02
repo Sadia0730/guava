@@ -1,6 +1,6 @@
 # GUAVA-FB improvement phase 4: same live cost (2026-11-02)
 
-Status: **in progress.** H3 is decided. The H4 pilot finished training and is being evaluated; its verdict is not in this file yet.
+Status: **H3 adopted, H4 not supported.** Phase 5 (person-box source) and PublicBench-v1 are running.
 Details: `PREREG.md` (phase 4 + amendments 1-2), `RUNLOG.md` 91-99, `guava_fb/IMPROVE_NOTES.md` (phase 4 section).
 All choices are made on validation data only. AvatarTest-v1 was not touched in this phase.
 
@@ -57,7 +57,7 @@ Reference rows on ValBench-S, all frames:
 
 On unseen real clips, H1 adds **+3.15 dB** and closes 89 % of the gap to GT driving. Every clip improves, by +0.86 to +4.41 dB.
 
-### H4: SPRINT trained on its own offline H1 fits (verdict pending)
+### H4: SPRINT trained on its own offline H1 fits (not supported)
 - **Labels.** 24,000 rows from SPRINT's UBody training split were sampled from 1,400 clips; eval identities were excluded.
   - Each row was fitted with H1's objective (k = 60) on the original video frame, exactly as deployed.
   - Kept: **17,388 rows (72 %)**.
@@ -76,7 +76,19 @@ On unseen real clips, H1 adds **+3.15 dB** and closes 89 % of the gap to GT driv
   - beat the control by at least **+0.30 dB** with LPIPS no worse;
   - win on at least 2/3 of clips;
   - lose no more than 0.10 dB on ValBench BEDLAM2.
-- **Status.** Evaluation of both arms is running. Results go into this file.
+- **Result (k = 0 + H1c, PSNR / SSIM / LPIPS):**
+
+  | Row | ValBench-S (primary) | ValBench BEDLAM2 | ValBench UBody (SPRINT-seen) |
+  |---|---|---|---|
+  | original SPRINT | 17.85 / 0.774 / 0.1986 | 21.92 / 0.867 / 0.1111 | 16.83 / 0.741 / 0.2316 |
+  | control fine-tune | 17.75 / 0.771 / 0.2011 | 21.86 / 0.867 / 0.1117 | 16.82 / 0.740 / 0.2311 |
+  | H1-distilled fine-tune | 17.79 / 0.774 / 0.1992 | 21.89 / 0.867 / 0.1114 | 16.85 / 0.743 / 0.2296 |
+  | teacher, k = 60 + H1c | 20.99 / 0.826 / 0.1546 | - | - |
+
+  - Arm vs control: **+0.035 dB** on ValBench-S, with 10 / 13 clips up. The rule needs +0.30 dB, so **H4 is not supported**.
+  - The arm recovers 1.1 % of the teacher's +3.15 dB. Both fine-tunes sit slightly below the original SPRINT.
+  - Reading: H1's gain is per-frame fitting to each frame's own keypoints and matte. A one-pass regressor does not absorb it from 17k extra labelled rows in a 4k-step fine-tune.
+  - The cheap live options remain H3 (k = 0 + tracking) or paying for k = 60.
 
 ### Idea 3 (avatar training, same architecture): not run
 - Training pairs are already GT (BEDLAM2, 4D-DRESS), SPRINT + refinement refits (UBC, Motion-X) or EHM tracks (UBody). "Better-aligned pairs" has little headroom by construction.
@@ -118,9 +130,9 @@ On subset24 (PSNR / SSIM / LPIPS): ExAvatar UBody 19.66 / 0.798 / 0.191, BEDLAM2
 - **Shared host.** Another user's jobs kept CPU load at about 500, so every CPU-bound stage ran 3-5x slower. My jobs now run with bounded thread counts.
 
 ## Pending
-1. H4 verdict, then this file and PREREG / RUNLOG are updated.
+1. Phase 5 box-source comparison and PublicBench-v1 rows (running).
 2. The single AvatarTest-v1 test run, after H4 decides (user choice).
    - Registered: k = 60 + H1c.
-   - If H4 passes, the distilled k = 0 pipeline is added by amendment, before any test run.
+   - H4 failed, so the registered k = 60 + H1c run stands unchanged.
 3. The empty-matte fix, if wanted.
 4. The PublicBench-v1 People-Snapshot zip password.
