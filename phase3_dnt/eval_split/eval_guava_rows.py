@@ -45,7 +45,11 @@ ap.add_argument("--track-subject", action="store_true", help="H1b: select the su
 ap.add_argument("--name", default="", help="output row name (default: the row, + _k<iters> for driving refinement)")
 ap.add_argument("--drive-iters", type=int, default=0, help="H1: refine each SPRINT driving frame with k iterations of sprint_avatar_fit's objective (0 = raw, deployed)")
 ap.add_argument("--raw", action="store_true", help="also write the raw Gaussian render (first 3 feature channels, no refiner) to <row>_raw")
+ap.add_argument("--fast-backend", action="store_true", help="opt-in backend skipping unused work for raw driving; source fit unchanged")
+ap.add_argument("--dwpose-provider", default="CPUExecutionProvider", choices=("CPUExecutionProvider", "CUDAExecutionProvider"))
 a = ap.parse_args()
+if not a.fast_backend and a.dwpose_provider != 'CPUExecutionProvider':
+    ap.error('--dwpose-provider CUDAExecutionProvider requires --fast-backend')
 SPLIT = json.loads(Path(a.split).read_text())
 E = Path(a.E)
 ROWNAME = a.name or (a.row + (f"_k{a.drive_iters}" if a.drive_iters else ""))
@@ -57,9 +61,11 @@ if a.clips: want = a.clips.split(","); clips = [c for c in clips if c["id"] in w
 
 fitter = None
 if a.row == "fb_sprint":                                    # SPRINT first: it loads PEAR's packages, then purges them
-    spec = importlib.util.spec_from_file_location("sprint_avatar_fit", ROOT / "phase3_dnt/sprint_avatar_fit.py")
+    fitter_file = 'sprint_fast_driving.py' if a.fast_backend else 'sprint_avatar_fit.py'
+    spec = importlib.util.spec_from_file_location("sprint_avatar_fit", ROOT / 'phase3_dnt' / fitter_file)
     SAF = importlib.util.module_from_spec(spec); spec.loader.exec_module(SAF)
-    fitter = SAF.SprintFitter(a.sprint_ckpt, "cuda:0", a.sprint_iters)
+    fitter_kwargs = {'dwpose_provider': a.dwpose_provider} if a.fast_backend else {}
+    fitter = SAF.SprintFitter(a.sprint_ckpt, "cuda:0", a.sprint_iters, **fitter_kwargs)
 
 import cv2, torch, torchvision                                                                       # noqa: E402
 sys.path.insert(0, str(HERE.parent / "guava_fb")); sys.path.insert(0, str(HERE))
@@ -223,6 +229,7 @@ def main():
                 if a.raw:
                     (od / "raw").mkdir(exist_ok=True); torchvision.io.write_png(u8(_RAW["last"]), str(od / "raw" / f"{k}.png"))
         else:                                                                                      # fb_sprint
+            info.update(fast_backend=a.fast_backend, dwpose_provider=a.dwpose_provider)
             sf = c["source_frame"]; tf = [int(k.split("_")[1]) for k in fj["test"]]
             ori = original_frames(c, [sf] + tf); Hm = metric_H(c)
             if not warm: fit_track(fitter, ori[sf], None)                                         # warm-up (not timed)
