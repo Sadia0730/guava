@@ -23,7 +23,7 @@ def fmt_time(ms):
 rows, gpus = [], set()
 for m in a.methods.split(","):
     p = E / "scores" / f"{m}_{a.tag}.json"
-    if not p.exists(): rows.append((m, None, "", "")); continue
+    if not p.exists(): rows.append((m, None, "", "", {})); continue
     s = json.loads(p.read_text()); agg = s["aggregate"]
     tj = E / "reports" / f"recon_timing_{m}.json"
     if tj.exists():
@@ -32,10 +32,10 @@ for m in a.methods.split(","):
         tr = [c["run"]["train_s"] for c in s["per_clip"].values() if "run" in c and "train_s" in c["run"]]
         rt = fmt_time(1000 * float(np.median(tr))) if tr else "-"
         gpus |= {c["run"].get("gpu") for c in s["per_clip"].values() if "run" in c and c["run"].get("gpu")}
-    rows.append((m, agg, INPUT.get(m, "first half of the clip"), rt))
+    rows.append((m, agg, INPUT.get(m, "first half of the clip"), rt, s.get("missing_clips") or {}))
 hdr = "| Method | " + " | ".join(f"{d} PSNR ↑ | {d} L1 ↓ | {d} SSIM ↑ | {d} LPIPS ↓" for d in ("UBody", "BEDLAM2", "All")) + " | Recon. input | Recon. time |"
 L = [f"### AvatarTest-v1 ({a.tag}){' — ' + a.title if a.title else ''}", "", hdr, "|---|" + "---|" * 14]
-for m, agg, inp, rt in rows:
+for m, agg, inp, rt, _ in rows:
     if agg is None: L.append(f"| {NAME.get(m, m)} | " + " | ".join(["-"] * 12) + " | | |"); continue
     cell = []
     for d in ("ubody", "bedlam2", "all"):
@@ -51,7 +51,9 @@ L += ["", (f"Caption. Self-reenactment on AvatarTest-v1 ({n['all']} clips / {f['
            "GUAVA-FB [SPRINT], which uses SPRINT's per-frame estimate (no GT anywhere); SMPL for GART / GaussianAvatar fitted to the GT "
            "SMPL-X mesh; ExAvatar's own face fitting allowed. No test-time pose fitting for any method. UBody clips are upper body only, "
            "so full-body baselines may struggle there (per-dataset columns). UBody GT is pseudo-GT (UBody's SMPL-X fits); released GUAVA "
-           "may have trained on UBody clips; 38 of the 40 BEDLAM2 identities appear in other BEDLAM2 clips SPRINT trained on. "
+           "may have trained on UBody clips; in the full split, 38 of the 40 BEDLAM2 identities appear in other BEDLAM2 clips SPRINT trained on. "
            f"Recon. time: avatar creation from the source (GUAVA-family: model only for GT rows, + SPRINT's source fit for the SPRINT row) / "
-           f"per-clip training incl. preprocessing (baselines), measured on {', '.join(sorted(g for g in gpus if g))}.")]
+           f"per-clip training incl. preprocessing (baselines), measured on {', '.join(sorted(g for g in gpus if g))}."
+           + "".join(f" {NAME.get(m, m)}: {agg['all']['clips']} of {n['all']} clips scored (missing: {', '.join(sorted(mc))}); its columns cover only those clips."
+                     for m, agg, _, _, mc in rows if agg and mc))]
 (E / f"table_{a.tag}.md").write_text("\n".join(L) + "\n"); print("\n".join(L))
