@@ -1089,3 +1089,9 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   ankles of upper-body clips fall below the image, so a box over all 18 points would trigger re-detection almost every frame. (c) uses
   the projected OpenPose body points 0-17 that fall INSIDE the image; lost = fewer than 4 such points, or the box's long side changes by
   > 1.5x from the previous box. Nothing else changes.
+- **H4 result (2026-11-02 15:38, applying the rule; `O/reports/improve/h4_report.json`):** ValBench-S all frames, arm vs control at k = 0 + H1c:
+  17.79 / 0.774 / 0.1992 vs 17.75 / 0.771 / 0.2011 (PSNR +0.035 dB, LPIPS -0.0019); 10 / 13 clips up; original SPRINT 17.85, teacher
+  (k = 60 + H1c) 20.99 -> the arm recovers 1.1 % of the teacher's +3.15 dB. ValBench BEDLAM2 +0.026 dB (22 / 30 up); ValBench UBody
+  (SPRINT-seen, reported only) +0.036 dB. Guard passes. (a) fails (needs >= +0.30 dB) -> **H4 not supported**. Both 4k fine-tunes
+  sit ~0.06-0.10 dB below the original SPRINT, so 4k steps of either label set do not move the k = 0 avatar quality: the gain H1
+  gives is per-frame fitting that this regressor does not absorb from 17k extra labelled rows at this scale.
