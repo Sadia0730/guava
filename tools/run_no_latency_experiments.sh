@@ -8,7 +8,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export CUDA_VISIBLE_DEVICES=${EXPERIMENT_GPU:-2}
 export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
 case "${1:-}" in
-  inventory|benchmark|teacher|train)
+  inventory|probe|benchmark|teacher|train)
     exec /home/ubx858/miniconda3/envs/guava/bin/python phase3_dnt/eval_split/no_latency_experiments.py "$@" ;;
   eval)
     shift

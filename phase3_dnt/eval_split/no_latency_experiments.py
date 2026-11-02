@@ -33,7 +33,9 @@ def benchmark(args):
     import numpy as np
     import hashlib
     fast = load_fast()
-    fitter = fast.SprintFitter(CKPT, 'cuda:0', 150)
+    print('LOADING', 'checkpoint', str(CKPT), 'threads', args.threads, flush=True)
+    fitter = fast.SprintFitter(CKPT, 'cuda:0', 150, dwpose_threads=args.threads)
+    print('LOADED', flush=True)
     sys.path.insert(0, str(HERE.parent / 'guava_fb'))
     import convert_bedlam2 as cb
     cb.LOCAL_TMP = CACHE / 'decode'; cb.LOCAL_TMP.mkdir(parents=True, exist_ok=True)
@@ -48,6 +50,7 @@ def benchmark(args):
         raise RuntimeError('Too few decoded frames')
     shp = fitter.fit(frames[0][2])['shape']
     out = {'gpu': torch.cuda.get_device_name(), 'n_frames': len(frames), 'frames': [(c, f) for c, f, _ in frames],
+           'threads': args.threads, 'host_load_at_start': os.getloadavg(),
            'git': os.popen('git rev-parse HEAD').read().strip(), 'arms': {}, 'equivalence': {}}
     ref = []; ref_h1 = []
     arms = ['cpu_raw_full', 'cpu_raw_lean', 'cpu_h1_60', 'cuda_raw_lean', 'cuda_h1_60']
@@ -96,10 +99,10 @@ def benchmark(args):
             out['equivalence'][name] = deltas
         print('ARM', name, json.dumps(out['arms'][name]), 'DELTAS', out['equivalence'].get(name), flush=True)
         CACHE.mkdir(parents=True, exist_ok=True)
-        (CACHE / 'benchmark.json').write_text(json.dumps(out, indent=2))
+        (CACHE / f'{args.name}.json').write_text(json.dumps(out, indent=2))
     report = O / 'reports/no_latency_20261102'; report.mkdir(parents=True, exist_ok=True)
-    (report / 'benchmark.json').write_text(json.dumps(out, indent=2))
-    print('REPORT', str(report / 'benchmark.json'), flush=True)
+    (report / f'{args.name}.json').write_text(json.dumps(out, indent=2))
+    print('REPORT', str(report / f'{args.name}.json'), flush=True)
 
 
 def inventory(args):
@@ -120,10 +123,26 @@ def inventory(args):
             print('plan entry', key, value[:1], flush=True)
 
 
+def probe(args):
+    import glob
+    import subprocess
+    for pattern in ('/dev/shm/ubx858_baselines/*/env/lib/libcublasLt.so*',
+                    '/dev/shm/ubx858_baselines/*/env/lib/python*/site-packages/nvidia/*/lib/lib*.so*',
+                    '/usr/local/cuda*/lib64/libcublasLt.so*'):
+        paths = glob.glob(pattern)
+        print('LIBRARIES', pattern, paths, flush=True)
+    import onnxruntime
+    lib = Path(onnxruntime.__file__).parent / 'capi/libonnxruntime_providers_cuda.so'
+    p = subprocess.run(['ldd', str(lib)], capture_output=True, text=True)
+    print(p.stdout, flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('action', choices=('inventory', 'benchmark', 'teacher', 'train'))
+    ap.add_argument('action', choices=('inventory', 'probe', 'benchmark', 'teacher', 'train'))
     ap.add_argument('--n', type=int, default=32)
+    ap.add_argument('--threads', type=int, default=16)
+    ap.add_argument('--name', default='benchmark')
     args = ap.parse_args()
     globals()[args.action](args)
 

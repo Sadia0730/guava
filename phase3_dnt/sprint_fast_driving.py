@@ -26,6 +26,7 @@ class SprintFitter(SprintFitterBase):
     def __init__(self, *args, dwpose_provider='CPUExecutionProvider', **kwargs):
         super().__init__(*args, **kwargs)
         self.dwpose_provider = dwpose_provider
+        self.fast_dwpose_threads = kwargs.get('dwpose_threads', 16)
         if dwpose_provider != 'CPUExecutionProvider':
             self.set_dwpose_provider(dwpose_provider)
 
@@ -33,7 +34,20 @@ class SprintFitter(SprintFitterBase):
         import onnxruntime as ort
         if provider not in ort.get_available_providers():
             raise RuntimeError(f'Unavailable provider: {provider}')
-        so = ort.SessionOptions(); so.intra_op_num_threads = 16
+        # The host already has CUDA 11 libraries in the isolated baseline env.
+        # Load only its required NVIDIA libraries, not its Python/BLAS runtime.
+        # PyTorch's CUDA 12 libraries have different sonames and remain intact.
+        if provider == 'CUDAExecutionProvider':
+            import ctypes
+            libroot = Path('/dev/shm/ubx858_baselines/gart/env/lib')
+            for name in ('libcudart.so.11.0', 'libcublasLt.so.11', 'libcublas.so.11', 'libcufft.so.10'):
+                p = libroot / name
+                if p.exists():
+                    ctypes.CDLL(str(p), mode=ctypes.RTLD_GLOBAL)
+            cudnn = Path(sys.prefix) / 'lib/python3.10/site-packages/nvidia/cudnn/lib/libcudnn.so.8'
+            if cudnn.exists():
+                ctypes.CDLL(str(cudnn), mode=ctypes.RTLD_GLOBAL)
+        so = ort.SessionOptions(); so.intra_op_num_threads = self.fast_dwpose_threads
         providers = [provider] if provider == 'CPUExecutionProvider' else [provider, 'CPUExecutionProvider']
         det = ort.InferenceSession(str(_base.EHMT / 'pretrained/dwpose/yolox_l.onnx'), so, providers=providers)
         pose = ort.InferenceSession(str(_base.EHMT / 'pretrained/dwpose/dw-ll_ucoco_384.onnx'), so, providers=providers)

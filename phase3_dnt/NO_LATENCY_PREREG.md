@@ -50,3 +50,16 @@ resident memory (GPU 2 idle at launch; GPU availability is checked each time). N
 existing checkpoints/data; only new caches under /dev/shm/ubx858_no_latency_20261102
 and reports under O/reports/no_latency_20261102. Training H4 is owned by the
 other ongoing pass and is not duplicated here. No test run or publication.
+
+## Runtime amendment (after initial benchmark, before retry)
+
+Initial 32-frame CPU run: raw full vs lean output fields exactly identical;
+wall median 3,151 vs 2,935 ms on the CPU-saturated host, not an idle timing
+claim. CUDA provider failed because this ONNX Runtime expects CUDA 11 BLAS/FFT
+libraries while guava's PyTorch ships CUDA 12. Do not install or alter either
+environment: explicitly load only the existing NVIDIA CUDA 11 libraries from
+the isolated GART baseline env, then require actual CUDA execution. A new
+32-frame benchmark uses four ONNX threads in both full and lean CPU arms,
+records host load, and writes benchmark_cuda_threads4.json separately. This
+is a runtime repair and thread-count control, not a change to weights or fit
+objectives. Measure all arms again; do not combine their times across runs.
