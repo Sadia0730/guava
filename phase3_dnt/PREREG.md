@@ -1198,3 +1198,101 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   matte (inference-time signals, no GT).
 - **Output:** `phase3_dnt/RESULTS_FINAL.md` + `phase3_dnt/results_final.csv` (per-clip rows + aggregates), built by
   `eval_split/final_tables.py` from the score files; by the 2026-11-08 freeze. Existing per-benchmark tables stay unchanged.
+
+## Phase 6: background worker for the full-body live pipeline (registered 2026-11-03 01:15, before any code of this phase runs; user brief)
+Goal (user): improve the live full-body avatar with an asynchronous background worker (pose correction, C3 UV-feature appearance
+update, stretch: geometry refinement) WITHOUT raising the live per-frame cost and without retraining any network. Validation only;
+test sets (FinalBench) only by amendment after a pass. Freeze 2026-11-08: anything not passed by then is reported as future work.
+Prior evidence (disclosed): E2 (RUNLOG 30, GUAVA upper body, 1 clip, tracker poses) made the avatar worse (future LPIPS
+0.1460 -> 0.1512, frame-0 LPIPS 0.106 -> 0.131); H4 (phase 4) found the k = 60 gain is per-frame and not learnable by SPRINT.
+
+### Data (validation only; replay mode)
+- **4D-DRESS validation** (GUAVA-FB's val split: 4 subjects, 66 takes). Split BY SUBJECT (numpy default_rng(20261103)
+  permutation of the sorted ids): **tuning 00127, 00134; verdict 00137, 00151**. A replay session = all val takes of one
+  (subject, outfit) in take order, one static camera, raw 30 fps frames (180 per take); cameras **0004 and 0052** (front / back,
+  90 deg apart from the other two) -> 8 tuning + 8 verdict sessions (~40-60 s each). Source = the session's first frame.
+  GT per frame = the dataset's SMPL-X (v1.1, gendered) converted as X-Humans (SMPL-X 2020 fitted to the mesh; SMPL for nothing);
+  mask = the dataset's rendered mask (exact). Scored frames = every 3rd frame (10 fps) after the first 30 frames.
+- **BEDLAM2**: ValBench-v1's 30 BEDLAM2 clips (a superset of GUAVA-FB's 10 val clips), split BY IDENTITY (same rng):
+  tuning it_4102, it_4590, it_4591, it_4773, it_4781, nl_5820, us_0420, us_1117, us_1143, us_1479, us_1735, us_1863, us_2447,
+  us_2495, us_2901; verdict it_4224, it_4548, it_4551, it_4634, nl_5510, nl_5764, nl_5955, nl_6929, us_1152, us_1494, us_1675,
+  us_1765, us_1978, us_2343, us_2660. Replay = the clip's 30 fps video from its source frame; scored = its GT rows (6 fps) after
+  the source; ValBench-v1 crops / masks / gt512 unchanged.
+- **Tuning set** = 4D-DRESS 00127 / 00134 sessions + the 15 tuning BEDLAM2 clips; **verdict set** = 4D-DRESS 00137 / 00151
+  sessions + the 15 verdict BEDLAM2 clips (rules are applied to the verdict set, pooled: mean over sessions / clips, each weight 1).
+  **ValBench-S** (13 UBody clips): upper-body no-regression check only (k = 0 + H1c reference, PSNR not lower by > 0.10 dB).
+- Disclosures: ValBench BEDLAM2 / ValBench-S were used for phase 2-5 decisions; 4D-DRESS val drove GUAVA-FB checkpoint selection.
+
+### Replay mode (server)
+- One process per session on one GPU. Frames released in order; the live loop processes EVERY frame (no drops) at
+  clock_t = max(timestamp_t, finish_{t-1}); the worker runs in a separate thread on a low-priority CUDA stream (live stream
+  high priority), sees frames when they are released, takes its real wall time; the live frame t uses only the latest version
+  published (double-buffer swap) at a wall time <= the start of frame t's live processing. No locks on the render path.
+- Live loop = the deployed k = 0 + H1c pipeline (YOLOX + H1c linking -> SPRINT from-scratch EMA 128k raw on its detector crop,
+  shape lock to the source fit -> + current pose correction -> GUAVA-FB B28k render at 512 in SPRINT's crop camera -> warped into
+  the metric crop by the exact homography, as the GUAVA-FB [SPRINT] row). YOLOX detections are computed once per frame and cached
+  (identical for every arm: the box does not depend on the avatar); their measured CPU time enters the e2e numbers.
+- Source avatar = sprint_avatar_fit's full fit of the source frame (150 steps, as the [SPRINT] row).
+
+### Worker (common to steps 1-3)
+- **Frame gate:** a released frame is offered only when no update is in flight (budget: one). Accepted iff
+  (pose novelty >= 15 deg = min over accepted frames of the camera-frame root-orientation geodesic distance, OR new UV coverage
+  gain >= 0.005 of the UV mask, OR it is the n-th frame since the last acceptance, n = 10) AND the refined fit is good: mean 2D
+  keypoint error of the k = 60 fit <= 20 px at the 1024 crop (DWPose score >= 0.3 keypoints) AND the StyleMatte matte is
+  non-empty (alpha > 0.5 on >= 1 % of the crop).
+- **Empty-matte fix** (H1 refinement, all uses in this phase): if the matte is empty the mask / silhouette terms are dropped
+  (keypoint-only refinement) and the frame is rejected by the gate.
+- Then k = 60 refinement (H1 objective, as deployed) -> step 1, step 2, step 3 in that order; publish by atomic swap.
+
+### Step 1: pose correction
+- Correction from each refined frame = refined minus raw SPRINT: per-joint rotation offsets in the parent frame
+  (R_ref R_raw^T for root, 21 body joints, jaw, 30 hand joints) + camera scale bias (log ratio of the crop-camera depth) and
+  translation bias (x, y in crop units). Kept as an EMA over refined frames (rotations averaged in the tangent space at the
+  current mean); applied to every live frame (R_live = R_offset R_raw) until the next update.
+- Tuned on the tuning set only: EMA rate alpha in {0.2, 0.5, 1.0}; which parts are corrected in {all, body + root + camera,
+  camera only}; offsets capped at 30 deg per joint. One setting is chosen by tuning-set PSNR (LPIPS as tie-break), then frozen.
+- **Rule (verdict set):** PSNR >= +0.30 dB AND LPIPS not worse vs k = 0 + H1c; ValBench-S PSNR not lower by > 0.10 dB;
+  live-loop p95 with the worker running <= p95 without + 2 ms, measured on the GPU segment (SPRINT forward + correction + render,
+  CUDA events) with worker-on / worker-off blocks interleaved on the same frames (the CPU detector's time on this shared host is
+  reported but not part of the rule).
+
+### Step 2: C3 appearance update (UV feature fusion), only after step 1 is decided (it runs on top of the adopted step 1, or of k = 0 if step 1 fails)
+- For each accepted frame: GUAVA-FB's image encoder -> inverse texture mapping with the REFINED pose -> per-texel feature map +
+  visibility (as e2_uv_fusion.py, GUAVA-FB's inferer). Texel weight = visibility x facing (|cos|) x fit quality
+  (exp(-kpt_err / 20 px)) x sharpness (min(1, LapVar(crop) / LapVar(source crop))).
+- Fusion: weighted running mean of the stored UV map; the source frame is the anchor with fixed prior weight 2 x its own weight;
+  a texel is updated only where the frame weight >= 0.3 AND the stored confidence (accumulated weight) < 4; outlier texels
+  (mean |RGB - fused RGB| > 0.25 where the stored weight >= 1) get weight 0; outlier frames (render-vs-image LPIPS of the frame
+  under the current avatar > median + 3 MAD of the accepted frames so far, after >= 5 frames) are rejected.
+- Face texels (SMPL-X head region) only if the head is frontal (yaw <= 30 deg, pitch <= 20 deg), sharp (face-crop LapVar >= 0.8 x the
+  source's) and the face keypoint error <= 10 px; after every update the ArcFace similarity (onnx_arcface_torch) of the current
+  avatar rendered in the source camera to the source image must not drop by > 0.01 vs the previous version, else that update is
+  rolled back.
+- Re-run the UV decoder on the fused map (vertex branch, style and camera features stay the source's; "template branch with
+  averaged vertex features" only as a tuning option) and publish the new Gaussians.
+- Stop per body region (head, torso, arms, legs; SMPL-X part labels of the UV texels): coverage >= 0.9 of ever-seen texels AND
+  held-out gain < 0.002 LPIPS over the last 3 updates (held-out = every 6th released frame not fused); reopen when the mean
+  person-region luminance changes by > 15 % vs the stop time.
+- Tuning (tuning set): prior weight in {2, 4}, update threshold in {0.3, 0.5}, template-branch averaging off / on.
+- **Rule (verdict set; scored frames never fused):** (>= 5 % relative LPIPS gain OR >= +0.30 dB) vs the static avatar (same
+  driving); LPIPS on regions unseen at frame 0 improves (pixels whose surface texels had zero source visibility, rendered as a
+  mask; masked LPIPS); CSIM (ArcFace, frames with a detected face) not lower by > 0.01; tLPIPS (mean over consecutive scored
+  frames of |LPIPS(R_t, R_t-1) - LPIPS(G_t, G_t-1)|) not higher; ValBench-S no regression (as step 1).
+
+### Step 3 (stretch; only if steps 1 and 2 pass before 2026-11-06): geometry refinement at fixed Gaussian count
+- Reservoir of 8 accepted frames (greedy farthest root orientation). Background Adam, 300 steps, on per-Gaussian position offsets
+  (|offset| <= 2 cm via tanh) and log-scales (+-0.5) only; colours / features frozen; loss = silhouette L1 (render alpha vs matte)
+  + L1 + 0.2 LPIPS + 1e-2 x offset^2 (regulariser to the decoder's offsets). Relocation: Gaussians with opacity < 0.005 are moved
+  to pixels where the silhouette misses the matte in >= 3 reservoir frames (back-projected onto the nearest surface point);
+  Gaussian count unchanged.
+- **Rule (verdict set, held-out frames):** silhouette IoU >= +0.01 AND LPIPS not worse; Gaussian count unchanged; live render ms
+  unchanged within noise (p50 within +-3 %).
+
+### Reporting
+For k = 0 + H1c, step 1, step 1 + 2, step 1 + 2 + 3 and per-frame k = 60 + H1c (offline upper bound): PSNR / SSIM / LPIPS on the
+scored (future) frames, unseen-region LPIPS, silhouette IoU, CSIM, tLPIPS; live-loop ms / frame p50 / p95 with and without the
+worker (GPU segment and e2e); worker update rate and time per update. Per dataset (4D-DRESS, BEDLAM2) and pooled; tuning results
+reported separately. Results in PHASE6_REPORT.md, here and RUNLOG; an adopted step enters FinalBench only by amendment before its
+test run. Laptop: `--worker {off, pose, pose+uv, pose+uv+geo}` in the live app and the timing script, a recording mode (frames +
+timestamps + live outputs; the user's consented "webcam set", never used for tuning), README with full-body framing and commands.
+GPU: only GPUs not needed by the queued FinalBench runs (plan reported to the user before any phase-6 GPU job).
