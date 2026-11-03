@@ -398,25 +398,33 @@ def live_benchmark(args):
         torch.cuda.synchronize(); t4 = time.perf_counter()
         return np.asarray(box), {'total': (t4-t0)*1000, 'detector': (t1-t0)*1000,
                                  'crop_sprint_export': (t2-t1)*1000, 'render_prep': (t3-t2)*1000,
-                                 'deform_raster_refiner': (t4-t3)*1000}
+                                 'deform_raster_refiner': (t4-t3)*1000}, r['raw_smplx']
 
+    reference_poses = {}
     for name, half, graph in (('fp32', False, False), ('detector_fp16', True, False),
                               ('sprint_graph', False, True), ('both', True, True)):
         fitter.s_det = fitter._driving_s_det if half else fitter._source_s_det
         fitter.det = SimpleNamespace(inference_detector=fitter._person_detector) if half else fitter._source_detector_module
         fitter.use_sprint_graph = graph
-        box = np.asarray(rs['box']); times = []
+        box = np.asarray(rs['box']); times = []; poses = []; numeric = {}
         for i in range(args.n + 10):
-            box, t = step(frames[i % len(frames)], box)
-            if i >= 10: times.append(t)
+            box, t, raw = step(frames[i % len(frames)], box)
+            if i >= 10:
+                times.append(t); poses.append(raw)
+        if not graph:
+            reference_poses[name] = poses
+        else:
+            reference = reference_poses['detector_fp16' if half else 'fp32']
+            numeric = {k: max(float(np.abs(a[k] - b[k]).max()) for a, b in zip(poses, reference)) for k in poses[0]}
         total = np.asarray([t['total'] for t in times])
         out['arms'][name] = {'p50_ms': float(np.percentile(total, 50)), 'p95_ms': float(np.percentile(total, 95)),
                              'max_ms': float(total.max()), 'over_33ms_fraction': float((total > 33).mean()),
                              'median_stages_ms': {k: float(np.median([t[k] for t in times])) for k in times[0]},
                              'passes_33ms': bool(np.percentile(total, 50) <= 33 and np.percentile(total, 95) <= 33),
-                             'host_load': os.getloadavg()}
+                             'host_load': os.getloadavg(), 'graph_raw_numeric_max_error': numeric}
         print('LIVE', name, json.dumps(out['arms'][name]), flush=True)
-        (O / 'reports/no_latency_20261102/live_benchmark.json').write_text(json.dumps(out, indent=2))
+        filename = 'live_benchmark' if args.name == 'benchmark' else args.name
+        (O / f'reports/no_latency_20261102/{filename}.json').write_text(json.dumps(out, indent=2))
 
 
 def main():

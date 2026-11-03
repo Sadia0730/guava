@@ -108,23 +108,27 @@ class SprintFitter(SprintFitterBase):
     @torch.no_grad()
     def _graph_sprint_forward(self, crop_t, cam, shape):
         x = torch.nn.functional.interpolate(crop_t, size=(256, 256), mode='bilinear', antialias=True, align_corners=False)
-        # torchvision normalisation creates/checks host constants, which cannot
-        # execute during CUDA capture. Keep that identical preprocessing outside.
-        x = self.model.prepare_input(x)
         if self._sprint_graph is None and self.sprint_graph_error is None:
             self._sg_x = torch.empty_strided(x.size(), x.stride(), device=x.device, dtype=x.dtype).copy_(x)
             self._sg_cam = torch.as_tensor(cam, device=self.dev).float().reshape(1, 5).clone()
             self._sg_shape = torch.as_tensor(np.asarray(shape, np.float32)[:200], device=self.dev).reshape(1, 200).clone()
             self._sg_cond = {'cam': self._sg_cam, 'shape': self._sg_shape, 'shape_on': torch.ones(1, device=self.dev)}
+            self._sg_mean = torch.as_tensor(self.model.normalize.mean, device=self.dev, dtype=x.dtype).view(3, 1, 1)
+            self._sg_std = torch.as_tensor(self.model.normalize.std, device=self.dev, dtype=x.dtype).view(3, 1, 1)
+            self._sg_camera_offset = torch.tensor([0., 0., 1.5], device=self.dev)
+            self._sg_camera_identity = torch.diag(torch.tensor([-1., -1., 1., 1.], device=self.dev))[None]
+            if getattr(self.model, 'orient_bins', False):
+                raise ValueError('Graph backend supports deployed raw SPRINT rotations only')
             try:
                 side = torch.cuda.Stream()
                 side.wait_stream(torch.cuda.current_stream())
                 with torch.cuda.stream(side):
-                    for _ in range(3): self._graph_token()
+                    for _ in range(3): self._graph_outputs()
                 torch.cuda.current_stream().wait_stream(side)
                 graph = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(graph):
-                    self._sg_token = self._graph_token()
+                    self._sg_out = self._graph_outputs()
+                    self._sg_packed = self._pack_raw(self._sg_out)
                 self._sprint_graph = graph
             except Exception as exc:
                 self.sprint_graph_error = repr(exc)
@@ -133,25 +137,57 @@ class SprintFitter(SprintFitterBase):
         self._sg_cam.copy_(torch.as_tensor(cam).reshape(1, 5))
         self._sg_shape.copy_(torch.as_tensor(np.asarray(shape, np.float32)[:200]).reshape(1, 200))
         self._sprint_graph.replay()
-        # Decode with the original head outside capture: its camera helpers
-        # construct CPU constants. This preserves the deployed raw-head maths.
+        return self._sg_out
+
+    def _graph_outputs(self):
+        """SPRINTHead.decode_token/forward maths with cached camera constants.
+
+        Architecture and decoder operations credited to PEAR / SPRINT. The
+        unused full projection product is omitted; its RT output is identical.
+        """
         head = self.model.head
-        out = head.decode_token(self._sg_token)
-        bp = out['body_param']
+        token = self._graph_token()
+        flame_pose = head.flame_poses_decoder(token)
+        flame = {'eye_pose_params': flame_pose[:, :6], 'pose_params': flame_pose[:, 6:9],
+                 'jaw_params': flame_pose[:, 9:12], 'eyelid_params': flame_pose[:, 12:14],
+                 'expression_params': head.flame_expression_decoder(token), 'shape_params': head.flame_shape_decoder(token)}
+        pose = head.smplx_poses_decoder(token)
+        pose[:, :132] += head.init_body_pose[:, :132]
+        rotate = head.rot6d_to_rotmat
+        scale = head.smplx_scale_decoder(token)
+        bp = {'global_pose': rotate(pose[:, :6].reshape(-1, 1, 6)),
+              'body_pose': rotate(pose[:, 6:132].reshape(-1, 21, 6)),
+              'left_hand_pose': rotate(pose[:, 132:222].reshape(-1, 15, 6)),
+              'right_hand_pose': rotate(pose[:, 222:312].reshape(-1, 15, 6)),
+              'hand_scale': scale[:, :3], 'head_scale': scale[:, 3:], 'eye_pose': None, 'joints_offset': None,
+              'exp': head.smplx_expression_decoder(token), 'shape': head.smplx_shape_decoder(token)}
         jaw = type(head).forward.__globals__['_rodrigues']
-        bp['jaw_pose'] = jaw(out['flame_param']['jaw_params'].float()).to(self._sg_token.dtype)[:, None]
+        bp['jaw_pose'] = jaw(flame['jaw_params'].float()).to(token.dtype)[:, None]
         on = self._sg_cond['shape_on'].to(bp['shape'].dtype)[:, None]
         bp['shape'] = on * self._sg_shape.to(bp['shape'].dtype)[:, :200] + (1 - on) * bp['shape']
-        out['orient_logits'] = head.orient_cls(self._sg_token)
-        out['global_pose_raw'] = bp['global_pose'][:, 0]
-        return out
+        camera = head.cam_decoder(token) + self._sg_camera_offset
+        camera[:, 2:] = 24 / (camera[:, 2:] + 1e-9)
+        rt = self._sg_camera_identity.clone(); rt[:, :3, 3] = camera
+        return {'body_param': bp, 'flame_param': flame, 'pd_cam': rt,
+                'orient_logits': head.orient_cls(token), 'global_pose_raw': bp['global_pose'][:, 0]}
 
     def _graph_token(self):
         head = self.model.head
-        features = self.model.backbone(self._sg_x)
+        x = self._sg_x.clone(memory_format=torch.preserve_format)
+        x.sub_(self._sg_mean).div_(self._sg_std)
+        features = self.model.backbone(x[:, :, :, 32:-32])
         context = features.flatten(2).transpose(1, 2)
         context = torch.cat([context, head.context_tokens(features.shape[0], features.device, features.dtype, self._sg_cond)], 1)
         return head.transformer(features.new_zeros(features.shape[0], 1, 1), context=context).squeeze(1)
+
+    @staticmethod
+    def _pack_raw(out):
+        import roma
+        bp = out['body_param']
+        rotations = torch.cat([bp[k].reshape(-1, 3, 3) for k in (
+            'global_pose', 'body_pose', 'left_hand_pose', 'right_hand_pose', 'jaw_pose')])
+        aa = roma.rotmat_to_rotvec(rotations).reshape(-1)
+        return torch.cat([aa, bp['exp'][0, :50], bp['shape'][0], out['pd_cam'][0, :3, :4].reshape(-1)])
 
     def set_dwpose_provider(self, provider):
         import onnxruntime as ort
@@ -220,11 +256,9 @@ class SprintFitter(SprintFitterBase):
         out = self._graph_sprint_forward(crop_t, cam, shape_lock) if self.use_sprint_graph and shape_lock is not None else self.sprint(crop_t, cam, shape_lock)
         torch.cuda.synchronize(); T['sprint_and_crop'] = time.perf_counter() - t0 - T['detector']
         bp = out['body_param']
-        rotations = torch.cat([bp[k].reshape(-1, 3, 3) for k in (
-            'global_pose', 'body_pose', 'left_hand_pose', 'right_hand_pose', 'jaw_pose')])
-        aa = roma.rotmat_to_rotvec(rotations).reshape(-1)
         nsh = bp['shape'].shape[-1]
-        packed = torch.cat([aa, bp['exp'][0, :50], bp['shape'][0], out['pd_cam'][0, :3, :4].reshape(-1)]).cpu().numpy().astype(np.float32)
+        packed_gpu = self._sg_packed if self.use_sprint_graph and shape_lock is not None else self._pack_raw(out)
+        packed = packed_gpu.cpu().numpy().astype(np.float32)
         pose = packed[:159].reshape(53, 3)
         RT = packed[209 + nsh:].reshape(3, 4)
         raw = {'global_pose': pose[0], 'body_pose': pose[1:22],

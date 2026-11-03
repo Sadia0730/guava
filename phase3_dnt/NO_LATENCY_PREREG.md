@@ -176,3 +176,15 @@ normaliser creating CUDA constants. Capture the backbone + context/transformer
 token computation instead; keep the identical normaliser and original parameter
 decoders outside capture, including their actual cost in end-to-end timing.
 No weight, crop, tensor precision, endpoint, or acceptance rule changed.
+
+N5 first completed timing (live_benchmark.json): full FP32 path p50/p95 53.68 /
+54.45 ms; half detector 37.32 / 46.93; graph token 39.05 / 40.10; both 32.30 /
+33.43 (15.5% frames >33 ms). Therefore none meets the registered runtime gate.
+Refine implementation only: cache the fixed normalisation/camera constants,
+capture the original decoder arithmetic and raw output packing as well as the
+token computation, and omit the unused full-projection matrix product. All
+learned layers, weights, precision, crop, and output fields remain the same.
+Record raw-output differences against eager FP32 for the SAME fixed avatar and
+input frames. Repeat all four arms into live_fullgraph.json, preserving the
+failed timing result. Person-only NMS equivalence has passed a CPU regression
+test against the original class-aware implementation (empty + multiclass cases).
