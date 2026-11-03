@@ -78,10 +78,17 @@ def face_params(fit_dir, keys, smooth_length=9):
     return out, raw
 
 
+def gt_face_params(gt, keys):
+    """Fairness-rule variant (PREREG 2026-11-02): test-frame face = the GT's (jaw, expression; eyes 0), nothing fitted."""
+    return {k: {'jaw_pose': gt['jaw_pose'][k].reshape(3), 'leye_pose': np.zeros(3), 'reye_pose': np.zeros(3),
+                'expr': gt['expression'][k].reshape(-1)} for k in keys}, None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--clip_dir', required=True)
     ap.add_argument('--sid', required=True)
+    ap.add_argument('--gt_face_test', action='store_true', help='test-frame face from the GT (no test-time face fitting)')
     args = ap.parse_args()
     work = osp.join(EXA_ROOT, 'work', args.sid)
     fr, K, gt = load_clip(args.clip_dir)
@@ -111,7 +118,7 @@ def main():
     for split, fit_dir, out_dir in [('recon', rec_dir, osp.join(so, 'smplx_params_smoothed')),
                                     ('test', tst_dir, osp.join(work, 'test_params'))]:
         os.makedirs(out_dir, exist_ok=True)
-        face, raw = face_params(fit_dir, fr[split])
+        face, raw = gt_face_params(gt, fr[split]) if (split == 'test' and args.gt_face_test) else face_params(fit_dir, fr[split])
         jaw = []
         for k in fr[split]:
             p = conv.frame_params(gt, k)

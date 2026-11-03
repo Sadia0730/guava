@@ -47,7 +47,8 @@ def main():
     fr = json.load(open(osp.join(a.clip_dir, 'frames.json')))
     rs = json.load(open(osp.join(work, 'render_stats.json')))
     fs = json.load(open(osp.join(work, 'finalize_stats.json')))
-    fit = {s: json.load(open(osp.join(work, 'fit_' + s, 'fit_face_gt_log.json'))) for s in ['recon', 'test']}
+    fit = {s: json.load(open(osp.join(work, 'fit_' + s, 'fit_face_gt_log.json'))) for s in ['recon', 'test']
+           if osp.exists(osp.join(work, 'fit_' + s, 'fit_face_gt_log.json'))}  # gt-face variant: no test fit
     commit = subprocess.check_output(['git', '-C', EXA_SRC, 'rev-parse', 'HEAD']).decode().strip()
     n_recon = len(fr['recon'])
     iters = 5 * 15 * n_recon  # end_epoch 5 x (frame_list_train repeated 15x, batch 1)
