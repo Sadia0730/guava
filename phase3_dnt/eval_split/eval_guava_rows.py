@@ -151,6 +151,9 @@ def original_frames(c, frames):
         return {f: cv2.cvtColor(cv2.imread(str(b / f"frame_{f:06d}.png")), cv2.COLOR_BGR2RGB) for f in frames}
     if c["dataset"] == "neuman":
         import convert_publicbench as PB; return PB.neuman_images(c["clip"], frames)
+    if c["dataset"] == "xhumans":                                                                    # PublicBench-v2: the X-Humans color pngs
+        d = np.load(E / "base" / c["dataset"] / c["clip"] / "crop_h.npz"); src = {int(str(k).split("_")[1]): str(p) for k, p in zip(d["keys"], d["orig_src"])}
+        return {f: cv2.cvtColor(cv2.imread(src[f]), cv2.COLOR_BGR2RGB) for f in frames}
     import convert_test as CT
     CT.TMP.mkdir(parents=True, exist_ok=True); out = {}
     with tempfile.TemporaryDirectory(dir=CT.TMP) as td:
@@ -164,7 +167,7 @@ _ANN, _MAPS = {}, {}
 
 def metric_H(c):
     """original px -> 1024 metric crop px (the converter's geometry, recomputed), per GT frame."""
-    if c["dataset"] in ("peoplesnapshot", "neuman"):                                                 # PublicBench: the converter's stored H
+    if c["dataset"] in ("peoplesnapshot", "neuman", "xhumans"):                                      # PublicBench: the converter's stored H
         d = np.load(E / "base" / c["dataset"] / c["clip"] / "crop_h.npz")
         return {int(str(k).split("_")[1]): h for k, h in zip(d["keys"], d["H"])}
     import convert_bedlam2 as cb

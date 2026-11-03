@@ -35,7 +35,7 @@ for m in a.methods.split(","):
         rj = rd / "run.json"
         if rj.exists(): per[c["id"]]["run"] = json.loads(rj.read_text())
     agg = {}
-    for part in ("ubody", "bedlam2", "all"):
+    for part in ("ubody", "bedlam2", "peoplesnapshot", "neuman", "xhumans", "all"):
         cs = [p for p in per.values() if part == "all" or p["dataset"] == part]
         if not cs: continue
         n = np.array([p["n"] for p in cs], float)
