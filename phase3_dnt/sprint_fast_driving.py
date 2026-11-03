@@ -7,6 +7,7 @@ k=0. Those outputs are unused by the avatar's driving/rendering path.
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 import sys
 import time
@@ -23,14 +24,111 @@ SprintFitterBase = _base.SprintFitter
 
 
 class SprintFitter(SprintFitterBase):
-    def __init__(self, *args, dwpose_provider='CPUExecutionProvider', driving_matte_size=1024, **kwargs):
+    def __init__(self, *args, dwpose_provider='CPUExecutionProvider', driving_matte_size=1024,
+                 detector_fp16=False, sprint_graph=False, **kwargs):
         self.driving_matte_size = driving_matte_size
         self._in_driving_refinement = False
+        self.detector_fp16 = detector_fp16
+        self.use_sprint_graph = sprint_graph
+        self._sprint_graph = None
+        self.sprint_graph_error = None
         super().__init__(*args, **kwargs)
         self.dwpose_provider = dwpose_provider
         self.fast_dwpose_threads = kwargs.get('dwpose_threads', 16)
         if dwpose_provider != 'CPUExecutionProvider':
             self.set_dwpose_provider(dwpose_provider)
+        self._source_s_det = self.s_det
+        self._source_detector_module = self.det
+        self._driving_s_det = self._make_fp16_detector() if detector_fp16 else self.s_det
+
+    def _make_fp16_detector(self):
+        """New cached ONNX artifact; original ONNX/checkpoints remain untouched."""
+        import hashlib
+        import onnx
+        from onnx import helper, numpy_helper
+        from onnxruntime.transformers.float16 import convert_float_to_float16
+        import onnxruntime as ort
+        source = _base.EHMT / 'pretrained/dwpose/yolox_l.onnx'
+        target = Path('/dev/shm/ubx858_no_latency_20261102/models/yolox_l_person_fp16.onnx')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            model = convert_float_to_float16(onnx.load(str(source)), keep_io_types=True)
+            old_output = model.graph.output[0].name
+            constants = (('starts', [0]), ('ends', [6]), ('axes', [2]), ('steps', [1]))
+            for name, values in constants:
+                model.graph.initializer.append(numpy_helper.from_array(np.asarray(values, np.int64), '_fast_person_' + name))
+            model.graph.node.append(helper.make_node('Slice', [old_output] + ['_fast_person_' + n for n, _ in constants],
+                                                      ['person_predictions'], name='FastPersonOnlyOutput'))
+            model.graph.output[0].name = 'person_predictions'
+            model.graph.output[0].type.tensor_type.shape.dim[2].dim_value = 6
+            onnx.checker.check_model(model)
+            temporary = target.with_name(f'{target.stem}.{os.getpid()}.onnx')
+            onnx.save(model, str(temporary)); temporary.replace(target)
+        if self.dwpose_provider != 'CUDAExecutionProvider':
+            raise ValueError('FP16 detector requires CUDAExecutionProvider')
+        so = ort.SessionOptions(); so.intra_op_num_threads = self.fast_dwpose_threads
+        session = ort.InferenceSession(str(target), so, providers=[('CUDAExecutionProvider', {'use_tf32': 0}), 'CPUExecutionProvider'])
+        if session.get_providers()[0] != 'CUDAExecutionProvider':
+            raise RuntimeError('FP16 detector fell back to CPU')
+        self.detector_artifact = str(target)
+        self.detector_artifact_sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+        return session
+
+    def set_source_mode(self):
+        self.s_det = self._source_s_det
+        self.det = self._source_detector_module
+
+    def set_driving_mode(self, shape=None):
+        from types import SimpleNamespace
+        self.s_det = self._driving_s_det
+        if self.detector_fp16:
+            self.det = SimpleNamespace(inference_detector=self._person_detector)
+        if self.use_sprint_graph and shape is not None and self._sprint_graph is None:
+            self._graph_sprint_forward(torch.zeros(1, 3, 1024, 1024, device=self.dev), np.zeros(5, np.float32), shape)
+
+    def _person_detector(self, session, img):
+        d = self._source_detector_module
+        x, ratio = d.preprocess(img, (640, 640))
+        predictions = d.demo_postprocess(session.run(None, {session.get_inputs()[0].name: x[None]})[0], (640, 640))[0]
+        boxes = predictions[:, :4]
+        xyxy = np.empty_like(boxes)
+        xyxy[:, :2] = boxes[:, :2] - boxes[:, 2:4] / 2
+        xyxy[:, 2:] = boxes[:, :2] + boxes[:, 2:4] / 2
+        xyxy /= ratio
+        scores = predictions[:, 4] * predictions[:, 5]
+        valid = scores > .1
+        if not valid.any():
+            return np.empty((0, 4), np.float32)
+        xyxy, scores = xyxy[valid], scores[valid]
+        keep = d.nms(xyxy, scores, .45)
+        return xyxy[keep][scores[keep] > .3]
+
+    @torch.no_grad()
+    def _graph_sprint_forward(self, crop_t, cam, shape):
+        x = torch.nn.functional.interpolate(crop_t, size=(256, 256), mode='bilinear', antialias=True, align_corners=False)
+        if self._sprint_graph is None and self.sprint_graph_error is None:
+            self._sg_x = x.clone()
+            self._sg_cam = torch.as_tensor(cam, device=self.dev).float().reshape(1, 5).clone()
+            self._sg_shape = torch.as_tensor(np.asarray(shape, np.float32)[:200], device=self.dev).reshape(1, 200).clone()
+            self._sg_cond = {'cam': self._sg_cam, 'shape': self._sg_shape, 'shape_on': torch.ones(1, device=self.dev)}
+            try:
+                side = torch.cuda.Stream()
+                side.wait_stream(torch.cuda.current_stream())
+                with torch.cuda.stream(side):
+                    for _ in range(3): self.model(self._sg_x, cond=self._sg_cond)
+                torch.cuda.current_stream().wait_stream(side)
+                graph = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(graph):
+                    self._sg_out = self.model(self._sg_x, cond=self._sg_cond)
+                self._sprint_graph = graph
+            except Exception as exc:
+                self.sprint_graph_error = repr(exc)
+                raise RuntimeError(f'SPRINT graph capture failed: {exc}') from exc
+        self._sg_x.copy_(x)
+        self._sg_cam.copy_(torch.as_tensor(cam).reshape(1, 5))
+        self._sg_shape.copy_(torch.as_tensor(np.asarray(shape, np.float32)[:200]).reshape(1, 200))
+        self._sprint_graph.replay()
+        return self._sg_out
 
     def set_dwpose_provider(self, provider):
         import onnxruntime as ort
@@ -96,7 +194,7 @@ class SprintFitter(SprintFitterBase):
         crop_t = torch.from_numpy(crop).to(self.dev).permute(2, 0, 1)[None].float() / 255.0
         A256 = (np.diag([256 / _base.CROP, 256 / _base.CROP, 1.0]) @ M)[:2]
         cam = self.ev.cam_feat(A256, W, H, W, 0.0)
-        out = self.sprint(crop_t, cam, shape_lock)
+        out = self._graph_sprint_forward(crop_t, cam, shape_lock) if self.use_sprint_graph and shape_lock is not None else self.sprint(crop_t, cam, shape_lock)
         torch.cuda.synchronize(); T['sprint_and_crop'] = time.perf_counter() - t0 - T['detector']
         bp = out['body_param']
         rotations = torch.cat([bp[k].reshape(-1, 3, 3) for k in (

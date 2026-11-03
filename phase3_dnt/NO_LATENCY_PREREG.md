@@ -122,3 +122,49 @@ CPU-heavy deployed pipeline and to fast GPU k0: refinement has additional cost
 against the latter and must never be described as free. Any idle absolute
 latency/real-time claim requires a separate isolated timing run. Budget: <=
 15 GPU-minutes for smoke and subset; full validation only if warranted.
+
+## User timing clarification and N5 (before runs)
+
+The user now specifies **30 FPS, <=33 ms TOTAL per frame**, tracking + SPRINT +
+deformation/rasterisation/neural refinement. This supersedes comparison only
+to the original CPU-heavy pipeline. H1 (60 fitting iterations) is ruled out.
+N4 completed only its eight-frame smoke (1024:243 ms, 512:202 ms; all finite);
+no N4 quality/full run will be launched under this requirement.
+
+N1 CPU raw fields match exactly within a fitter on 32 frames. Independent
+end-to-end rerenders do NOT have identical PNGs (426 / 426 differ, mean pixel
+deltas 0.017..1.105/255 per clip), so do not claim full-pipeline bit equivalence.
+Five-clip score differences are small (all PSNR -0.0069 dB, LPIPS +0.00020).
+Source-fit reproducibility/thread settings are a possible confound, not an
+established cause. N2 FP32 CUDA quality gate passes on this subset. N3 source500
+gains +0.1982 dB vs its CUDA source150 control but only 2/5 clips improve: fails.
+
+N5 factorial candidates, k0/H1c/B28k, source150 unchanged:
+(a) CUDA FP32 detector + original SPRINT; (b) FP16 driving detector; (c) CUDA
+Graph replay of unchanged FP32 SPRINT; (d) both. FP16 detector is a NEW ONNX
+artifact from the original weights (keep FP32 input/output); output retains
+coordinates/objectness/person score only. The person class has independent
+class-aware NMS, so unused other-class outputs can be omitted. Source fitting
+keeps the FP32 detector and full fitting. SPRINT graph uses static input
+buffers updated each frame, same weights and arithmetic, no extra prediction.
+
+First smoke/latency, fixed 32 cached validation frames; synchronise GPU and
+include H1c box selection, crop, SPRINT, all render preparation, deformation,
+rasteriser and neural image refinement. Initialisation/warmup is separate.
+Use the SAME source avatar for all candidates. Report p50/p95/max and actual
+sample count, GPU/CPU load. Then the fixed five-clip quality subset for promising
+variants, original FP32 CUDA row as control. Quality guard: neither dataset
+loses >0.10 dB / +0.003 LPIPS; all frames finite; source subject policy unchanged.
+Runtime gate: p50 AND p95 <=33 ms in the complete path. Explicitly report max
+and missed-budget fraction; passing p95 is not a hard real-time guarantee.
+Do not adopt a candidate that only meets the time target by omitting stages.
+If needed, CPU copies/camera scalar synchronisations may be removed as a
+separately documented runtime step, preserving model capacity/resolution.
+
+N5 live timing uses 200 timed frames per arm cycling the same 32 unique cached
+validation frames, plus ten untimed warmup frames per arm. Frames are prefetched
+as RGB, matching the live camera handoff; disk/video decoding and display are
+outside the defined tracking/rendering path. SAME fixed source avatar for all
+four arms, full 512-pixel renderer; source and graph initialisation are excluded
+from steady state and disclosed. Store median component times to guide any
+further runtime change. No H1 or target matte is used.

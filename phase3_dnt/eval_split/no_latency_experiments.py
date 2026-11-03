@@ -184,6 +184,9 @@ PILOT_ARMS = {
     'src500': ('fb_sprint_k0_trkc_fastcuda_src500', 'CUDAExecutionProvider', 500, 0),
     'cuda_h1_60': ('fb_sprint_k60_trkc_fastcuda_fp32', 'CUDAExecutionProvider', 150, 60),
     'cuda_h1_60_m512': ('fb_sprint_k60_trkc_fastcuda_m512', 'CUDAExecutionProvider', 150, 60),
+    'detector_fp16': ('fb_sprint_k0_trkc_detfp16', 'CUDAExecutionProvider', 150, 0),
+    'sprint_graph': ('fb_sprint_k0_trkc_graph', 'CUDAExecutionProvider', 150, 0),
+    'both': ('fb_sprint_k0_trkc_detfp16_graph', 'CUDAExecutionProvider', 150, 0),
 }
 
 
@@ -209,6 +212,8 @@ def pilot(args):
                        '--drive-iters', str(drive_iters)]
             if arm == 'cuda_h1_60_m512':
                 command += ['--driving-matte-size', '512']
+            if arm in ('detector_fp16', 'both'): command += ['--detector-fp16']
+            if arm in ('sprint_graph', 'both'): command += ['--sprint-graph']
             log = (report_dir / f'{arm}.log').open('a')
             p = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
             running.append((arm, row, p, log))
@@ -279,6 +284,13 @@ def report(args):
         a = rows['cuda_h1_60_m512']['aggregate']; b = rows['cuda_h1_60']['aggregate']
         out['decisions']['N4_matte512_quality'] = all(a[ds]['psnr'] >= b[ds]['psnr'] - .1
                                                     and a[ds]['lpips'] <= b[ds]['lpips'] + .003 for ds in ('ubody', 'bedlam2'))
+    if 'fastcuda' in rows:
+        b = rows['fastcuda']['aggregate']
+        for name in ('detector_fp16', 'sprint_graph', 'both'):
+            if name in rows:
+                a = rows[name]['aggregate']
+                out['decisions']['N5_' + name + '_quality'] = all(a[ds]['psnr'] >= b[ds]['psnr'] - .1
+                                                               and a[ds]['lpips'] <= b[ds]['lpips'] + .003 for ds in ('ubody', 'bedlam2'))
     out['timing_note'] = 'Shared GPU / CPU contention: these are not idle absolute latency measurements.'
     (rdir / 'pilot_summary.json').write_text(json.dumps(out, indent=2))
     print('PILOT_SUMMARY', json.dumps(out), flush=True)
@@ -316,9 +328,100 @@ def matte_benchmark(args):
     target.write_text(json.dumps(out, indent=2))
 
 
+def live_benchmark(args):
+    """Complete live path, one fixed source avatar; no video decode in timed loop."""
+    import torch
+    import numpy as np
+    import cv2
+    import tempfile
+    from types import SimpleNamespace
+    cv2.setNumThreads(2)
+    fast = load_fast()
+    fitter = fast.SprintFitter(CKPT, 'cuda:0', 150, dwpose_threads=4, dwpose_provider='CUDAExecutionProvider',
+                               detector_fp16=True, sprint_graph=True)
+    with np.load(CACHE / 'timing_frames_32.npz', allow_pickle=False) as z:
+        frames = [z[f'image_{i}'].copy() for i in range(len(z['frame_ids']))]
+    fitter.set_source_mode()
+    rs = fitter.fit(frames[0]); shape = rs['shape']
+    sys.path.insert(0, str(HERE.parent / 'guava_fb')); sys.path.insert(0, str(HERE))
+    import fb_common as F
+    import box_sources as BS
+    os.chdir(ROOT)
+    from models.UbodyAvatar import Ubody_Gaussian
+    cfg, inf, ren, _ = F.setup_a20(torch.device('cuda:0'))
+    state = torch.load(O / 'runs/guava_fb_B30k/checkpoints/best.pt', map_location='cpu', weights_only=False)
+    inf.load_state_dict(state['model'], strict=True); ren.load_state_dict(state['render_model'], strict=True)
+    inf.eval(); ren.eval()
+    with tempfile.TemporaryDirectory(dir=CACHE) as td:
+        fast.write_tracked(Path(td), 'timing', 'frame_000000', rs)
+        clip = F.load_clips_parallel([(td, None, True)], workers=1)
+        data = F.FBData(cfg, clip)
+        source = F.to_dev(F.collate1(data.source_info(0, 'frame_000000')), torch.device('cuda:0'))
+    with torch.no_grad():
+        torch.manual_seed(0)
+        vg, ug, _ = inf(source)
+        avatar = Ubody_Gaussian(cfg.MODEL, vg, ug, pruning=True); avatar.init_ehm(inf.ehm); avatar.eval()
+    fitter.set_driving_mode(shape)
+    out = {'gpu': torch.cuda.get_device_name(), 'n_unique_frames': len(frames), 'n_timed_per_arm': args.n,
+           'warmup_per_arm': 10, 'source_fixed_across_arms': True,
+           'gaussians': int(avatar._smplx_xyz.shape[1] + avatar._uv_local_xyz.shape[1]),
+           'host_load_start': os.getloadavg(), 'arms': {},
+           'detector_artifact': getattr(fitter, 'detector_artifact', None),
+           'detector_sha256': getattr(fitter, 'detector_artifact_sha256', None)}
+
+    @torch.no_grad()
+    def step(image, previous_box):
+        torch.cuda.synchronize(); t0 = time.perf_counter()
+        boxes = fitter.det.inference_detector(fitter.s_det, image)
+        if len(boxes):
+            overlap = [BS.iou(b, previous_box) for b in boxes]; index = int(np.argmax(overlap))
+            if overlap[index] < .1:
+                c = (previous_box[:2] + previous_box[2:]) / 2
+                index = int(np.argmin([np.linalg.norm((b[:2] + b[2:]) / 2 - c) for b in boxes]))
+            box = boxes[index]
+        else: box = previous_box
+        torch.cuda.synchronize(); t1 = time.perf_counter()
+        r = fitter.fit(image, box=box, iters=0, shape_lock=shape)
+        torch.cuda.synchronize(); t2 = time.perf_counter()
+        comp = F.compact_record(dict(r['record']), shape)
+        sm = {k: torch.as_tensor(v.copy()) for k, v in comp['smplx'].items()}
+        sm.update(joints_offset=torch.zeros(55, 3), head_scale=torch.ones(3), hand_scale=torch.ones(3))
+        matrix = torch.eye(4); matrix[:3, :4] = sm['camera_RT_params']
+        w2c = torch.diag(torch.tensor([-1., -1., 1., 1.])) @ matrix
+        target = {'smplx_coeffs': sm, 'flame_coeffs': {'expression_params': torch.zeros(50)},
+                  'w2c_cam': w2c, 'c2w_cam': torch.linalg.inv(w2c), 'invtanfov': comp['invtanfov']}
+        target['render_cam_params'] = F.render_cam_params(w2c, target['c2w_cam'], comp['invtanfov'], 512)
+        target = F.to_dev(F.collate1(target), torch.device('cuda:0'))
+        torch.cuda.synchronize(); t3 = time.perf_counter()
+        torch.manual_seed(0)
+        render = ren(avatar(target), target['render_cam_params'], bg=0.)['renders']
+        torch.cuda.synchronize(); t4 = time.perf_counter()
+        return np.asarray(box), {'total': (t4-t0)*1000, 'detector': (t1-t0)*1000,
+                                 'crop_sprint_export': (t2-t1)*1000, 'render_prep': (t3-t2)*1000,
+                                 'deform_raster_refiner': (t4-t3)*1000}
+
+    for name, half, graph in (('fp32', False, False), ('detector_fp16', True, False),
+                              ('sprint_graph', False, True), ('both', True, True)):
+        fitter.s_det = fitter._driving_s_det if half else fitter._source_s_det
+        fitter.det = SimpleNamespace(inference_detector=fitter._person_detector) if half else fitter._source_detector_module
+        fitter.use_sprint_graph = graph
+        box = np.asarray(rs['box']); times = []
+        for i in range(args.n + 10):
+            box, t = step(frames[i % len(frames)], box)
+            if i >= 10: times.append(t)
+        total = np.asarray([t['total'] for t in times])
+        out['arms'][name] = {'p50_ms': float(np.percentile(total, 50)), 'p95_ms': float(np.percentile(total, 95)),
+                             'max_ms': float(total.max()), 'over_33ms_fraction': float((total > 33).mean()),
+                             'median_stages_ms': {k: float(np.median([t[k] for t in times])) for k in times[0]},
+                             'passes_33ms': bool(np.percentile(total, 50) <= 33 and np.percentile(total, 95) <= 33),
+                             'host_load': os.getloadavg()}
+        print('LIVE', name, json.dumps(out['arms'][name]), flush=True)
+        (O / 'reports/no_latency_20261102/live_benchmark.json').write_text(json.dumps(out, indent=2))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('action', choices=('inventory', 'probe', 'benchmark', 'verify', 'pilot', 'report', 'matte_benchmark'))
+    ap.add_argument('action', choices=('inventory', 'probe', 'benchmark', 'verify', 'pilot', 'report', 'matte_benchmark', 'live_benchmark'))
     ap.add_argument('--n', type=int, default=32)
     ap.add_argument('--threads', type=int, default=16)
     ap.add_argument('--name', default='benchmark')

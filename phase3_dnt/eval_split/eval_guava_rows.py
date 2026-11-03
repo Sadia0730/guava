@@ -48,6 +48,8 @@ ap.add_argument("--raw", action="store_true", help="also write the raw Gaussian 
 ap.add_argument("--fast-backend", action="store_true", help="opt-in backend skipping unused work for raw driving; source fit unchanged")
 ap.add_argument("--dwpose-provider", default="CPUExecutionProvider", choices=("CPUExecutionProvider", "CUDAExecutionProvider"))
 ap.add_argument("--driving-matte-size", type=int, default=1024, choices=(512, 1024), help="fast backend only: matte input for driving refinement; source always 1024")
+ap.add_argument("--detector-fp16", action="store_true", help="fast CUDA backend: FP16 person-only detector for driving; source detector unchanged")
+ap.add_argument("--sprint-graph", action="store_true", help="fast backend: CUDA Graph replay of unchanged FP32 SPRINT driving")
 ap.add_argument("--box-source", default="yolox", choices=("yolox", "mediapipe", "track"), help="PREREG phase 5: driving-frame person box (yolox = H1b/H1c path)")
 ap.add_argument("--box-margin", type=float, default=1.25, help="phase 5: margin on the landmark / keypoint box (mediapipe, track)")
 ap.add_argument("--dwpose-threads", type=int, default=0, help="DWPose onnxruntime threads (0 = SprintFitter's default, 16); bound it on a CPU-saturated host")
@@ -56,6 +58,10 @@ if not a.fast_backend and a.dwpose_provider != 'CPUExecutionProvider':
     ap.error('--dwpose-provider CUDAExecutionProvider requires --fast-backend')
 if a.driving_matte_size != 1024 and not a.fast_backend:
     ap.error('--driving-matte-size 512 requires --fast-backend')
+if (a.detector_fp16 or a.sprint_graph) and (not a.fast_backend or a.drive_iters != 0):
+    ap.error('--detector-fp16/--sprint-graph require --fast-backend with k=0')
+if a.detector_fp16 and a.dwpose_provider != 'CUDAExecutionProvider':
+    ap.error('--detector-fp16 requires --dwpose-provider CUDAExecutionProvider')
 SPLIT = json.loads(Path(a.split).read_text())
 E = Path(a.E)
 ROWNAME = a.name or (a.row + (f"_k{a.drive_iters}" if a.drive_iters else ""))
@@ -70,7 +76,8 @@ if a.row == "fb_sprint":                                    # SPRINT first: it l
     fitter_file = 'sprint_fast_driving.py' if a.fast_backend else 'sprint_avatar_fit.py'
     spec = importlib.util.spec_from_file_location("sprint_avatar_fit", ROOT / 'phase3_dnt' / fitter_file)
     SAF = importlib.util.module_from_spec(spec); spec.loader.exec_module(SAF)
-    fitter_kwargs = {'dwpose_provider': a.dwpose_provider, 'driving_matte_size': a.driving_matte_size} if a.fast_backend else {}
+    fitter_kwargs = {'dwpose_provider': a.dwpose_provider, 'driving_matte_size': a.driving_matte_size,
+                     'detector_fp16': a.detector_fp16, 'sprint_graph': a.sprint_graph} if a.fast_backend else {}
     if a.dwpose_threads: fitter_kwargs['dwpose_threads'] = a.dwpose_threads
     fitter = SAF.SprintFitter(a.sprint_ckpt, "cuda:0", a.sprint_iters, **fitter_kwargs)
 
@@ -249,7 +256,8 @@ def main():
                     (od / "raw").mkdir(exist_ok=True); torchvision.io.write_png(u8(_RAW["last"]), str(od / "raw" / f"{k}.png"))
         else:                                                                                      # fb_sprint
             info.update(fast_backend=a.fast_backend, dwpose_provider=a.dwpose_provider, source_fit_iters=a.sprint_iters,
-                        driving_matte_size=a.driving_matte_size)
+                        driving_matte_size=a.driving_matte_size, detector_fp16=a.detector_fp16, sprint_graph=a.sprint_graph)
+            if hasattr(fitter, 'set_source_mode'): fitter.set_source_mode()
             sf = c["source_frame"]; tf = [int(k.split("_")[1]) for k in fj["test"]]
             ori = original_frames(c, [sf] + tf); Hm = metric_H(c)
             if not warm: fit_track(fitter, ori[sf], None)                                         # warm-up (not timed)
@@ -269,6 +277,9 @@ def main():
             info["recon_ms"] = ms + rs["times"]["total"] * 1000; info["recon_ms_model"] = ms; info["sprint_fit_ms"] = rs["times"]["total"] * 1000
             info["sprint_fit_times_s"] = rs["times"]; info["recon_input"] = "first frame (SPRINT fit, own box / crop / matte)"
             info['gaussians'] = int(av._smplx_xyz.shape[1] + av._uv_local_xyz.shape[1])
+            setup_start = time.perf_counter()
+            if hasattr(fitter, 'set_driving_mode'): fitter.set_driving_mode(shp)
+            info['driving_setup_ms'] = (time.perf_counter() - setup_start) * 1000
             tr, tfit, nfb, pbox = [], [], 0, rs["box"]
             if a.box_source == "mediapipe": boxer = BS.MediaPipeBox(a.box_margin)
             elif a.box_source == "track": boxer = BS.TrackBox(a.box_margin, fitter)
