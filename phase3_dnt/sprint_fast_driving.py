@@ -128,7 +128,6 @@ class SprintFitter(SprintFitterBase):
                 graph = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(graph):
                     self._sg_out = self._graph_outputs()
-                    self._sg_packed = self._pack_raw(self._sg_out)
                 self._sprint_graph = graph
             except Exception as exc:
                 self.sprint_graph_error = repr(exc)
@@ -238,7 +237,6 @@ class SprintFitter(SprintFitterBase):
 
     @torch.no_grad()
     def drive_raw(self, img_rgb, box=None, shape_lock=None):
-        import roma
         T = {}; H, W = img_rgb.shape[:2]
         torch.cuda.synchronize(); t0 = time.perf_counter()
         if box is None:
@@ -257,7 +255,9 @@ class SprintFitter(SprintFitterBase):
         torch.cuda.synchronize(); T['sprint_and_crop'] = time.perf_counter() - t0 - T['detector']
         bp = out['body_param']
         nsh = bp['shape'].shape[-1]
-        packed_gpu = self._sg_packed if self.use_sprint_graph and shape_lock is not None else self._pack_raw(out)
+        # RoMa's rotation conversion uses dynamic nonzero indices and cannot be
+        # CUDA-captured. Keep the identical conversion in the timed eager path.
+        packed_gpu = self._pack_raw(out)
         packed = packed_gpu.cpu().numpy().astype(np.float32)
         pose = packed[:159].reshape(53, 3)
         RT = packed[209 + nsh:].reshape(3, 4)

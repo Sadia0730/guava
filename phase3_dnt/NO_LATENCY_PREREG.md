@@ -188,3 +188,9 @@ Record raw-output differences against eager FP32 for the SAME fixed avatar and
 input frames. Repeat all four arms into live_fullgraph.json, preserving the
 failed timing result. Person-only NMS equivalence has passed a CPU regression
 test against the original class-aware implementation (empty + multiclass cases).
+
+The extended capture failed before timing: RoMa's rotation packing calls
+`torch.nonzero`, which cannot be captured. Keep that unchanged packing outside
+the graph and inside the measured frame path; capture normalisation, backbone,
+transformer and decoder only. Repeat the same registered timing and numerical
+checks; no quality or timing threshold changes.
