@@ -40,7 +40,7 @@ from torch.utils.data import DataLoader, Dataset
 
 ROOT = Path(__file__).resolve().parents[1]
 PEAR_ROOT = ROOT / "third_party" / "PEAR"
-ASSETS = Path("/raid/ubx858/datasets/eval_assets")
+ASSETS = Path(os.environ.get("SPRINT_EVAL_ASSETS", "/raid/ubx858/datasets/eval_assets"))
 DEFAULT_DATASET = ROOT / "datasets" / "3dpw"
 DEFAULT_H36M_REGRESSOR = ASSETS / "data" / "J_regressor_h36m.npy"
 DEFAULT_SMPL_DIR = ASSETS / "smpl"

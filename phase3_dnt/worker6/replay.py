@@ -18,6 +18,7 @@ import argparse
 import importlib.util
 import json
 import os
+import queue
 import shutil
 import sys
 import threading
@@ -39,6 +40,7 @@ ap.add_argument("--split", default=str(HERE / "p6_val.json")); ap.add_argument("
 ap.add_argument("--sprint-ckpt", default="/raid/ubx858/outputs/dnt/eval_programme/sprint_scratch/best_ema.pt")
 ap.add_argument("--fb-ckpt", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/runs/guava_fb_B30k/checkpoints/best.pt")
 ap.add_argument("--dwpose-threads", type=int, default=4); ap.add_argument("--max-frames", type=int, default=0, help="smoke: replay only the first N frames")
+ap.add_argument("--boxes-only", action="store_true", help="only build the per-clip YOLOX + H1c box cache (shared by every arm)")
 a = ap.parse_args()
 NAME = a.name or {"k0": "p6_k0", "k60": "p6_k60", "pose": f"p6_pose_a{a.alpha:g}_{a.corr}"}[a.arm]
 
@@ -50,25 +52,29 @@ import cv2, roma, tempfile, torch, torchvision                                  
 if os.environ.get("OMP_NUM_THREADS"): cv2.setNumThreads(int(os.environ["OMP_NUM_THREADS"]))
 sys.path.insert(0, str(ROOT / "phase3_dnt" / "guava_fb")); sys.path.insert(0, str(ROOT / "phase3_dnt" / "eval_split"))
 import fb_common as F                                                                                 # noqa: E402
+sys.path.insert(0, str(HERE)); import worker_core as WC                                             # noqa: E402
 import convert_bedlam2 as cb                                                                          # noqa: E402
 os.chdir(F.ROOT)
 from fb_common import to_dev                                                                          # noqa: E402
 from models.UbodyAvatar import Ubody_Gaussian                                                         # noqa: E402
 dev = torch.device("cuda:0"); GPU = torch.cuda.get_device_name(0)
-cfg, inf, ren, _ = F.setup_a20(dev)
-st_ = torch.load(a.fb_ckpt, map_location="cpu", weights_only=False)
-inf.load_state_dict(st_["model"], strict=False); ren.load_state_dict(st_["render_model"], strict=False); inf.eval(); ren.eval(); del st_
+if not a.boxes_only:
+    cfg, inf, ren, _ = F.setup_a20(dev)
+    st_ = torch.load(a.fb_ckpt, map_location="cpu", weights_only=False)
+    inf.load_state_dict(st_["model"], strict=False); ren.load_state_dict(st_["render_model"], strict=False); inf.eval(); ren.eval(); del st_
 lo_pri, hi_pri = torch.cuda.Stream.priority_range()                                                  # (low = 0, high = negative)
 LIVE = torch.cuda.Stream(priority=hi_pri); WORK = torch.cuda.Stream(priority=lo_pri)
 E = Path(a.E); S512 = np.array([[0.5, 0, -0.25], [0, 0.5, -0.25], [0, 0, 1.0]])
-ROT_KEYS = {"all": ("global_pose", "body_pose", "left_hand_pose", "right_hand_pose", "jaw_pose"), "body": ("global_pose", "body_pose"), "cam": ()}[a.corr]
 
 
 # ------------------------------------------------------------------------------------------------ data
 def clip_frames(c):
-    if c["dataset"] == "dress4d":
-        fj = json.loads((E / "base" / "dress4d" / c["clip"] / "frames.json").read_text())
-        return c["frames"], (lambda f: cv2.cvtColor(cv2.imread(fj["frame_src"][f"frame_{f:06d}"]), cv2.COLOR_BGR2RGB)), None
+    if c["dataset"] == "dress4d":                                                                   # preloaded: disk reads are not camera time
+        fj = json.loads((E / "base" / "dress4d" / c["clip"] / "frames.json").read_text()); fr = c["frames"][:a.max_frames] if a.max_frames else c["frames"]
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(16) as ex:
+            ims = dict(zip(fr, ex.map(lambda f: cv2.cvtColor(cv2.imread(fj["frame_src"][f"frame_{f:06d}"]), cv2.COLOR_BGR2RGB), fr)))
+        return fr, (lambda f: ims[f]), ims
     fr = list(range(c["source_frame"], max(c["test_frames"]) + 1)); ims = cb.decode_frames(c["job"], c["seq"], fr)
     return fr, (lambda f: ims[f]), ims
 
@@ -90,7 +96,9 @@ def boxes_cached(c, frames, get):
     """YOLOX + H1c linking per frame (identical for every arm); cached with the detector's CPU ms."""
     p = Path("/dev/shm/ubx858_eval/p6_boxes") / f"{c['id'].replace('/', '__')}.npz"
     if p.exists():
-        z = np.load(p); return {int(f): b for f, b in zip(z["frames"], z["boxes"])}, {int(f): float(t) for f, t in zip(z["frames"], z["det_ms"])}
+        z = np.load(p)
+        if set(frames) <= set(int(f) for f in z["frames"]):                                     # a shorter (smoke) cache is recomputed
+            return {int(f): b for f, b in zip(z["frames"], z["boxes"])}, {int(f): float(t) for f, t in zip(z["frames"], z["det_ms"])}
     B, T, ref = {}, {}, None
     for f in frames:
         img = get(f); t0 = time.perf_counter(); D = fitter.det.inference_detector(fitter.s_det, img); dt = (time.perf_counter() - t0) * 1000
@@ -145,88 +153,6 @@ def render_rec(av, rec, shp):
     return rr["renders"][0], rr["depths"][0, 0]
 
 
-# ------------------------------------------------------------------------------------------------ step 1: pose correction
-def so3_log(R): return roma.rotmat_to_rotvec(torch.as_tensor(R, dtype=torch.float64)).numpy()
-def so3_exp(v): return roma.rotvec_to_rotmat(torch.as_tensor(v, dtype=torch.float64)).numpy()
-
-
-def cap(v, deg):
-    n = np.linalg.norm(v, axis=-1, keepdims=True); m = np.deg2rad(deg); return np.where(n > m, v * (m / np.maximum(n, 1e-12)), v)
-
-
-class PoseCorrection:
-    """Per-joint offsets R_off = R_ref R_raw^T (parent frame), EMA in the tangent space at the current mean; camera bias."""
-    def __init__(self, alpha, keys, cap_deg):
-        self.alpha, self.keys, self.cap = alpha, keys, cap_deg; self.R = {}; self.cam = np.zeros(3); self.n = 0
-
-    @staticmethod
-    def _t(RT): return np.diag([-1.0, -1.0, 1.0]) @ np.asarray(RT, np.float64)[:, 3]
-
-    def update(self, raw, ref):
-        new = PoseCorrection(self.alpha, self.keys, self.cap); new.n = self.n + 1; al = 1.0 if self.n == 0 else self.alpha
-        for k in self.keys:
-            Rr = so3_exp(np.asarray(raw[k], np.float64).reshape(-1, 3)); Rf = so3_exp(np.asarray(ref[k], np.float64).reshape(-1, 3))
-            off = so3_exp(cap(so3_log(Rf @ Rr.transpose(0, 2, 1)), self.cap))
-            cur = self.R.get(k, np.repeat(np.eye(3)[None], len(off), 0))
-            new.R[k] = cur @ so3_exp(al * so3_log(cur.transpose(0, 2, 1) @ off))
-        tr, tf = self._t(raw["camera_RT_params"]), self._t(ref["camera_RT_params"])
-        b = np.array([tf[0] / tf[2] - tr[0] / tr[2], tf[1] / tf[2] - tr[1] / tr[2], np.log(tf[2] / tr[2])])
-        new.cam = self.cam + al * (b - self.cam); return new
-
-    def apply(self, raw):
-        out = dict(raw)
-        for k, Ro in self.R.items():
-            out[k] = so3_log(Ro @ so3_exp(np.asarray(raw[k], np.float64).reshape(-1, 3))).astype(np.float32).reshape(np.asarray(raw[k]).shape)
-        if self.n:
-            RT = np.asarray(raw["camera_RT_params"], np.float64).copy(); t = self._t(RT); z = t[2] * np.exp(self.cam[2])
-            t2 = np.array([(t[0] / t[2] + self.cam[0]) * z, (t[1] / t[2] + self.cam[1]) * z, z]); RT[:, 3] = np.diag([-1.0, -1.0, 1.0]) @ t2
-            out["camera_RT_params"] = RT.astype(np.float32)
-        return out
-
-
-def root_cam(raw):
-    """camera-frame root orientation of a raw / refined SPRINT pose: R_cam(pd_cam) R_root."""
-    return np.asarray(raw["camera_RT_params"], np.float64)[:3, :3] @ so3_exp(np.asarray(raw["global_pose"], np.float64).reshape(1, 3))[0]
-
-
-class Worker(threading.Thread):
-    def __init__(self, shp):
-        super().__init__(daemon=True); self.shp = shp; self.slot = None; self.cv = threading.Condition(); self.busy = False; self.stop = False
-        self.published = PoseCorrection(a.alpha, ROT_KEYS, a.cap_deg); self.version = 0; self.accepted_R = []; self.since = 0; self.log = []
-
-    def offer(self, i, f, img, box, raw, now_frame):
-        """Non-blocking: hand the frame to the worker if it is idle (budget: one in flight)."""
-        with self.cv:
-            if self.busy: return False
-            self.since += 1; self.busy = True; self.slot = (i, f, img, box, raw, now_frame); self.cv.notify(); return True
-
-    def run(self):
-        while True:
-            with self.cv:
-                while self.slot is None and not self.stop: self.cv.wait()
-                if self.stop: return
-                i, f, img, box, raw, _ = self.slot; self.slot = None
-            ent = {"i": i, "frame": f, "t_start": time.perf_counter()}
-            try:
-                Rc = root_cam(raw); nov = min([float(np.rad2deg(np.linalg.norm(so3_log((Rc @ R.T)[None])))) for R in self.accepted_R] or [180.0])
-                ent["novelty_deg"] = nov
-                if not (nov >= a.novelty_deg or self.since >= a.every_n):
-                    ent["gate"] = "not_novel"; continue
-                with torch.cuda.stream(WORK):
-                    r = fitter.fit(img, box=box, iters=a.drive_iters, shape_lock=self.shp)
-                d = r["diag"]; ent.update(kp_err=d["kp_err_px1024_after"], matte_frac=d["matte_frac"], fit_ms=r["times"]["total"] * 1000)
-                if d["matte_empty"] or not np.isfinite(d["kp_err_px1024_after"]) or d["kp_err_px1024_after"] > a.kp_thr:
-                    ent["gate"] = "bad_fit"; continue
-                new = self.published.update(r["raw_smplx"], r["record"]["smplx_coeffs"])
-                self.published = new; self.version += 1                                             # atomic reference swap
-                self.accepted_R.append(Rc); self.since = 0; ent.update(gate="accepted", version=self.version)
-            except Exception as e:                                                                  # noqa: BLE001
-                ent["gate"] = f"error: {e}"
-            finally:
-                ent["t_end"] = time.perf_counter(); self.log.append(ent)
-                with self.cv: self.busy = False
-
-
 # ------------------------------------------------------------------------------------------------ main
 def u8(x): return (x.clamp(0, 1) * 255).round().to(torch.uint8)
 
@@ -248,7 +174,17 @@ def run_clip(c):
         torch.manual_seed(0); vg, ug, _ = inf(src); av = Ubody_Gaussian(cfg.MODEL, vg, ug, pruning=True); av.init_ehm(inf.ehm); av.eval()
     info = {"method": NAME, "arm": a.arm, "args": vars(a), "gpu": GPU, "frames": len(frames), "scored": len(scored), "source_fit_kp_err": rs["diag"]["kp_err_px1024_after"]}
     worker = None
-    if a.arm == "pose": worker = Worker(shp); worker.start()
+    if a.arm == "pose":
+        worker = WC.Worker(fitter, shp, WORK, "pose", alpha=a.alpha, corr=a.corr, cap_deg=a.cap_deg, novelty_deg=a.novelty_deg,
+                           every_n=a.every_n, kp_thr=a.kp_thr, iters=a.drive_iters); worker.start()
+    wq = queue.Queue()
+
+    def writer():
+        while (it := wq.get()) is not None:
+            d, k, im, sl, W = it
+            cv2.imwrite(str(d / f"{k}.png"), cv2.cvtColor(cv2.warpPerspective(im, W, (512, 512), flags=cv2.INTER_LINEAR, borderValue=0), cv2.COLOR_RGB2BGR))
+            cv2.imwrite(str(d / "sil" / f"{k}.png"), cv2.warpPerspective(sl, W, (512, 512), flags=cv2.INTER_NEAREST, borderValue=0))
+    wt = threading.Thread(target=writer, daemon=True); wt.start()
     per = {}; t_start = time.perf_counter(); clock_lag = []
     ev0, ev1 = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     for i, f in enumerate(frames):
@@ -265,20 +201,21 @@ def run_clip(c):
                 r = fitter.fit(img, box=box, iters=a.drive_iters, shape_lock=shp); sm, M = r["record"]["smplx_coeffs"], r["M"]; corr_v = -1
             else:
                 raw, M = live_raw(img, box, shp); corr = worker.published if worker else None; corr_v = worker.version if worker else 0
-                sm = corr.apply(raw) if corr is not None and corr.n else raw
-                if worker: worker.offer(i, f, img, box, raw, i)
-            rgb, dep = render_rec(av, record_of(sm, box, M), shp)
-            ev1.record(LIVE)
-            img_u8 = u8(rgb).permute(1, 2, 0).cpu().numpy(); sil = (dep > 1e-4).to(torch.uint8).mul(255).cpu().numpy()   # LIVE stream sync only
+                sm = corr.apply(raw) if corr is not None else raw
+                if worker: worker.offer(i, img, box, raw)
+        # render on the default stream: the rasterizer launches its kernels on the legacy default stream (no stream argument), so
+        # its buffers must be allocated there too; SPRINT's stream is already synchronised by its .cpu() read-back
+        rgb, dep = render_rec(av, record_of(sm, box, M), shp)
+        ev1.record(torch.cuda.default_stream())
+        img_u8 = u8(rgb).permute(1, 2, 0).cpu().numpy(); sil = (dep > 1e-4).to(torch.uint8).mul(255).cpu().numpy()
         gpu_ms = ev0.elapsed_time(ev1); e2e = (time.perf_counter() - te0) * 1000
         per[f] = {"gpu_ms": gpu_ms, "e2e_ms": e2e, "det_ms": DET[f], "corr_version": corr_v}
         if f in sset:
             W = S512 @ Hm[f] @ np.linalg.inv(np.asarray(M, np.float64)) @ np.linalg.inv(S512); k = f"frame_{f:06d}"
-            cv2.imwrite(str(loc / f"{k}.png"), cv2.cvtColor(cv2.warpPerspective(img_u8, W, (512, 512), flags=cv2.INTER_LINEAR, borderValue=0), cv2.COLOR_RGB2BGR))
-            cv2.imwrite(str(loc / "sil" / f"{k}.png"), cv2.warpPerspective(sil, W, (512, 512), flags=cv2.INTER_NEAREST, borderValue=0))
+            wq.put((loc, k, img_u8, sil, W))                                                         # warp + PNG in the writer thread
+    wq.put(None); wt.join()
     if worker:
-        while worker.busy: time.sleep(0.05)
-        with worker.cv: worker.stop = True; worker.cv.notify()
+        worker.wait_idle(); worker.stop()
         info["worker"] = {"log": [{k: (v - t_start if k.startswith("t_") else v) for k, v in e.items()} for e in worker.log],
                           "updates": worker.version, "offered": len(worker.log),
                           "update_ms": [ (e["t_end"] - e["t_start"]) * 1000 for e in worker.log if e.get("gate") == "accepted"],
@@ -298,4 +235,7 @@ def run_clip(c):
 if __name__ == "__main__":
     J = json.loads(Path(a.split).read_text()); clips = [c for c in J["clips"] if a.part == "all" or c["part"] == a.part]
     if a.clips: want = a.clips.split(","); clips = [c for c in clips if c["id"] in want]
-    for c in clips: run_clip(c)
+    for c in clips:
+        if a.boxes_only:
+            fr, get, _ = clip_frames(c); boxes_cached(c, fr, get); print("boxes", c["id"], len(fr), flush=True)
+        else: run_clip(c)
