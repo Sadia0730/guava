@@ -396,7 +396,12 @@ class SprintFitter:
         conf = conf * (~self.lean.dyn).float()                                                    # contour / ears not modelled
         a_small = F.interpolate(alpha[None, None], size=(256, 256), mode="bilinear", antialias=True, align_corners=False)[0, 0]
         m_np = (a_small > 0.5).cpu().numpy().astype(np.uint8)
+        matte_empty = bool(m_np.mean() < 0.01)
+        if matte_empty and getattr(self, "empty_matte_fix", False):                                   # PREREG phase 6: keypoint-only refinement
+            m_np = np.zeros_like(m_np)
         dt_out = cv2.distanceTransform((1 - m_np).astype(np.uint8), cv2.DIST_L2, 5) / 256.0              # 0 inside the mask
+        if matte_empty and getattr(self, "empty_matte_fix", False):
+            dt_out = np.zeros_like(dt_out)
         dt_t = torch.from_numpy(dt_out).float().to(dev)[None, None]
         ys, xs = np.nonzero(m_np)
         rng = np.random.default_rng(0)
@@ -436,6 +441,7 @@ class SprintFitter:
         torch.cuda.synchronize(); T["refine"] = time.perf_counter() - t1; t1 = time.perf_counter()
         diag["kp_err_px1024_after"] = px(uv1); diag["loss_after"] = {k: float(v) for k, v in L1.items()}
         diag["n_kp"] = int((conf > 0).sum()); diag["iters"] = iters; diag["cuda_graph"] = self._graph is not None
+        diag["matte_frac"] = float((a_small > 0.5).float().mean()); diag["matte_empty"] = matte_empty
         aa = lambda Rm: roma.rotmat_to_rotvec(Rm.reshape(-1, 3, 3)).detach().cpu().numpy().astype(np.float32)
         RT = torch.cat([R, tt[:, None]], 1).detach().cpu().numpy().astype(np.float32)
         exp0 = bp0["exp"][0, :50].detach(); shape0 = bp0["shape"][0].detach()
