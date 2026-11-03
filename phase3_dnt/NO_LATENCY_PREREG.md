@@ -168,3 +168,11 @@ outside the defined tracking/rendering path. SAME fixed source avatar for all
 four arms, full 512-pixel renderer; source and graph initialisation are excluded
 from steady state and disclosed. Store median component times to guide any
 further runtime change. No H1 or target matte is used.
+
+N5 implementation smoke failures (no timing/quality result): the built-in FP16
+converter emitted an unsorted ONNX graph; topologically sort before checking
+and saving the new artifact. Full SPRINT CUDA capture failed on torchvision's
+normaliser creating CUDA constants. Capture the backbone + context/transformer
+token computation instead; keep the identical normaliser and original parameter
+decoders outside capture, including their actual cost in end-to-end timing.
+No weight, crop, tensor precision, endpoint, or acceptance rule changed.

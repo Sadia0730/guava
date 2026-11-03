@@ -47,6 +47,7 @@ class SprintFitter(SprintFitterBase):
         import onnx
         from onnx import helper, numpy_helper
         from onnxruntime.transformers.float16 import convert_float_to_float16
+        from onnxruntime.transformers.onnx_model import OnnxModel
         import onnxruntime as ort
         source = _base.EHMT / 'pretrained/dwpose/yolox_l.onnx'
         target = Path('/dev/shm/ubx858_no_latency_20261102/models/yolox_l_person_fp16.onnx')
@@ -61,6 +62,7 @@ class SprintFitter(SprintFitterBase):
                                                       ['person_predictions'], name='FastPersonOnlyOutput'))
             model.graph.output[0].name = 'person_predictions'
             model.graph.output[0].type.tensor_type.shape.dim[2].dim_value = 6
+            OnnxModel(model).topological_sort(is_deterministic=True)
             onnx.checker.check_model(model)
             temporary = target.with_name(f'{target.stem}.{os.getpid()}.onnx')
             onnx.save(model, str(temporary)); temporary.replace(target)
@@ -106,8 +108,11 @@ class SprintFitter(SprintFitterBase):
     @torch.no_grad()
     def _graph_sprint_forward(self, crop_t, cam, shape):
         x = torch.nn.functional.interpolate(crop_t, size=(256, 256), mode='bilinear', antialias=True, align_corners=False)
+        # torchvision normalisation creates/checks host constants, which cannot
+        # execute during CUDA capture. Keep that identical preprocessing outside.
+        x = self.model.prepare_input(x)
         if self._sprint_graph is None and self.sprint_graph_error is None:
-            self._sg_x = x.clone()
+            self._sg_x = torch.empty_strided(x.size(), x.stride(), device=x.device, dtype=x.dtype).copy_(x)
             self._sg_cam = torch.as_tensor(cam, device=self.dev).float().reshape(1, 5).clone()
             self._sg_shape = torch.as_tensor(np.asarray(shape, np.float32)[:200], device=self.dev).reshape(1, 200).clone()
             self._sg_cond = {'cam': self._sg_cam, 'shape': self._sg_shape, 'shape_on': torch.ones(1, device=self.dev)}
@@ -115,11 +120,11 @@ class SprintFitter(SprintFitterBase):
                 side = torch.cuda.Stream()
                 side.wait_stream(torch.cuda.current_stream())
                 with torch.cuda.stream(side):
-                    for _ in range(3): self.model(self._sg_x, cond=self._sg_cond)
+                    for _ in range(3): self._graph_token()
                 torch.cuda.current_stream().wait_stream(side)
                 graph = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(graph):
-                    self._sg_out = self.model(self._sg_x, cond=self._sg_cond)
+                    self._sg_token = self._graph_token()
                 self._sprint_graph = graph
             except Exception as exc:
                 self.sprint_graph_error = repr(exc)
@@ -128,7 +133,25 @@ class SprintFitter(SprintFitterBase):
         self._sg_cam.copy_(torch.as_tensor(cam).reshape(1, 5))
         self._sg_shape.copy_(torch.as_tensor(np.asarray(shape, np.float32)[:200]).reshape(1, 200))
         self._sprint_graph.replay()
-        return self._sg_out
+        # Decode with the original head outside capture: its camera helpers
+        # construct CPU constants. This preserves the deployed raw-head maths.
+        head = self.model.head
+        out = head.decode_token(self._sg_token)
+        bp = out['body_param']
+        jaw = type(head).forward.__globals__['_rodrigues']
+        bp['jaw_pose'] = jaw(out['flame_param']['jaw_params'].float()).to(self._sg_token.dtype)[:, None]
+        on = self._sg_cond['shape_on'].to(bp['shape'].dtype)[:, None]
+        bp['shape'] = on * self._sg_shape.to(bp['shape'].dtype)[:, :200] + (1 - on) * bp['shape']
+        out['orient_logits'] = head.orient_cls(self._sg_token)
+        out['global_pose_raw'] = bp['global_pose'][:, 0]
+        return out
+
+    def _graph_token(self):
+        head = self.model.head
+        features = self.model.backbone(self._sg_x)
+        context = features.flatten(2).transpose(1, 2)
+        context = torch.cat([context, head.context_tokens(features.shape[0], features.device, features.dtype, self._sg_cond)], 1)
+        return head.transformer(features.new_zeros(features.shape[0], 1, 1), context=context).squeeze(1)
 
     def set_dwpose_provider(self, provider):
         import onnxruntime as ort
