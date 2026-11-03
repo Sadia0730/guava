@@ -187,6 +187,7 @@ PILOT_ARMS = {
     'detector_fp16': ('fb_sprint_k0_trkc_detfp16', 'CUDAExecutionProvider', 150, 0),
     'sprint_graph': ('fb_sprint_k0_trkc_graph', 'CUDAExecutionProvider', 150, 0),
     'both': ('fb_sprint_k0_trkc_detfp16_graph', 'CUDAExecutionProvider', 150, 0),
+    'amp_host': ('fb_sprint_k0_trkc_detfp16_amp_host', 'CUDAExecutionProvider', 150, 0),
 }
 
 
@@ -212,8 +213,9 @@ def pilot(args):
                        '--drive-iters', str(drive_iters)]
             if arm == 'cuda_h1_60_m512':
                 command += ['--driving-matte-size', '512']
-            if arm in ('detector_fp16', 'both'): command += ['--detector-fp16']
-            if arm in ('sprint_graph', 'both'): command += ['--sprint-graph']
+            if arm in ('detector_fp16', 'both', 'amp_host'): command += ['--detector-fp16']
+            if arm in ('sprint_graph', 'both', 'amp_host'): command += ['--sprint-graph']
+            if arm == 'amp_host': command += ['--sprint-amp', '--host-camera-scalars']
             log = (report_dir / f'{arm}.log').open('a')
             p = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
             running.append((arm, row, p, log))
@@ -286,7 +288,7 @@ def report(args):
                                                     and a[ds]['lpips'] <= b[ds]['lpips'] + .003 for ds in ('ubody', 'bedlam2'))
     if 'fastcuda' in rows:
         b = rows['fastcuda']['aggregate']
-        for name in ('detector_fp16', 'sprint_graph', 'both'):
+        for name in ('detector_fp16', 'sprint_graph', 'both', 'amp_host'):
             if name in rows:
                 a = rows[name]['aggregate']
                 out['decisions']['N5_' + name + '_quality'] = all(a[ds]['psnr'] >= b[ds]['psnr'] - .1
@@ -338,7 +340,7 @@ def live_benchmark(args):
     cv2.setNumThreads(2)
     fast = load_fast()
     fitter = fast.SprintFitter(CKPT, 'cuda:0', 150, dwpose_threads=4, dwpose_provider='CUDAExecutionProvider',
-                               detector_fp16=True, sprint_graph=True)
+                               detector_fp16=True, sprint_graph=True, sprint_amp=args.sprint_amp)
     with np.load(CACHE / 'timing_frames_32.npz', allow_pickle=False) as z:
         frames = [z[f'image_{i}'].copy() for i in range(len(z['frame_ids']))]
     fitter.set_source_mode()
@@ -346,6 +348,7 @@ def live_benchmark(args):
     sys.path.insert(0, str(HERE.parent / 'guava_fb')); sys.path.insert(0, str(HERE))
     import fb_common as F
     import box_sources as BS
+    from live_device import target_to_device
     os.chdir(ROOT)
     from models.UbodyAvatar import Ubody_Gaussian
     cfg, inf, ren, _ = F.setup_a20(torch.device('cuda:0'))
@@ -364,6 +367,8 @@ def live_benchmark(args):
     fitter.set_driving_mode(shape)
     out = {'gpu': torch.cuda.get_device_name(), 'n_unique_frames': len(frames), 'n_timed_per_arm': args.n,
            'visible_devices': os.environ.get('CUDA_VISIBLE_DEVICES'),
+           'cpu_affinity': sorted(os.sched_getaffinity(0)),
+           'sprint_amp_graph_only': args.sprint_amp, 'host_camera_scalars': args.host_camera_scalars,
            'git': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
            'timed_path': 'Prefetched RGB -> H1c detector -> crop/SPRINT/export -> camera preparation -> full 512px deformation/raster/refiner; synchronized wall time',
            'warmup_per_arm': 10, 'source_fixed_across_arms': True,
@@ -394,11 +399,14 @@ def live_benchmark(args):
         target = {'smplx_coeffs': sm, 'flame_coeffs': {'expression_params': torch.zeros(50)},
                   'w2c_cam': w2c, 'c2w_cam': torch.linalg.inv(w2c), 'invtanfov': comp['invtanfov']}
         target['render_cam_params'] = F.render_cam_params(w2c, target['c2w_cam'], comp['invtanfov'], 512)
-        target = F.to_dev(F.collate1(target), torch.device('cuda:0'))
+        target = target_to_device(F, target, torch.device('cuda:0'), args.host_camera_scalars)
         torch.cuda.synchronize(); t3 = time.perf_counter()
         torch.manual_seed(0)
         render = ren(avatar(target), target['render_cam_params'], bg=0.)['renders']
         torch.cuda.synchronize(); t4 = time.perf_counter()
+        # Validation assertion after the timer; not a live inference stage.
+        if not torch.isfinite(render).all().item() or not all(np.isfinite(v).all() for v in r['raw_smplx'].values()):
+            raise RuntimeError('Non-finite driving parameters or rendered pixels')
         return np.asarray(box), {'total': (t4-t0)*1000, 'detector': (t1-t0)*1000,
                                  'crop_sprint_export': (t2-t1)*1000, 'render_prep': (t3-t2)*1000,
                                  'deform_raster_refiner': (t4-t3)*1000}, r['raw_smplx']
@@ -442,6 +450,8 @@ def main():
     ap.add_argument('--control', default='fb_sprint_k0_trkc')
     ap.add_argument('--E', default='/dev/shm/ubx858_eval/valbench_v1')
     ap.add_argument('--arms', default='fastcpu,fastcuda,src500,cuda_h1_60')
+    ap.add_argument('--sprint-amp', action='store_true')
+    ap.add_argument('--host-camera-scalars', action='store_true')
     args = ap.parse_args()
     globals()[args.action](args)
 

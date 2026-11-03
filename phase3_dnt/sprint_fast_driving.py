@@ -25,11 +25,12 @@ SprintFitterBase = _base.SprintFitter
 
 class SprintFitter(SprintFitterBase):
     def __init__(self, *args, dwpose_provider='CPUExecutionProvider', driving_matte_size=1024,
-                 detector_fp16=False, sprint_graph=False, **kwargs):
+                 detector_fp16=False, sprint_graph=False, sprint_amp=False, **kwargs):
         self.driving_matte_size = driving_matte_size
         self._in_driving_refinement = False
         self.detector_fp16 = detector_fp16
         self.use_sprint_graph = sprint_graph
+        self.sprint_amp = sprint_amp
         self._sprint_graph = None
         self.sprint_graph_error = None
         super().__init__(*args, **kwargs)
@@ -139,6 +140,12 @@ class SprintFitter(SprintFitterBase):
         return self._sg_out
 
     def _graph_outputs(self):
+        # Source fitting always uses the original FP32 model. Autocast is an
+        # explicit driving experiment; do not mutate or round its weights.
+        with torch.autocast('cuda', dtype=torch.float16, enabled=self.sprint_amp, cache_enabled=False):
+            return self._graph_outputs_impl()
+
+    def _graph_outputs_impl(self):
         """SPRINTHead.decode_token/forward maths with cached camera constants.
 
         Architecture and decoder operations credited to PEAR / SPRINT. The
@@ -185,7 +192,7 @@ class SprintFitter(SprintFitterBase):
         bp = out['body_param']
         rotations = torch.cat([bp[k].reshape(-1, 3, 3) for k in (
             'global_pose', 'body_pose', 'left_hand_pose', 'right_hand_pose', 'jaw_pose')])
-        aa = roma.rotmat_to_rotvec(rotations).reshape(-1)
+        aa = roma.rotmat_to_rotvec(rotations.float()).reshape(-1)
         return torch.cat([aa, bp['exp'][0, :50], bp['shape'][0], out['pd_cam'][0, :3, :4].reshape(-1)])
 
     def set_dwpose_provider(self, provider):

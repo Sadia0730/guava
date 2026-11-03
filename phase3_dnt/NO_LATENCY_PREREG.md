@@ -204,3 +204,29 @@ an idle 19.5 GB resident service, without stopping it; label snapshots and
 device index in live_fullgraph_gpu6.json. This is opportunistic shared-host
 timing, with no hard real-time guarantee. Any activity during this run must
 also be disclosed. Quality gates and fixed subset are unchanged.
+
+## N6/N7: host camera scalars, CPU locality and driving mixed precision
+
+The unchanged extended-graph repeat on GPU 6 did not meet the time gate:
+both 40.54/46.55 ms p50/p95, 97% over 33 ms. GPU 6 had an idle resident
+service; CPU load 34–47. Preserve all three timing files and do not claim
+30 FPS from the best median alone.
+
+One further bounded implementation pilot, before any new timing/quality run:
+keep rasterizer dimensions and FOV scalars on CPU after the original collation
+(same dtype rounding), avoiding four GPU-to-CPU scalar reads. Bind this timing
+process to GPU 6's local CPU socket (56–71), leaving other jobs untouched.
+Add opt-in FP16 autocast to the graph's SPRINT backbone/decoder only; source
+fit stays FP32, checkpoint untouched, rotation-vector conversion in FP32.
+Mixed precision changes predictions and must NOT be called numerically exact.
+
+Same 32 unique images / 200 timed frames per arm, same full renderer and fixed
+avatar, p50 AND p95 <=33 ms gate, plus maximum and missed-budget fraction.
+Name live_amp_host_gpu6.json; all four arms keep host camera scalars and CPU
+affinity, graph arms use autocast. Finite render/pose assertions run after the
+timed region. If promising, fixed five-clip pilot named amp_host, same N5
+non-regression guards against the existing FP32 CUDA control (each dataset
+no worse than -0.10 dB PSNR / +0.003 LPIPS). Report combined effect without
+attributing gains to a single part. This pilot cannot establish a GT-input
+quality gain or held-out full-split improvement. Stop this bounded pass if
+the complete candidate still fails time or quality guards.

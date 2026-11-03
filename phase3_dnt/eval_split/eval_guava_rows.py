@@ -50,6 +50,8 @@ ap.add_argument("--dwpose-provider", default="CPUExecutionProvider", choices=("C
 ap.add_argument("--driving-matte-size", type=int, default=1024, choices=(512, 1024), help="fast backend only: matte input for driving refinement; source always 1024")
 ap.add_argument("--detector-fp16", action="store_true", help="fast CUDA backend: FP16 person-only detector for driving; source detector unchanged")
 ap.add_argument("--sprint-graph", action="store_true", help="fast backend: CUDA Graph replay of unchanged FP32 SPRINT driving")
+ap.add_argument("--sprint-amp", action="store_true", help="experimental FP16 autocast for graph driving only; source remains FP32")
+ap.add_argument("--host-camera-scalars", action="store_true", help="keep rasterizer dimensions/FOV scalars on CPU to avoid CUDA synchronization")
 ap.add_argument("--box-source", default="yolox", choices=("yolox", "mediapipe", "track"), help="PREREG phase 5: driving-frame person box (yolox = H1b/H1c path)")
 ap.add_argument("--box-margin", type=float, default=1.25, help="phase 5: margin on the landmark / keypoint box (mediapipe, track)")
 ap.add_argument("--dwpose-threads", type=int, default=0, help="DWPose onnxruntime threads (0 = SprintFitter's default, 16); bound it on a CPU-saturated host")
@@ -62,6 +64,8 @@ if (a.detector_fp16 or a.sprint_graph) and (not a.fast_backend or a.drive_iters 
     ap.error('--detector-fp16/--sprint-graph require --fast-backend with k=0')
 if a.detector_fp16 and a.dwpose_provider != 'CUDAExecutionProvider':
     ap.error('--detector-fp16 requires --dwpose-provider CUDAExecutionProvider')
+if a.sprint_amp and not a.sprint_graph:
+    ap.error('--sprint-amp requires --sprint-graph')
 SPLIT = json.loads(Path(a.split).read_text())
 E = Path(a.E)
 ROWNAME = a.name or (a.row + (f"_k{a.drive_iters}" if a.drive_iters else ""))
@@ -77,7 +81,8 @@ if a.row == "fb_sprint":                                    # SPRINT first: it l
     spec = importlib.util.spec_from_file_location("sprint_avatar_fit", ROOT / 'phase3_dnt' / fitter_file)
     SAF = importlib.util.module_from_spec(spec); spec.loader.exec_module(SAF)
     fitter_kwargs = {'dwpose_provider': a.dwpose_provider, 'driving_matte_size': a.driving_matte_size,
-                     'detector_fp16': a.detector_fp16, 'sprint_graph': a.sprint_graph} if a.fast_backend else {}
+                     'detector_fp16': a.detector_fp16, 'sprint_graph': a.sprint_graph,
+                     'sprint_amp': a.sprint_amp} if a.fast_backend else {}
     if a.dwpose_threads: fitter_kwargs['dwpose_threads'] = a.dwpose_threads
     fitter = SAF.SprintFitter(a.sprint_ckpt, "cuda:0", a.sprint_iters, **fitter_kwargs)
 
@@ -88,6 +93,7 @@ if a.box_source != "yolox":                                                     
 if os.environ.get("OMP_NUM_THREADS"): cv2.setNumThreads(int(os.environ["OMP_NUM_THREADS"]))          # bounded OpenCV threads when asked
 sys.path.insert(0, str(HERE.parent / "guava_fb")); sys.path.insert(0, str(HERE))
 import fb_common as F                                                                                # noqa: E402
+from live_device import target_to_device                                                           # noqa: E402
 os.chdir(F.ROOT)
 from fb_common import to_dev                                                                         # noqa: E402
 from models.UbodyAvatar import GaussianRenderer, Ubody_Gaussian, Ubody_Gaussian_inferer              # noqa: E402
@@ -259,7 +265,8 @@ def main():
                     (od / "raw").mkdir(exist_ok=True); torchvision.io.write_png(u8(_RAW["last"]), str(od / "raw" / f"{k}.png"))
         else:                                                                                      # fb_sprint
             info.update(fast_backend=a.fast_backend, dwpose_provider=a.dwpose_provider, source_fit_iters=a.sprint_iters,
-                        driving_matte_size=a.driving_matte_size, detector_fp16=a.detector_fp16, sprint_graph=a.sprint_graph)
+                        driving_matte_size=a.driving_matte_size, detector_fp16=a.detector_fp16, sprint_graph=a.sprint_graph,
+                        sprint_amp=a.sprint_amp, host_camera_scalars=a.host_camera_scalars)
             if hasattr(fitter, 'set_source_mode'): fitter.set_source_mode()
             sf = c["source_frame"]; tf = [int(k.split("_")[1]) for k in fj["test"]]
             ori = original_frames(c, [sf] + tf); Hm = metric_H(c)
@@ -309,7 +316,7 @@ def main():
                 t = {"smplx_coeffs": sm, "flame_coeffs": {"expression_params": torch.zeros(50)}, "w2c_cam": w2c, "c2w_cam": torch.linalg.inv(w2c),
                      "invtanfov": comp["invtanfov"]}
                 t["render_cam_params"] = F.render_cam_params(t["w2c_cam"], t["c2w_cam"], t["invtanfov"], 512)
-                t = to_dev(F.collate1(t), dev)
+                t = target_to_device(F, t, dev, a.host_camera_scalars)
                 torch.cuda.synchronize(); t0 = time.perf_counter(); r = render(av, t); torch.cuda.synchronize(); tr.append(time.perf_counter() - t0)
                 perf[k] = {"box": [round(float(v), 2) for v in pbox], "lost": lost, "e2e_ms": (time.perf_counter() - te0) * 1000,
                            "render_ms": tr[-1] * 1000}                                          # box -> SPRINT -> render, synchronised
