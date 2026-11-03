@@ -194,3 +194,13 @@ The extended capture failed before timing: RoMa's rotation packing calls
 the graph and inside the measured frame path; capture normalisation, backbone,
 transformer and decoder only. Repeat the same registered timing and numerical
 checks; no quality or timing threshold changes.
+
+Extended graph now captures successfully and raw outputs match eager exactly
+on the timing sample. The GPU 0 repeat (live_fullgraph.json) was contended by
+a new job (other resident process grew to 10.5 GB and GPU activity persisted
+after the benchmark exited): both p50/p95 56.60/146.08 ms. Preserve it as a
+contention result. Repeat unchanged arms on GPU 6, currently 0% active with
+an idle 19.5 GB resident service, without stopping it; label snapshots and
+device index in live_fullgraph_gpu6.json. This is opportunistic shared-host
+timing, with no hard real-time guarantee. Any activity during this run must
+also be disclosed. Quality gates and fixed subset are unchanged.

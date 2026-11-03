@@ -363,6 +363,9 @@ def live_benchmark(args):
         avatar = Ubody_Gaussian(cfg.MODEL, vg, ug, pruning=True); avatar.init_ehm(inf.ehm); avatar.eval()
     fitter.set_driving_mode(shape)
     out = {'gpu': torch.cuda.get_device_name(), 'n_unique_frames': len(frames), 'n_timed_per_arm': args.n,
+           'visible_devices': os.environ.get('CUDA_VISIBLE_DEVICES'),
+           'git': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+           'timed_path': 'Prefetched RGB -> H1c detector -> crop/SPRINT/export -> camera preparation -> full 512px deformation/raster/refiner; synchronized wall time',
            'warmup_per_arm': 10, 'source_fixed_across_arms': True,
            'gaussians': int(avatar._smplx_xyz.shape[1] + avatar._uv_local_xyz.shape[1]),
            'host_load_start': os.getloadavg(), 'arms': {},
@@ -422,6 +425,8 @@ def live_benchmark(args):
                              'median_stages_ms': {k: float(np.median([t[k] for t in times])) for k in times[0]},
                              'passes_33ms': bool(np.percentile(total, 50) <= 33 and np.percentile(total, 95) <= 33),
                              'host_load': os.getloadavg(), 'graph_raw_numeric_max_error': numeric}
+        out['arms'][name]['gpu_snapshot'] = subprocess.check_output([
+            'nvidia-smi', '--query-gpu=index,memory.used,utilization.gpu', '--format=csv,noheader'], text=True).strip()
         print('LIVE', name, json.dumps(out['arms'][name]), flush=True)
         filename = 'live_benchmark' if args.name == 'benchmark' else args.name
         (O / f'reports/no_latency_20261102/{filename}.json').write_text(json.dumps(out, indent=2))
