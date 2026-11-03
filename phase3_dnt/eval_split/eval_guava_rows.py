@@ -47,12 +47,15 @@ ap.add_argument("--drive-iters", type=int, default=0, help="H1: refine each SPRI
 ap.add_argument("--raw", action="store_true", help="also write the raw Gaussian render (first 3 feature channels, no refiner) to <row>_raw")
 ap.add_argument("--fast-backend", action="store_true", help="opt-in backend skipping unused work for raw driving; source fit unchanged")
 ap.add_argument("--dwpose-provider", default="CPUExecutionProvider", choices=("CPUExecutionProvider", "CUDAExecutionProvider"))
+ap.add_argument("--driving-matte-size", type=int, default=1024, choices=(512, 1024), help="fast backend only: matte input for driving refinement; source always 1024")
 ap.add_argument("--box-source", default="yolox", choices=("yolox", "mediapipe", "track"), help="PREREG phase 5: driving-frame person box (yolox = H1b/H1c path)")
 ap.add_argument("--box-margin", type=float, default=1.25, help="phase 5: margin on the landmark / keypoint box (mediapipe, track)")
 ap.add_argument("--dwpose-threads", type=int, default=0, help="DWPose onnxruntime threads (0 = SprintFitter's default, 16); bound it on a CPU-saturated host")
 a = ap.parse_args()
 if not a.fast_backend and a.dwpose_provider != 'CPUExecutionProvider':
     ap.error('--dwpose-provider CUDAExecutionProvider requires --fast-backend')
+if a.driving_matte_size != 1024 and not a.fast_backend:
+    ap.error('--driving-matte-size 512 requires --fast-backend')
 SPLIT = json.loads(Path(a.split).read_text())
 E = Path(a.E)
 ROWNAME = a.name or (a.row + (f"_k{a.drive_iters}" if a.drive_iters else ""))
@@ -67,7 +70,7 @@ if a.row == "fb_sprint":                                    # SPRINT first: it l
     fitter_file = 'sprint_fast_driving.py' if a.fast_backend else 'sprint_avatar_fit.py'
     spec = importlib.util.spec_from_file_location("sprint_avatar_fit", ROOT / 'phase3_dnt' / fitter_file)
     SAF = importlib.util.module_from_spec(spec); spec.loader.exec_module(SAF)
-    fitter_kwargs = {'dwpose_provider': a.dwpose_provider} if a.fast_backend else {}
+    fitter_kwargs = {'dwpose_provider': a.dwpose_provider, 'driving_matte_size': a.driving_matte_size} if a.fast_backend else {}
     if a.dwpose_threads: fitter_kwargs['dwpose_threads'] = a.dwpose_threads
     fitter = SAF.SprintFitter(a.sprint_ckpt, "cuda:0", a.sprint_iters, **fitter_kwargs)
 
@@ -245,7 +248,8 @@ def main():
                 if a.raw:
                     (od / "raw").mkdir(exist_ok=True); torchvision.io.write_png(u8(_RAW["last"]), str(od / "raw" / f"{k}.png"))
         else:                                                                                      # fb_sprint
-            info.update(fast_backend=a.fast_backend, dwpose_provider=a.dwpose_provider, source_fit_iters=a.sprint_iters)
+            info.update(fast_backend=a.fast_backend, dwpose_provider=a.dwpose_provider, source_fit_iters=a.sprint_iters,
+                        driving_matte_size=a.driving_matte_size)
             sf = c["source_frame"]; tf = [int(k.split("_")[1]) for k in fj["test"]]
             ori = original_frames(c, [sf] + tf); Hm = metric_H(c)
             if not warm: fit_track(fitter, ori[sf], None)                                         # warm-up (not timed)

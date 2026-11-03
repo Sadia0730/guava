@@ -23,7 +23,9 @@ SprintFitterBase = _base.SprintFitter
 
 
 class SprintFitter(SprintFitterBase):
-    def __init__(self, *args, dwpose_provider='CPUExecutionProvider', **kwargs):
+    def __init__(self, *args, dwpose_provider='CPUExecutionProvider', driving_matte_size=1024, **kwargs):
+        self.driving_matte_size = driving_matte_size
+        self._in_driving_refinement = False
         super().__init__(*args, **kwargs)
         self.dwpose_provider = dwpose_provider
         self.fast_dwpose_threads = kwargs.get('dwpose_threads', 16)
@@ -63,7 +65,19 @@ class SprintFitter(SprintFitterBase):
     def fit(self, img_rgb, box=None, iters=None, shape_lock=None, **kwargs):
         if iters == 0 and not kwargs:
             return self.drive_raw(img_rgb, box=box, shape_lock=shape_lock)
-        return super().fit(img_rgb, box=box, iters=iters, shape_lock=shape_lock, **kwargs)
+        previous = self._in_driving_refinement
+        self._in_driving_refinement = iters is not None and iters > 0 and not kwargs.get('_warm', False)
+        try:
+            return super().fit(img_rgb, box=box, iters=iters, shape_lock=shape_lock, **kwargs)
+        finally:
+            self._in_driving_refinement = previous
+
+    @torch.no_grad()
+    def matting(self, crop_t):
+        if self._in_driving_refinement and self.driving_matte_size != 1024:
+            crop_t = torch.nn.functional.interpolate(crop_t, size=(self.driving_matte_size,) * 2,
+                                                     mode='bilinear', antialias=True, align_corners=False)
+        return super().matting(crop_t)
 
     @torch.no_grad()
     def drive_raw(self, img_rgb, box=None, shape_lock=None):

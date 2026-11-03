@@ -103,3 +103,22 @@ has ~6 GB of 46 GB resident and 4% utilisation. Do not stop existing jobs. Such
 runs are labelled shared/contended and cannot establish idle absolute latency.
 The auto-selection default remains conservative. This changes scheduling only,
 not any quality or timing acceptance rule.
+
+## N4: lower driving-matte input cost (before smoke or quality runs)
+
+After moving detection to the GPU, 1024-pixel StyleMatte still costs ~70 ms and
+60-step refinement ~126 ms in the contended sample. Test StyleMatte at 512
+instead of 1024 for driving refinement ONLY. Same keypoints, SPRINT, fitting
+iterations/objective and 256-pixel fit mask. Source fitting and source matte
+stay at 1024; k0 is unchanged. No target GT or extra frames. This is a distinct
+quality/runtime tradeoff, not a numerical-equivalence claim.
+
+Smoke on the first eight already-cached timing frames: both 1024 and 512 arms,
+finite fits, keypoint diagnostics and synchronised wall time. Abort if any
+non-finite fit. Then the same fixed five-clip subset, GPU k60/matte512 vs GPU
+k60/matte1024. Continue only if neither dataset loses >0.10 dB or +0.003 LPIPS,
+and driving time decreases. Also compare complete frame time to the original
+CPU-heavy deployed pipeline and to fast GPU k0: refinement has additional cost
+against the latter and must never be described as free. Any idle absolute
+latency/real-time claim requires a separate isolated timing run. Budget: <=
+15 GPU-minutes for smoke and subset; full validation only if warranted.

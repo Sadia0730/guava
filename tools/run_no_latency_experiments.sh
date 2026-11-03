@@ -16,7 +16,7 @@ export CUDA_VISIBLE_DEVICES=$EXPERIMENT_GPU
 echo "Experiment GPU: $CUDA_VISIBLE_DEVICES"
 export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
 case "${1:-}" in
-  inventory|probe|benchmark|verify|pilot|report)
+  inventory|probe|benchmark|verify|pilot|report|matte_benchmark)
     exec /home/ubx858/miniconda3/envs/guava/bin/python phase3_dnt/eval_split/no_latency_experiments.py "$@" ;;
   eval)
     shift

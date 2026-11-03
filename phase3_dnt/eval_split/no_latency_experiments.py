@@ -183,6 +183,7 @@ PILOT_ARMS = {
     'fastcuda': ('fb_sprint_k0_trkc_fastcuda_fp32', 'CUDAExecutionProvider', 150, 0),
     'src500': ('fb_sprint_k0_trkc_fastcuda_src500', 'CUDAExecutionProvider', 500, 0),
     'cuda_h1_60': ('fb_sprint_k60_trkc_fastcuda_fp32', 'CUDAExecutionProvider', 150, 60),
+    'cuda_h1_60_m512': ('fb_sprint_k60_trkc_fastcuda_m512', 'CUDAExecutionProvider', 150, 60),
 }
 
 
@@ -206,6 +207,8 @@ def pilot(args):
             command = [sys.executable, str(HERE / 'eval_guava_rows.py'), *common,
                        '--name', row, '--dwpose-provider', provider, '--sprint-iters', str(source_iters),
                        '--drive-iters', str(drive_iters)]
+            if arm == 'cuda_h1_60_m512':
+                command += ['--driving-matte-size', '512']
             log = (report_dir / f'{arm}.log').open('a')
             p = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
             running.append((arm, row, p, log))
@@ -272,14 +275,50 @@ def report(args):
                     and all(a['aggregate'][ds]['psnr'] >= b['aggregate'][ds]['psnr'] - .1
                             and a['aggregate'][ds]['lpips'] <= b['aggregate'][ds]['lpips'] + .003 for ds in ('ubody', 'bedlam2')))
         out['decisions']['N3_source500'] = {'psnr_delta': delta, 'clips_up': up, 'quality_gate': accepted}
+    if 'cuda_h1_60_m512' in rows and 'cuda_h1_60' in rows:
+        a = rows['cuda_h1_60_m512']['aggregate']; b = rows['cuda_h1_60']['aggregate']
+        out['decisions']['N4_matte512_quality'] = all(a[ds]['psnr'] >= b[ds]['psnr'] - .1
+                                                    and a[ds]['lpips'] <= b[ds]['lpips'] + .003 for ds in ('ubody', 'bedlam2'))
     out['timing_note'] = 'Shared GPU / CPU contention: these are not idle absolute latency measurements.'
     (rdir / 'pilot_summary.json').write_text(json.dumps(out, indent=2))
     print('PILOT_SUMMARY', json.dumps(out), flush=True)
 
 
+def matte_benchmark(args):
+    import torch
+    import numpy as np
+    import cv2
+    cv2.setNumThreads(2)
+    fast = load_fast()
+    fitter = fast.SprintFitter(CKPT, 'cuda:0', 150, dwpose_threads=4, dwpose_provider='CUDAExecutionProvider')
+    with np.load(CACHE / 'timing_frames_32.npz', allow_pickle=False) as z:
+        frames = [z[f'image_{i}'].copy() for i in range(min(args.n, len(z['frame_ids'])))]
+    shape = fitter.fit(frames[0])['shape']
+    out = {'gpu': torch.cuda.get_device_name(), 'n_frames': len(frames), 'host_load': os.getloadavg(), 'arms': {}}
+    for size in (1024, 512):
+        fitter.driving_matte_size = size
+        for im in frames[:2]: fitter.fit(im, iters=60, shape_lock=shape)
+        times = []; kp = []; finite = []; coverage = []
+        for im in frames:
+            torch.cuda.synchronize(); t0 = time.perf_counter()
+            r = fitter.fit(im, iters=60, shape_lock=shape)
+            torch.cuda.synchronize()
+            times.append({'wall': (time.perf_counter() - t0) * 1000, **{k: v * 1000 for k, v in r['times'].items()}})
+            kp.append(r['diag']['kp_err_px1024_after'])
+            finite.append(bool(all(np.isfinite(x).all() for x in r['record']['smplx_coeffs'].values())))
+            coverage.append(float((r['alpha'] > .5).mean()))
+        out['arms'][size] = {'median_ms': {k: float(np.median([t[k] for t in times])) for k in times[0]},
+                             'p90_wall_ms': float(np.percentile([t['wall'] for t in times], 90)),
+                             'finite': sum(finite), 'median_kp_px1024': float(np.median(kp)),
+                             'median_matte_coverage': float(np.median(coverage))}
+        print('MATTE', size, json.dumps(out['arms'][size]), flush=True)
+    target = O / 'reports/no_latency_20261102/matte_benchmark.json'
+    target.write_text(json.dumps(out, indent=2))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('action', choices=('inventory', 'probe', 'benchmark', 'verify', 'pilot', 'report'))
+    ap.add_argument('action', choices=('inventory', 'probe', 'benchmark', 'verify', 'pilot', 'report', 'matte_benchmark'))
     ap.add_argument('--n', type=int, default=32)
     ap.add_argument('--threads', type=int, default=16)
     ap.add_argument('--name', default='benchmark')
