@@ -1102,3 +1102,99 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
   meets the quality condition (>= YOLOX - 0.10 dB, LPIPS <= +0.003, wrong-person <= YOLOX) -> **YOLOX + H1c stays**. The first track runs were
   blocked by a check added in b5f51fb2 (removed in 7c252b12) and rerun; the fast backend's output packing changed in b5f51fb2 mid-phase
   (YOLOX arm within 0.003 dB of the reference row). Laptop timing not supplied yet (script: eval_split/time_live_boxes.py).
+
+## Fairness rule for every benchmark (registered 2026-11-02 21:25, user rule; applies to AvatarTest-v1, PublicBench-v1, PublicBench-v2 and FinalBench)
+1. Every method uses exactly the same subjects / clips, the same training frames and the same test frames (the benchmark's
+   registered split; for X-Humans the official train / test split).
+2. Per-person methods (GART, ExAvatar, GaussianAvatar) train only on that subject's training frames. GUAVA and GUAVA-FB use the
+   FIRST training frame as their only source image (declared in every caption).
+3. Every method is driven by the same GT body model on the test frames (converted to each method's body model), plus the
+   GUAVA-FB [SPRINT] rows, which use no GT. No test-time pose fitting in a main table: no pose, face or expression parameter of
+   a test frame may be fitted to that test frame's image. Training-frame refinement inside a method's own training is allowed.
+4. Same 512 person crop, same masks, same metrics (PSNR, SSIM, LPIPS-VGG, L1), computed by the one scoring script
+   (`eval_split/score.py`) for every row.
+5. Published numbers of other methods (e.g. ExAvatar's own X-Humans numbers) appear only on a separate "as reported" line,
+   never in our tables (different crops / masks / metric pipelines).
+
+### Audit of the existing tables against the rule (2026-11-02 21:25)
+- Splits / sources (checked on every `frames.json`, 70 AvatarTest-v1 + 8 PublicBench-v1 clips): source key = first recon
+  (training) key in all 78 clips; recon and test keys disjoint in all 78. GART (`run_gart.py`) and GaussianAvatar
+  (`ga_convert.py`) train on the recon keys only and render the test keys with the test frame's GT pose; no test-time fitting.
+  GUAVA / GUAVA-FB rows: source = first frame, targets = GT records of the test frames. One scorer, one `gt512` per benchmark.
+  -> these rows conform.
+- **Non-conforming: every ExAvatar row** (AvatarTest-v1 subset24 / subset23, PublicBench-v1). Its body is the GT, but its
+  test-frame face parameters (jaw, eyes, expression) are fitted to the test images (DECA + DWPose keypoints + `fit_face_gt.py
+  --stage test`, as registered in AvatarTest-v1 addendum 1: "its own FLAME face fitting allowed (on recon and test frames, as
+  its pipeline does; stated)"). Under rule 3 this is test-time fitting. On PublicBench-v1 the GT is SMPL, so every other row
+  has a neutral face while ExAvatar's face follows the test image.
+- **Non-conforming: AvatarTest-v1 `table_subset24.md`**: ExAvatar's row covers 23 of the 24 clips (DECA finds no face on
+  bedlam2/..._seq_000169) while the other rows cover 24. `table_subset23.md` (all rows on the same 23 clips) conforms on clips.
+- Non-conforming (interim, chat only, 2026-11-02): the PublicBench-v1 partial table with ExAvatar / GaussianAvatar on 1 of 8
+  clips. Not a reported table; replaced by the full one.
+- Existing tables stay as they are (supporting material, user decision); the deviations above go into their captions.
+- **ExAvatar, conforming variant (used in PublicBench-v2 and FinalBench):** same runner, except that the test-frame face is the
+  GT's (converted jaw / expression as in `exa_common.py`; eyes 0; neutral where the GT has no face, i.e. SMPL GT), with no DECA,
+  keypoints or face fitting on test frames. Face fitting on training frames (its training-frame refinement) is kept. Written as
+  a new runner (`baselines/exavatar/run_clip_gtface.sh`); the running PublicBench-v1 jobs are not touched.
+
+## PublicBench-v2: PublicBench-v1 + X-Humans 00028, 00034, 00087 (registered 2026-11-02 21:25, before any conversion or model run on X-Humans; user decision)
+- **Data:** X-Humans (Shen et al., CVPR 2023; ETH AIT; research / non-commercial licence; never used for training), subjects
+  00028 (male), 00034 (male), 00087 (male), the subjects of ExAvatar's X-Humans evaluation. 16.5 GiB downloaded to
+  `/vault/research/COS/VIRLab/ubx858/ubx858/X_Humans/` (user-chosen location; nothing on /raid; the access link is not stored).
+  Per take: rendered RGB (800 x 1200, white background) + depth (renders of textured scans), `cameras.npz` (one intrinsic,
+  f = 2239 px; one extrinsic per frame), SMPL-X registrations per frame (`global_orient`, `body_pose` 63, hands 45 + 45
+  (no PCA), `jaw` / eyes, `expression` 10, `transl`; betas = the subject's `mean_shape_smplx.npy`, gendered model).
+- **Split (official):** README counts, train / test frames: 00028 1,444 / 448 (train Takes 2, 3, 4, 7, 9, 11, 13, 15; test
+  Takes 6, 8, 14), 00034 1,411 / 300 (test Take 7), 00087 1,780 / 360 (test Takes 2, 5). One clip per subject; the clip's test
+  frames = all frames of its test takes, training frames = all frames of its train takes (counts verified after extraction).
+  Source (single-image methods) = the FIRST training frame: lowest train take number, lowest frame index.
+- **Conversion (all rows share it; AvatarTest-v1 contract):** GT mesh = the dataset's SMPL-X parameters through SMPL-X v1.1
+  (subject gender, mean_shape betas; `flat_hand_mean` chosen by the smaller vertex error against the provided `.ply` meshes,
+  error reported). SMPL-X 2020 (neutral; GUAVA-FB, GUAVA with FLAME fields, ExAvatar's layer through `exa_common.py`) =
+  pose + one shape per subject + jaw / expression fitted to that mesh, as PublicBench-v1's SMPL -> SMPL-X fit; SMPL for GART /
+  GaussianAvatar = the SMPL-X -> SMPL vertex-correspondence fit used on AvatarTest-v1 (the dataset's own SMPL files are not
+  used). Residuals reported. Camera = the dataset's intrinsic + per-frame extrinsic (reprojection check reported). Crop =
+  1.1 x the projected GT-mesh box clipped to the image, 1024 -> 512. **Mask = rendered depth > 0** (exact: the images are
+  renders of the scans; the same mask for every method; GT = image x mask on black). The SPRINT rows keep their own detector,
+  crop and StyleMatte matte (inference-time signals).
+- **Rows:** the six PublicBench-v1 rows (GUAVA released, GART, GaussianAvatar, ExAvatar [conforming variant above],
+  GUAVA-FB [SMPL-X GT], GUAVA-FB [SPRINT]); official code, default settings, the same adapters. Test rendering of every test
+  frame; scored by `score.py` (PSNR, SSIM, LPIPS, L1), per subject and overall (mean over clips and frame-weighted).
+  ExAvatar's published X-Humans numbers only on an "as reported" line.
+- **Budget (GPU jobs > 15 min need the user's go-ahead):** per-person training time scales with the number of training
+  frames (AvatarTest-v1 rates: GaussianAvatar ~1 min, ExAvatar ~1.4 min per training frame), so all official training frames
+  would take ~25-30 h (GaussianAvatar) and ~35-42 h (ExAvatar) per subject. Each method's time is measured on one subject
+  (<= 15 min of its run, extrapolated) and reported before the long runs. If the projected finish on the GPUs free at launch is
+  after 2026-11-07 18:00, every per-person method trains on every k-th official training frame (the same k, smallest of 2, 4,
+  8 that fits; sampled within each take from its first frame), stated in the caption; test frames are never subsampled. The
+  user decides at the go-ahead.
+
+## FinalBench: final comparison tables (registered 2026-11-02 21:25, before scoring anything new; user design)
+- **Clip pool:** AvatarTest-v1 UBody (30 clips) + PublicBench People-Snapshot (4) + NeuMan (4) + X-Humans (00028, 00034, 00087
+  once converted) = 41 clips. Training / test frames, source, 512 crop, masks, GT = each benchmark's registered split and
+  conversion (unchanged). BEDLAM2 (AvatarTest-v1, 40 clips) gets a separate synthetic table with the same rules.
+  ValBench-v1 / ValBench-S are validation only and never appear in a final table.
+- **One clip set for every method:** the intersection of the clips on which ALL methods of both tables finished. Excluded clips
+  are listed with the reason (e.g. ExAvatar's DECA face detector finds no face).
+- **Main table, single-image methods** (source = first training frame):
+  1. GUAVA (released, best_160000.pt), GT-driven;
+  2. GUAVA-FB [SMPL-X GT] (B28k, `guava_fb_B30k` best.pt), GT-driven;
+  3. GUAVA-FB [SPRINT] (registered row: k = 0, largest box);
+  4. GUAVA-FB [SPRINT, k = 0 + H1c] (H3, adopted for the cheap path in phase 4; the matched baseline of row 5);
+  5. GUAVA-FB [SPRINT-H4, k = 0 + H1c] (`sprint_h4/train_h1/ema_4000.pt`, SHA-256 37a3a775...; failed its validation rule,
+     shown as such, not a candidate);
+  6. GUAVA-FB [SPRINT, k = 60 + H1c] (phase-3 selection; its registered command, extended to the FinalBench clips).
+  Rows 4-6 are new test runs; their numbers are reported as they come out; nothing is chosen on them.
+- **Reference table, video-trained per-person methods:** GART, ExAvatar (conforming variant only), GaussianAvatar on the same
+  clips, captioned "trained on each person's video (training frames); not directly comparable with single-image methods".
+- **Metrics / statistics:** `score.py` (PSNR, SSIM, LPIPS-VGG, L1); per clip = mean over its test frames; per dataset and
+  overall = mean over clips (each clip weighs the same; frame-weighted means also in the CSV). 95 % CIs = percentile bootstrap
+  over clips (10,000 resamples, numpy default_rng(20261108); overall resampled within each dataset). Paired differences vs
+  GUAVA (released): per-clip row - GUAVA, mean with the same bootstrap CI, per dataset and overall (higher is better for PSNR /
+  SSIM, lower for LPIPS / L1).
+- **Disclosures (caption):** AvatarTest-v1 and PublicBench-v1 numbers of rows 1-3 and the per-person methods were seen before
+  this registration; UBody clips are upper body only; NeuMan test sets are 3-10 frames; released GUAVA may have trained on
+  UBody; X-Humans images are renders of scans; the k = 60 refinement fits each test frame's own DWPose keypoints and StyleMatte
+  matte (inference-time signals, no GT).
+- **Output:** `phase3_dnt/RESULTS_FINAL.md` + `phase3_dnt/results_final.csv` (per-clip rows + aggregates), built by
+  `eval_split/final_tables.py` from the score files; by the 2026-11-08 freeze. Existing per-benchmark tables stay unchanged.
