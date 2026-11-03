@@ -230,3 +230,13 @@ no worse than -0.10 dB PSNR / +0.003 LPIPS). Report combined effect without
 attributing gains to a single part. This pilot cannot establish a GT-input
 quality gain or held-out full-split improvement. Stop this bounded pass if
 the complete candidate still fails time or quality guards.
+
+N6/N7 completed: combined p50/p95/max 40.23/58.45/77.00 ms, 95.5% over 33 ms;
+all 840 finite-pose/render checks passed. Runtime gate fails. Stop this bounded
+pass as registered; do not launch the conditional FP16/AMP quality pilot or
+adopt its flags. Mixed-precision raw fields differ (max pose-field 0.001464
+rad, camera translation 0.008984); FP32 extended graph previously matched
+exactly. GPU 6 had a resident service, but attribution of memory/load changes
+to a new competing process was not verified. An intermediate status update
+made that attribution; corrected here and in NO_LATENCY_RESULTS.md. All
+measurements remain shared-host results, not hard real-time guarantees.
