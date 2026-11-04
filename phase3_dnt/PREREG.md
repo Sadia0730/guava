@@ -1255,6 +1255,14 @@ Prior evidence (disclosed): E2 (RUNLOG 30, GUAVA upper body, 1 clip, tracker pos
   live-loop p95 with the worker running <= p95 without + 2 ms, measured on the GPU segment (SPRINT forward + correction + render,
   CUDA events) with worker-on / worker-off blocks interleaved on the same frames (the CPU detector's time on this shared host is
   reported but not part of the rule).
+- **Step 1 tuning result (2026-11-04, before any verdict-set run; scores `phase6_val/scores/*_tuning_full.json`).** Tuning PSNR
+  pooled as the rule's pooling (mean over the 23 tuning clips, weight 1), difference vs k = 0 + H1c (19.74 dB clip-pooled frames):
+  alpha 0.5 body +0.282 dB (LPIPS -0.0012), 0.2 body +0.276, 0.5 all +0.245, 0.2 all +0.240, 0.2 cam +0.169, 0.5 cam +0.151,
+  1.0 all +0.125, 1.0 cam +0.059, 1.0 body -0.064. Every arm gains on BEDLAM2 (+0.26 to +0.76 dB) and loses on 4D-DRESS
+  (-0.14 to -0.98 dB). **Frozen: alpha = 0.5, corrected parts = body + root + camera, cap 30 deg** (other worker settings as
+  registered). Disclosure: 5 arms first crashed (CUDA illegal memory access) while 4 worker-on replays shared GPU 1; a
+  single-arm repro of a crashed clip ran clean, and the missing clips were rerun 2 at a time (clips already finished were not
+  rerun); the first, partial scores are kept under tag `tuning`.
 
 ### Step 2: C3 appearance update (UV feature fusion), only after step 1 is decided (it runs on top of the adopted step 1, or of k = 0 if step 1 fails)
 - For each accepted frame: GUAVA-FB's image encoder -> inverse texture mapping with the REFINED pose -> per-texel feature map +
