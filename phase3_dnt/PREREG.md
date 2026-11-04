@@ -1263,6 +1263,12 @@ Prior evidence (disclosed): E2 (RUNLOG 30, GUAVA upper body, 1 clip, tracker pos
   registered). Disclosure: 5 arms first crashed (CUDA illegal memory access) while 4 worker-on replays shared GPU 1; a
   single-arm repro of a crashed clip ran clean, and the missing clips were rerun 2 at a time (clips already finished were not
   rerun); the first, partial scores are kept under tag `tuning`.
+- **Step 1 verdict (2026-11-04; `phase6_val/scores/*_verdict.json`, frozen setting from 9779ca48): NOT supported.** Verdict set,
+  mean over the 23 clips (weight 1): k = 0 + H1c 21.147 dB -> step 1 21.192 dB (+0.045; rule needs >= +0.30), LPIPS -0.0005,
+  11 / 23 clips up; BEDLAM2 +0.368 dB (11 / 15 up), 4D-DRESS -0.560 dB (0 / 8 up). The PSNR condition fails, so the ValBench-S and
+  timing conditions cannot change the verdict (not run). Offline upper bound, per-frame k = 60 + H1c: +2.371 dB, LPIPS -0.0249,
+  23 / 23 clips up (BEDLAM2 +2.32, 4D-DRESS +2.46): the pose information is per frame; offsets carried from refined frames to
+  later frames do not transfer on 4D-DRESS. Step 2 therefore runs on top of k = 0 + H1c, as registered.
 
 ### Step 2: C3 appearance update (UV feature fusion), only after step 1 is decided (it runs on top of the adopted step 1, or of k = 0 if step 1 fails)
 - For each accepted frame: GUAVA-FB's image encoder -> inverse texture mapping with the REFINED pose -> per-texel feature map +
