@@ -1338,3 +1338,10 @@ The gap is ~1 dB where the test view is near the source view and 4-6 dB once the
   on PublicBench-v1 and ValBench-v1; bounds for silhouette, colour and detail explanations of the near-view gap.
 - **D3, region / visibility classes on PublicBench-v1** (`eval_split/diag_regions.py` as in the improvement phase; descriptive).
 GPU: GPU 1 (shared with another user's job), every job < 15 min. The FinalBench main table is unchanged by this section.
+- **D1b (added 2026-11-05 ~18:35 after the D1 results, before its runs):** D1 result (disclosed): ValBench-v1 oracle +0.87 dB BEDLAM2 / +0.51 UBody
+  (BEDLAM2 far-view bins within 0.1-0.15 dB of GART); PublicBench-v1: NeuMan 23.04 -> 24.14, People-Snapshot 27.95 -> 27.78 with the
+  near-view bin [0,30) 29.64 -> 28.12 (blur + silhouette shift from averaging) and the far bins +0.5 to +1.0 dB. Two more fixed arms of
+  the same diagnostic separate "averaging blurs / shifts the seen texels" from "filling the unseen texels is what helps":
+  `diag_fuse_wta` = per texel the features of the single best-facing frame (no averaging; prior 1, threshold 0);
+  `diag_fuse_fill` = texels visible in the source keep the source's features exactly, unseen texels take the best-facing frame's.
+  Same data (ValBench-v1, PublicBench-v1 descriptive), same status (diagnostic, never a table row).

@@ -2,6 +2,7 @@
 Per test frame of each method, PSNR of
   plain      the scored render vs gt512 (= score.py);
   masked     render x the GT person mask (spill outside the person removed; upper bound of a perfect silhouette *outside* the body);
+  fillmiss   person pixels the render leaves black (miss) replaced by the GT: upper bound of perfect coverage (hair, loose cloth);
   color      render after a per-frame least-squares affine colour map (3x3 + bias, fitted on mask pixels) -> upper bound of a
              global colour / exposure correction;
   lowpass    Gaussian-blurred (sigma 4 px) render vs blurred GT: structure / low frequencies only;
@@ -28,9 +29,12 @@ def psnr(x, y):
 
 
 def affine_fit(r, g, m):
+    """per-frame 3x3 + bias colour map fitted on the mask pixels and applied to the rendered person only (render > 0.02 inside the
+    mask); the background stays black, so the bias cannot move it."""
     X = np.concatenate([r[m], np.ones((int(m.sum()), 1))], 1); A, *_ = np.linalg.lstsq(X, g[m], rcond=None)
-    out = np.concatenate([r.reshape(-1, 3), np.ones((r.shape[0] * r.shape[1], 1))], 1) @ A
-    return np.clip(out.reshape(r.shape), 0, 1)
+    out = np.clip((np.concatenate([r.reshape(-1, 3), np.ones((r.shape[0] * r.shape[1], 1))], 1) @ A).reshape(r.shape), 0, 1)
+    keep = m & (r.max(-1) > 0.02)
+    return np.where(keep[..., None], out, r)
 
 
 rows = []
@@ -48,12 +52,13 @@ for c in clips:
             if not p.exists(): continue
             r = cv2.imread(str(p)).astype(np.float64) / 255.0
             rm = r * m[..., None]; rc = affine_fit(r, g, mb) if mb.sum() > 100 else r; rb = cv2.GaussianBlur(r, (0, 0), 4)
-            row[meth] = {"plain": psnr(r, g), "masked": psnr(rm, g), "color": psnr(rc, g), "lowpass": psnr(rb, gb),
+            miss = (r.max(-1) <= 0.02) & mb; rf = np.where(miss[..., None], g, r)                 # coverage oracle: missed person pixels := GT
+            row[meth] = {"plain": psnr(r, g), "masked": psnr(rm, g), "fillmiss": psnr(rf, g), "color": psnr(rc, g), "lowpass": psnr(rb, gb),
                          "residual": psnr((r - rb) + 0.5, (g - gb) + 0.5),
                          "spill_px": float(((r.max(-1) > 0.02) & ~mb).mean()), "miss_px": float(((r.max(-1) <= 0.02) & mb).mean())}
         rows.append(row)
 json.dump(rows, open(OUT / "oracles_rows.json", "w"))
-KEYS = ("plain", "masked", "color", "lowpass", "residual", "spill_px", "miss_px")
+KEYS = ("plain", "masked", "fillmiss", "color", "lowpass", "residual", "spill_px", "miss_px")
 lines = []
 for ds in sorted({r["ds"] for r in rows}):
     R = [r for r in rows if r["ds"] == ds]

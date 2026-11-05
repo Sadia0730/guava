@@ -7,7 +7,8 @@ re-runs the UV decoder once and renders the test frames with the GT poses, exact
 training: it is a feed-forward oracle for "what the single-image model is missing because it never saw the other sides".
   texel weight w = visibility x |cos(surface normal, view)|; source anchor prior x its own weight; a texel is updated where
   w >= --thr and its accumulated weight W < --cap (0 = no cap); vertex branch, style and camera features stay the source's.
-Arms (fixed before running, PREREG): registered = prior 2, thr 0.3, cap 4 (step-2 defaults); oracle = prior 1, thr 0, no cap.
+Arms (fixed before running, PREREG): registered = prior 2, thr 0.3, cap 4 (step-2 defaults); oracle = prior 1, thr 0, no cap;
+D1b (2026-11-05, after D1): wta = per texel the best-facing frame only (prior 1, thr 0); fill = source texels kept, unseen filled.
 Writes E/renders/<name>/<ds>/<clip>/<key>.png (+ run.json: settings, frames used, coverage, texels per frame, self-check of the
 source-only decode against the static build) and uv_rgb_{source,fused}.png (RGB channels of the UV map, for figures).
 Usage: CUDA_VISIBLE_DEVICES=1 python fusion_gt_row.py --E <root> --split <json> --name diag_fuse_reg --prior 2 --thr 0.3 --cap 4"""
@@ -28,6 +29,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--E", required=True); ap.add_argument("--split", required=True); ap.add_argument("--clips", default="")
 ap.add_argument("--name", required=True)
 ap.add_argument("--prior", type=float, default=2.0); ap.add_argument("--thr", type=float, default=0.3); ap.add_argument("--cap", type=float, default=4.0)
+ap.add_argument("--mode", default="mean", choices=("mean", "wta", "fill"), help="mean: weighted running mean (as registered); wta: per texel the single "
+                "best-facing frame's features (source weight x prior); fill: source texels untouched, unseen texels from the best-facing frame")
 ap.add_argument("--every", type=int, default=1, help="use every n-th training frame (1 = all)")
 ap.add_argument("--max-frames", type=int, default=0, help="use at most N training frames after the source (0 = all)")
 ap.add_argument("--fb-ckpt", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/runs/guava_fb_B30k/checkpoints/best.pt")
@@ -132,6 +135,8 @@ def main():
         src = to_dev(F.collate1(fbd.source_info(0, fj["source"])), dev); f0 = frame_feats(src)
         w0 = a.prior * f0["facing"]; S = f0["uv"] * w0; W = w0.clone(); uv0 = f0["uv"]; touched = torch.zeros_like(UMASK)
         seen = f0["vis"].clone(); n_uv = float(UMASK.sum())
+        B = w0.clone(); FB = uv0.clone()                                                             # wta / fill: best weight + its features
+        if a.mode == "fill": B = torch.where(f0["vis"], torch.full_like(B, float("inf")), B)
         # self-check: the source-only decode == the static build (first test frame, max abs diff in 8-bit units)
         t_first = to_dev(F.collate1(fbd.target_info(0, fj["test"][0])), dev)
         r_static = u8(render(build_static(src), t_first)); r_dec0 = u8(render(decode(src, f0, uv0), t_first))
@@ -141,10 +146,15 @@ def main():
         per = []
         for k in train:
             f = frame_feats(to_dev(F.collate1(fbd.source_info(0, k)), dev)); seen |= f["vis"]
-            w = f["facing"]; upd = (w > 0) & (w >= a.thr) & (W < cap) & UMASK
-            wu = torch.where(upd, w, torch.zeros_like(w)); S += f["uv"] * wu; W += wu; touched |= upd
+            w = f["facing"]
+            if a.mode == "mean":
+                upd = (w > 0) & (w >= a.thr) & (W < cap) & UMASK
+                wu = torch.where(upd, w, torch.zeros_like(w)); S += f["uv"] * wu; W += wu; touched |= upd
+            else:
+                upd = (w > B) & (w >= a.thr) & UMASK
+                FB = torch.where(upd[None], f["uv"], FB); B = torch.where(upd, w, B); touched |= upd; W = torch.where(upd, w, W)
             per.append({"key": k, "n_texels": int(upd.sum()), "visible": int(f["vis"].sum())})
-        uvmap = torch.where(touched[None], S / W.clamp_min(1e-6), uv0)
+        uvmap = torch.where(touched[None], S / W.clamp_min(1e-6), uv0) if a.mode == "mean" else torch.where(touched[None], FB, uv0)
         av = decode(src, f0, uvmap); t_build = (time.perf_counter() - t0) * 1000
         tr = []
         for k in fj["test"]:
@@ -153,7 +163,7 @@ def main():
             torchvision.io.write_png(u8(r), str(od / f"{k}.png"))
         uv_rgb_png(uv0, od / "uv_rgb_source.png"); uv_rgb_png(uvmap, od / "uv_rgb_fused.png")
         cov0 = float(f0["vis"].sum()) / n_uv; cov = float((W > 0).sum()) / n_uv; covt = float(touched.sum()) / n_uv
-        info = {"method": a.name, **CK, "gpu": GPU, "settings": {"prior": a.prior, "thr": a.thr, "cap": a.cap, "every": a.every, "max_frames": a.max_frames},
+        info = {"method": a.name, **CK, "gpu": GPU, "settings": {"mode": a.mode, "prior": a.prior, "thr": a.thr, "cap": a.cap, "every": a.every, "max_frames": a.max_frames},
                 "source": fj["source"], "n_train_used": len(train), "n_train_available": len(fj["recon"]) - 1, "n_test": len(fj["test"]),
                 "coverage_source": cov0, "coverage_seen_any_frame": float(seen.sum()) / n_uv, "coverage_fused": cov, "texels_updated_frac": covt,
                 "mean_W_updated": float(W[touched].mean()) if covt > 0 else 0.0, "selfcheck_source_only_vs_static_u8": selfcheck,
