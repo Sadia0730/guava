@@ -4,12 +4,14 @@ from the ONNX initializers. Preprocessing = insightface ArcFaceONNX (112 x 112, 
 face_align.norm_crop (similarity to arcface_dst; least-squares Umeyama instead of skimage's SimilarityTransform, same
 solution). Checked against onnxruntime (CPU) by `python phase3_dnt/onnx_arcface_torch.py` (cosine of the embeddings)."""
 from __future__ import annotations
+import os
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 ARCFACE_DST = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366], [41.5493, 92.3655], [70.7299, 92.2041]], np.float32)
-DEFAULT_ONNX = "/home/ubx858/VACE/models/VACE-Annotators/face/models/antelopev2/glintr100.onnx"
+# ARCFACE_ONNX overrides the server path (the laptop package keeps the model under live_assets/arcface/)
+DEFAULT_ONNX = os.environ.get("ARCFACE_ONNX", "/home/ubx858/VACE/models/VACE-Annotators/face/models/antelopev2/glintr100.onnx")
 
 
 class OnnxArcFace(torch.nn.Module):

@@ -13,7 +13,9 @@ Use the laptop that already runs `main/live_pear_guava.py`, with the `guava` con
 - pytorch3d 0.7.7
 - `diff_gaussian_rasterization_32`, built from `./submodules/`
 
-The GPU needs about 13 GB of memory (tested peak 12.9 GB with `--worker pose`; see `gpu_mem_peak_gb` in `timing_*.json`).
+GPU memory: the live loop with the live appearance update ran under an 8 GB cap (peak 7.6 GB; server test 2026-11-05), so a GPU
+with about 10 GB or more is enough. At session start cuDNN's autotuning may briefly borrow much more if it is free; that is not
+needed. `timing_*.json` reports both: `gpu_mem_session_start_peak_gb` and `gpu_mem_peak_gb` (live loop and worker).
 
 ## 2. Install (one time)
 
@@ -68,8 +70,9 @@ Useful options:
 | Flag | Meaning | Status |
 |---|---|---|
 | `--worker off` | live loop only (default) | deployed pipeline |
-| `--worker pose` | step 1: refines one frame at a time in the background and applies the resulting pose correction to every live frame | under validation (PREREG phase 6); use it for timing only until it passes |
-| `--worker pose+uv`, `pose+uv+geo` | appearance / geometry updates (steps 2 / 3) | not available until they pass validation |
+| `--worker pose` | step 1: refines one frame at a time in the background and applies the resulting pose correction to every live frame | failed its validation (PREREG phase 6); timing only |
+| `--worker uv` | live appearance update (step 2): new camera frames fill in the parts of you the reference frame did not show; the live loop renders the latest avatar version | experimental, validation pending; see section 8 |
+| `--worker pose+uv`, `pose+uv+geo` | combined / geometry updates | not available |
 
 The live loop never waits for the worker.
 
@@ -110,3 +113,40 @@ This saves:
 A background thread does the writing, and `recorder_dropped` in the timing JSON counts any frames it had to skip.
 
 The recording is used only for offline replay and scoring as a small held-out webcam set. It is never used for tuning.
+
+## 8. Live appearance update (experimental) and its ablation
+
+While you move, a background worker takes some of the camera frames, computes their image features, maps them into GUAVA-FB's
+UV map, fuses them with what it already has, and rebuilds the avatar. The live loop always renders the newest version, and the
+on-screen `worker uv vN` counts the updates. Every 3rd frame is never used for this (`--score-every 3`), so it can be scored fairly.
+
+Status: experimental. Its settings are still being tuned on the server; until then it runs with `--uv-prior 2 --uv-thr 0.3`.
+It shares the GPU with the live loop, so the live loop is slower while it works.
+
+**Update this package once (from your git clone of the repo):**
+```bash
+cd ~/guava                                   # your clone; adjust the path
+git checkout driven_not_tracked && git pull
+bash phase3_dnt/live/update_package.sh /data/GUAVA/guava_live
+```
+This copies the new code into the package and downloads the ArcFace model (261 MB, insightface antelopev2, research use only),
+which checks that face updates keep your identity. The first run also downloads the LPIPS network weights (about 530 MB).
+
+**Try it live:**
+```bash
+cd /data/GUAVA/guava_live && conda activate guava && export TORCH_HOME=/data/GUAVA/guava_live/live_assets/torch
+python phase3_dnt/live/live_sprint_guavafb.py --input 0 --worker uv
+```
+
+**Ablation (without vs with the update, on the same recording):**
+1. Record a session (section 7), for example `--record /data/GUAVA/rec/session_01`. Countdown: face the camera, whole body in
+   view. Then turn slowly all the way round twice, take a few steps, raise and lower your arms, face the camera again, press q.
+2. Run:
+   ```bash
+   bash phase3_dnt/live/run_ablation.sh /data/GUAVA/rec/session_01
+   ```
+   It replays the recording twice (update off, then on; the same frames at their recorded times) and scores only the frames
+   the update never used. GT = your camera frame x its person matte, as in the benchmarks.
+3. Results in `/data/GUAVA/rec/session_01/ablation/`: `ablation.md` (PSNR / SSIM / LPIPS without and with the update for all
+   scored frames, front-facing frames and turned-away frames, plus live ms and the number of updates), `side_by_side.mp4`
+   (camera | without | with), `per_frame.csv`.
