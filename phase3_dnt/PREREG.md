@@ -1345,3 +1345,37 @@ GPU: GPU 1 (shared with another user's job), every job < 15 min. The FinalBench 
   `diag_fuse_wta` = per texel the features of the single best-facing frame (no averaging; prior 1, threshold 0);
   `diag_fuse_fill` = texels visible in the source keep the source's features exactly, unseen texels take the best-facing frame's.
   Same data (ValBench-v1, PublicBench-v1 descriptive), same status (diagnostic, never a table row).
+
+## Phase 7: fusion-aware GUAVA-FB (registered 2026-11-05 18:20, before any training run; follows the gap diagnosis above; user brief 2026-11-05)
+**Finding behind it (RUNLOG 114):** feed-forward GT-pose fusion of a clip's training frames into the UV map already recovers most of the
+far-view gap on exact-pose data (ValBench BEDLAM2 26.13 -> 27.00 dB, GART 26.71) and on NeuMan (23.04 -> 24.14), but on People-Snapshot
+the near-view bin falls 29.64 -> 28.12 dB and the coverage misses double even when the source's own texels are left untouched (fill
+arm): the UV decoder (StyleUNet + point decoder of B28k) has only ever seen single-view maps, zero where unseen, and is out of
+distribution on filled maps. The deployed coverage misses themselves (hair, shoes, hands; 43 % of the PS squared error) are a second,
+separate limit that this phase does not address.
+**Hypothesis:** training the same network with multi-frame fused inputs makes fused maps in-distribution: the fused rows improve
+on every validation set including the near-view bins, and the single-image path does not regress.
+**Change (code 115, `fb_fusion.py`, `guava_fb_train.py --fuse-*`):** per training item, K support frames of the same group (K = 0 with
+p = 0.3, else uniform 1..4; never the source or a target; 4D-DRESS: any view / take of the subject + outfit) are encoded like the
+source and fused into its UV map by the mean rule (weight = visibility x |cos|, source prior 2, no threshold, no cap); the decoder
+runs on the fused map with the source's style / camera / vertex branch; losses, targets and everything else = recipe B.
+**Arms (fixed):** A = `--fuse-kmax 4 --fuse-p1 0.3 --fuse-mode mean --fuse-prior 2 --fuse-thr 0 --fuse-cap 0 --fuse-val-k 8`;
+B (control) = identical command without fusion (`--fuse-kmax 0`). Both: B28k init, 4,000 steps, lr 8e-6 constant, recipe B options,
+seed 0, validation every 2,000 (H2 continuation protocol); the checkpoint evaluated is step 4,000 of each arm (best.pt by the
+unchanged eligibility rule is kept for the record). Budget ~2.3 h per arm on one L40S (0.7 it/s, peak 20 GB); GPUs 4 and 5 (free
+of my jobs), after the user's go-ahead.
+**Evaluation (ValBench-v1, GT-driven, score.py --tag vb, frame-weighted):** per arm the single-image row (`eval_guava_rows.py --row fb_gt
+--fb-ckpt <arm 4k>`, name `p7_<arm>_single`) and the fused row over all recon frames (`fusion_gt_row.py --mode mean --prior 2 --thr 0
+--cap 0 --fb-ckpt <arm 4k>`, name `p7_<arm>_fused`), view-bin tables by `view_bins.py`. References: fb_gt 20.98 dB / LPIPS 0.1553
+(UBody 19.06, BEDLAM2 26.13); naive fusion with B28k = `diag_fuse_oracle` 21.59 / 0.1545 (19.57, 27.00).
+**Decision rule (all must hold):** (1) A_fused >= diag_fuse_oracle + 0.30 dB on ValBench-v1 all and LPIPS not higher by > 0.002;
+(2) A_single >= fb_gt - 0.10 dB and LPIPS not higher by > 0.002 (no regression of the deployed single-image path);
+(3) A_fused >= A_single - 0.10 dB in the [0,30) view bin of both ValBench datasets (fusion no longer hurts near views).
+Attribution (reported, not a pass condition): if A_fused - B_fused < 0.20 dB, the gain is attributed to continued training, not to
+fusion-aware training, and is reported as such.
+**On a pass, FinalBench addition (registered now):** a separate "video fusion" table on the 41 FinalBench clips (+ BEDLAM2): GUAVA-FB [GT]
++ feed-forward fusion of the clip's training frames (GT poses, no optimisation) with B28k (naive) and with the phase-7 model, captioned as
+using the same frames the per-person methods train on; the phase-7 single-image row is added to the main table as an extra row only if
+rule (2) holds (B28k rows 1-3 unchanged). Disclosure: the People-Snapshot / NeuMan numbers of the naive B28k fusion were seen (D1).
+**RAGA:** no per-frame change (same architecture, Gaussian count and render path); the fused decode runs in the background worker as
+in phase 6 step 2; the laptop 30 fps / render-equivalence checks apply to the deployed checkpoint swap.
