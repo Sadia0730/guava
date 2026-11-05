@@ -1315,3 +1315,26 @@ reported separately. Results in PHASE6_REPORT.md, here and RUNLOG; an adopted st
 test run. Laptop: `--worker {off, pose, pose+uv, pose+uv+geo}` in the live app and the timing script, a recording mode (frames +
 timestamps + live outputs; the user's consented "webcam set", never used for tuning), README with full-body framing and commands.
 GPU: only GPUs not needed by the queued FinalBench runs (plan reported to the user before any phase-6 GPU job).
+
+## Gap diagnosis D1-D3 (registered 2026-11-05 10:35, before any of its runs; user brief 2026-11-05: find, implement and validate a fix for the gap of GUAVA-FB [GT] to GART / GaussianAvatar / ExAvatar on People-Snapshot and NeuMan, within the RAGA live rules)
+Evidence in hand (descriptive, `O/reports/improve/view_gap/view_gap.json`, PSNR by source->test view change): People-Snapshot, GUAVA-FB [GT]
+vs GART: [0,30) 29.64 vs 30.70 (75 frames), [30,60) 27.01 vs 30.96 (20), [60,90) 27.19 vs 33.11 (23), [90,135) 26.72 vs 32.82 (31),
+[135,180] 26.68 vs 31.02 (41); NeuMan [0,30) 23.72 vs 24.62 (13 of 27 frames); X-Humans [0,30) 26.46 vs 27.34 -> [135,180] 24.31 vs 26.40.
+The gap is ~1 dB where the test view is near the source view and 4-6 dB once the view turns, on all three datasets.
+- **D1, GT-pose appearance fusion over the training frames** (`eval_split/fusion_gt_row.py`): the clip's training frames (the frames
+  the per-person baselines train on) are passed through GUAVA-FB's image encoder + inverse texture mapping with their GT poses and
+  fused into the UV feature map by the step-2 running weighted mean (weight = visibility x |cos|, source anchor prior, update where
+  weight >= threshold and accumulated weight < cap; no live gates), the UV decoder is re-run once, test frames are rendered as
+  fb_gt. Feed-forward, no gradient step, no per-person training. Two arms, fixed now: `diag_fuse_reg` = prior 2, threshold 0.3,
+  cap 4 (the registered step-2 defaults); `diag_fuse_oracle` = prior 1, threshold 0, no cap (every visible texel of every frame).
+  Data: ValBench-v1 (validation, 50 clips) and PublicBench-v1 (test, 8 clips: descriptive, disclosed, no selection on it).
+  Purpose: how much of the far-view gap is missing information (recoverable by feed-forward fusion of frames the baselines see)
+  and how much is a model limitation. Interpretation rule (fixed): if the oracle arm closes >= 50 % of the People-Snapshot
+  [30,180] gap to GART, the bottleneck is information and the deployable direction is online fusion (its own registration, validation
+  rule on ValBench-v1 / ValBench-S, a pass before any FinalBench entry); below 50 %, the direction is training-side. Diagnostic rows
+  never enter a results table; they are reported as diagnostics with these settings.
+- **D2, cheap oracles on finished renders** (`eval_split/diag_oracles.py`, CPU, descriptive): per-frame PSNR of each row plain /
+  x GT mask (spill removed) / after a per-frame affine colour fit / low-pass (sigma 4) / high-pass residual, by dataset and view bin,
+  on PublicBench-v1 and ValBench-v1; bounds for silhouette, colour and detail explanations of the near-view gap.
+- **D3, region / visibility classes on PublicBench-v1** (`eval_split/diag_regions.py` as in the improvement phase; descriptive).
+GPU: GPU 1 (shared with another user's job), every job < 15 min. The FinalBench main table is unchanged by this section.
