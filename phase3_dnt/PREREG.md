@@ -1185,6 +1185,11 @@ camera: 16.81 / 21.54); single 3D components are not additive (body pose alone -
      shown as such, not a candidate);
   6. GUAVA-FB [SPRINT, k = 60 + H1c] (phase-3 selection; its registered command, extended to the FinalBench clips).
   Rows 4-6 are new test runs; their numbers are reported as they come out; nothing is chosen on them.
+  **Amendment (2026-11-05, user decision, before any of rows 4-6 ran on a FinalBench clip): rows 4-6 are dropped; the main
+  table is rows 1-3.** Row 6 fits each test frame's pose to that frame's own DWPose keypoints and StyleMatte matte, which rule 3
+  of the fairness rule (registered at the same time) excludes from a main table; k = 60 is also outside the 33 ms live budget.
+  The user's final-evaluation list (2026-11-03) has three single-image rows. No render of rows 4-6 exists under any test
+  benchmark; their validation results stay in IMPROVE_NOTES.md, PHASE4_REPORT.md and the phase-6 records.
 - **Reference table, video-trained per-person methods:** GART, ExAvatar (conforming variant only), GaussianAvatar on the same
   clips, captioned "trained on each person's video (training frames); not directly comparable with single-image methods".
 - **Metrics / statistics:** `score.py` (PSNR, SSIM, LPIPS-VGG, L1); per clip = mean over its test frames; per dataset and
