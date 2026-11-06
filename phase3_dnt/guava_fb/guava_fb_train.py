@@ -87,6 +87,7 @@ ap.add_argument("--fuse-p1", type=float, default=0.3, help="phase 7: prob. that 
 ap.add_argument("--fuse-mode", default="mean", choices=("mean", "wta", "fill")); ap.add_argument("--fuse-prior", type=float, default=2.0)
 ap.add_argument("--fuse-thr", type=float, default=0.0); ap.add_argument("--fuse-cap", type=float, default=0.0)
 ap.add_argument("--fuse-val-k", type=int, default=8, help="phase 7: support frames of the fused validation (evenly spaced other frames of the group, never a target)")
+ap.add_argument("--fuse-jitter", type=float, default=0.0, help="phase 7 arm C: prob. per support frame of an exposure / colour jitter (brightness x log-uniform [0.8, 1.25], saturation x [0.7, 1.3], per-channel white balance x [0.95, 1.05]); the source and the targets are never jittered")
 a = ap.parse_args()
 out = Path(a.out) if os.path.isabs(a.out) else O / "runs" / a.out
 assert not str(out.resolve()).startswith("/raid"), "write nothing on /raid"
@@ -190,6 +191,15 @@ gw = {s: np.array([len(g["frames"]) for g in groups[s]], np.float64) for s in sr
 log_print("effective mix", mix, {s: (len(groups[s]), int(sum(len(g["frames"]) for g in groups[s]))) for s in src_names})
 
 
+def support_jitter(st, rng):
+    """phase 7 arm C: exposure / colour jitter of a support frame's masked [0, 1] image (brightness gain, saturation, per-channel
+    white balance). Pure gains and a lerp towards luminance, so background pixels stay 0. Returns (st, [gain, sat, wb_r, wb_g, wb_b])."""
+    im = st["image"]; g = float(np.exp(rng.uniform(np.log(0.8), np.log(1.25)))); sat = float(rng.uniform(0.7, 1.3)); wb = rng.uniform(0.95, 1.05, 3)
+    lum = (0.299 * im[0] + 0.587 * im[1] + 0.114 * im[2])[None]
+    st["image"] = ((lum + (im - lum) * sat) * g * torch.tensor(wb, dtype=im.dtype).view(3, 1, 1)).clamp(0, 1)
+    return st, [round(g, 4), round(sat, 4)] + [round(float(x), 4) for x in wb]
+
+
 class GroupSampler(torch.utils.data.Dataset):
     """item i -> one source frame + n_tgt targets, from np.random.default_rng([seed, i]) (deterministic, resume-safe)."""
     def __len__(self): return 1 << 40
@@ -249,6 +259,12 @@ class GroupSampler(torch.utils.data.Dataset):
         if a.fuse_kmax > 0:                                                  # fixed-length (padded with the source) for collation
             m["support"] = ["/".join(map(str, (clips[g["frames"][p][0]]["name"], g["frames"][p][1]))) for p in ks]; item["meta"] = json.dumps(m)
             sup = [fbd.source_info(*g["frames"][p]) for p in ks]
+            if a.fuse_jitter > 0 and sup:                                    # arm C: exposure / colour jitter of support frames only
+                jr = np.random.default_rng([a.seed, i, 12]); jl = []
+                for q in range(len(sup)):
+                    if jr.random() < a.fuse_jitter: sup[q], js = support_jitter(sup[q], jr); jl.append(js)
+                    else: jl.append(None)
+                m["support_jitter"] = jl; item["meta"] = json.dumps(m)
             item["support"] = torch.utils.data.default_collate(sup + [src] * (a.fuse_kmax - len(sup))); item["n_support"] = torch.tensor(len(sup))
         return item
 
