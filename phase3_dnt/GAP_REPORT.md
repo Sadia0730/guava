@@ -54,18 +54,32 @@ near views vs 2.2 dB in the low frequencies); baseline unfairness (audit of the 
 allowed by rule 3; no test-frame fitting in the conforming rows; our protocol is stricter than all three papers' PS protocols, which
 fit test poses).
 
-## 3. The implemented solution: fusion-aware training (phase 7)
+## 3. The implemented solution: fusion-aware training (phase 7) and its measured result
 
 `guava_fb/fb_fusion.py` + `guava_fb_train.py --fuse-kmax 4 --fuse-p1 0.3 --fuse-mode mean --fuse-prior 2`: during training each
 source is fused with 0-4 other frames of the same person (never a target), so the same decoder learns to render from one photo and
 from an accumulated map. At inference nothing changes per frame: the fusion is the background worker of the live system (phase 6
-step 2), and the benchmark row fuses the clip's training frames once. Smoke test and validator check passed (RUNLOG 115: 0.71 it/s,
-19.7 GB; iteration-0 validation reproduces B28k; naive fused validation already +0.45-0.58 dB on every track).
-Registered in PREREG "Phase 7": arm A (fusion) vs arm B (plain continuation, same steps), 4,000 steps from B28k, ~2.3 h each;
-decision on ValBench-v1 (fused row >= naive fusion + 0.30 dB; single-image row within 0.10 dB of B28k; near-view bins not hurt);
-on a pass, a "video fusion" table on FinalBench with the same frames the per-person methods train on. **Waiting for the GPU go-ahead.**
+step 2), and the benchmark row fuses the clip's training frames once.
 
-What this can and cannot deliver, stated before the run: it can make the fused row clearly better than today's naive fusion and
+**Round 1 (PREREG Phase 7 + amendment 1, RUNLOG 116-117; 4,000 steps from B28k at lr 8e-6, the H2 continuation protocol):** arm A
+(fusion), B (control, plain continuation), C (fusion + exposure / colour jitter of the fused frames, from the laptop finding of an
+over-exposed reference frame). ValBench-v1 (frame-weighted): single photo B28k 20.98 dB; naive fusion B28k 21.59 (prior 1 or 2
+identical); A fused 21.49 / B fused 21.48 / C fused 21.49; A single 20.91 / B single 20.94 / C single 20.90. **Registered rule
+fails** (needs 21.89); attribution A - B = +0.01 dB; the only consistent effect of fusion training is LPIPS (fused 0.1523 vs
+control 0.1551). Plain continuation itself costs 0.1 dB on the fused UBody row. Exposure-shift probe (fused frames x1.2
+brightness, x0.75 saturation): every model loses ~0.6 dB (A 20.88, C 20.94, B28k 20.88), C's gain of +0.06 over A is below the
+registered +0.20, so the jitter is not adopted; the probe does show that the laptop exposure mismatch is worth fixing at capture.
+Audit (user question "check bug or data range issues", `diag_fuse_signal.py`): fusion happened in 64 % of items (35 % of the map
+touched); images in [0, 1]; step-0 validation = B28k; source-only decode = static build bit for bit; the training signal exists
+(36 % of a target's visible surface is unseen by the source, 54 % of that covered by the fused frames: ~21 % of each target is
+rendered from real fused features). The decoder simply did not move: fused-batch image loss 0.0307 vs control 0.0313. Conclusion:
+no bug; the continuation protocol (8e-6, 4,000 steps) is too weak to change the decoder's behaviour, as it was for H2 / H4 / step 1.
+
+**Round 2 (amendment 2, launched 2026-11-06 04:03 after the user's go-ahead):** A2 = fusion at lr 3e-5 for 12,000 steps, B2 = its
+control; same rules. Descriptive People-Snapshot / NeuMan fused rows of A / B / B28k (test, no selection) are being computed to
+see whether the training touched the near-view loss (C3), which ValBench cannot show (naive fusion does not lose on near views there).
+
+What this can and cannot deliver, stated before the runs: it can make the fused row clearly better than today's naive fusion and
 competitive with the per-person methods where poses are exact (BEDLAM2) and on NeuMan; it cannot close the People-Snapshot gap in
 the single-image row (C1 is an information bound) and it does not touch C2.
 
