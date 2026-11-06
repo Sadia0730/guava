@@ -25,9 +25,10 @@ ap.add_argument("--out-md", default=str(P3 / "RESULTS_FINAL.md")); ap.add_argume
 ap.add_argument("--boot", type=int, default=10000); ap.add_argument("--seed", type=int, default=20261108); a = ap.parse_args()
 O = Path(a.O)
 EVALS = {"avatar_test_v1": "avatar_test_v1.json", "publicbench_v1": "publicbench_v1.json", "publicbench_v2": "publicbench_v2_xhumans.json"}
-MAIN = ["guava", "fb_gt", "fb_sprint"]; REF = ["gart", "gaussianavatar", "exavatar_gtface"]; METHODS = MAIN + REF
+MAIN = ["guava", "fb_gt", "fb_sprint", "lhmpp"]; REF = ["gart", "gaussianavatar", "exavatar_gtface"]; METHODS = MAIN + REF
 NAME = {"guava": "GUAVA (released)", "fb_gt": "GUAVA-FB [SMPL-X GT]", "fb_sprint": "GUAVA-FB [SPRINT, k = 0]", "gart": "GART",
-        "gaussianavatar": "GaussianAvatar", "exavatar_gtface": "ExAvatar [GT face]"}
+        "gaussianavatar": "GaussianAvatar", "exavatar_gtface": "ExAvatar [GT face]", "lhmpp": "LHM++ [SMPL-X GT, 1 view]"}
+NOCON = {"lhmpp"}   # PREREG "FinalBench addendum: LHM++": shown in the main / BEDLAM2 tables, does not change the registered clip set
 DS = {"ubody": "UBody", "peoplesnapshot": "People-Snapshot", "neuman": "NeuMan", "xhumans": "X-Humans", "bedlam2": "BEDLAM2"}
 POOLS = {"FinalBench": ["ubody", "peoplesnapshot", "neuman", "xhumans"], "BEDLAM2": ["bedlam2"]}
 MET = ("psnr", "ssim", "lpips", "l1"); DEC = {"psnr": 2, "ssim": 3, "lpips": 4, "l1": 4}; ARW = {"psnr": "↑", "ssim": "↑", "lpips": "↓", "l1": "↓"}
@@ -89,18 +90,21 @@ R = {}
 for pool, dss in POOLS.items():
     clips = [c for c, d in pool_ds.items() if d in dss]
     part = [m for m in METHODS if all(any(c in per[m] for c in clips if pool_ds[c] == d) for d in dss)]
-    common = [c for c in clips if all(c in per[m] for m in part)]
+    common = [c for c in clips if all(c in per[m] for m in part if m not in NOCON)]
+    nocon_out = [m for m in part if m in NOCON and not all(c in per[m] for c in common)]
+    part = [m for m in part if m not in nocon_out]
     groups = {d: [c for c in common if pool_ds[c] == d] for d in dss}
     excl = [(c, "; ".join(reason[m].get(c, f"{NAME[m]}: not in score file") for m in part if c not in per[m])) for c in clips if c not in common]
-    skipped = [(m, ", ".join(DS[d] for d in dss if not any(c in per[m] for c in clips if pool_ds[c] == d))) for m in METHODS if m not in part]
+    skipped = [(m, ", ".join(DS[d] for d in dss if not any(c in per[m] for c in clips if pool_ds[c] == d)) or "some clips of the common set") for m in METHODS if m not in part]
     rng = np.random.default_rng(a.seed); idx = {d: rng.integers(0, len(g), size=(a.boot, len(g))) for d, g in groups.items() if g}
     nd = {d: np.array([per[part[0]][c]["n"] for c in g], float) for d, g in groups.items() if g} if part else {}
     val = {m: {k: {d: np.array([per[m][c][k] for c in g]) for d, g in groups.items() if g} for k in MET} for m in part}
     stat = {m: {k: agg(val[m][k], idx) for k in MET} for m in part} if common else {}
     fwm = {m: {k: fw(val[m][k], nd) for k in MET} for m in part} if common else {}
     diff = {m: {k: agg({d: val[m][k][d] - val["guava"][k][d] for d in val[m][k]}, idx) for k in MET} for m in part if m != "guava" and "guava" in part} if common else {}
+    diff_fb = {m: {k: agg({d: val[m][k][d] - val["fb_gt"][k][d] for d in val[m][k]}, idx) for k in MET} for m in part if m in NOCON and "fb_gt" in part} if common else {}
     tim = {m: {d: [timing(per[m][c]) for c in g] for d, g in list(groups.items()) + [("all", common)]} for m in part}
-    R[pool] = dict(dss=dss, clips=clips, part=part, common=common, groups=groups, excl=excl, skipped=skipped, nd=nd, stat=stat, fwm=fwm, diff=diff, tim=tim)
+    R[pool] = dict(dss=dss, clips=clips, part=part, common=common, groups=groups, excl=excl, skipped=skipped, nd=nd, stat=stat, fwm=fwm, diff=diff, diff_fb=diff_fb, tim=tim)
 
 # ---- markdown
 def cell(st, d, keys, sign=False): return " / ".join(f"{st[k][d][0]:{'+' if sign else ''}.{DEC[k]}f}" for k in keys)
@@ -143,7 +147,10 @@ md += [f"## Main table: single-image methods, FinalBench ({len(Fb['common'])} cl
        "each method's body model); GUAVA-FB [SPRINT, k = 0] uses no GT at all (own detector, crop, StyleMatte matte and SPRINT pose estimate; k = 0, "
        "largest box). No test-time pose, face or expression fitting in any row. Same 512 person crop, masks and metrics for every row "
        "(`eval_split/score.py`); per clip = mean over its test frames; per dataset and overall = mean over clips (each clip weighs the same). "
-       f"Clip set = the clips on which all {len(Fb['part'])} methods of the main and the reference table finished (excluded clips listed below). "
+       f"Clip set = the clips on which all methods of the main and the reference table except LHM++ finished (excluded clips listed below; LHM++ was "
+       "added after the registration at the user's request and is registered not to change the clip set). LHM++ (LHMPP-700M, aigc3d/LHM-plusplus @ "
+       "6fa576c; the successor of LHM) gets the same source frame, matte and GT driving; its shape is the GT's projected to its 10 betas; its training "
+       "data is not public, so overlap with the test identities cannot be checked; it is trained on full-body images (UBody is upper body). "
        "Disclosures: the AvatarTest-v1 and PublicBench-v1 numbers of these three rows and of the per-person methods were seen before the FinalBench "
        "registration (2026-11-02); UBody clips are upper body only (UBody GT is pseudo-GT, UBody's SMPL-X fits); NeuMan test sets are 3-10 frames; "
        "released GUAVA may have trained on UBody; X-Humans images are renders of textured scans (mask = rendered depth > 0).", "",
@@ -164,6 +171,10 @@ md += [f"## Main table: single-image methods, FinalBench ({len(Fb['common'])} cl
        "comparisons).", "", f"### FinalBench ({len(Fb['common'])} clips)", "",
        *table("FinalBench", MAIN[1:] + [None] + REF, MET, "diff", True), "", f"### BEDLAM2 ({len(Bd['common'])} clips)", "",
        *table("BEDLAM2", MAIN[1:] + [None] + REF, MET, "diff", True), "",
+       "## Paired differences: LHM++ − GUAVA-FB [SMPL-X GT]", "",
+       "Per clip LHM++ − GUAVA-FB [SMPL-X GT] (both single image, same source and GT driving), mean with the same bootstrap CI; cells as above.", "",
+       f"### FinalBench ({len(Fb['common'])} clips)", "", *table("FinalBench", ["lhmpp"], MET, "diff_fb", True), "",
+       f"### BEDLAM2 ({len(Bd['common'])} clips)", "", *table("BEDLAM2", ["lhmpp"], MET, "diff_fb", True), "",
        "## L1 ↓ (mean absolute error on the 512 crop, [0, 1] scale)", "", f"### FinalBench ({len(Fb['common'])} clips)", "",
        *table("FinalBench", MAIN + [None] + REF, ("l1",)), "", f"### BEDLAM2 ({len(Bd['common'])} clips)", "",
        *table("BEDLAM2", MAIN + [None] + REF, ("l1",)), "", "## Excluded clips", ""]

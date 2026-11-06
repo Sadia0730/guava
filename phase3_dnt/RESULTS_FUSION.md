@@ -11,9 +11,20 @@ Test sets are descriptive for the fused rows (PREREG amendment 2: reported after
 | GUAVA-FB [GT] + accumulated training frames (B28k, prior 2 = live setting) | 27.66 / 0.936 / 0.0658 | 24.13 / 0.903 / 0.0822 | 25.90 / 0.920 / 0.0740 |
 | fusion-trained checkpoint A2 + accumulated frames (descriptive) | 27.78 / 0.938 / 0.0608 | 23.89 / 0.903 / 0.0771 | 25.84 / 0.920 / 0.0690 |
 | continuation control B2 + accumulated frames (descriptive) | 27.56 / 0.936 / 0.0652 | 24.06 / 0.903 / 0.0818 | 25.81 / 0.919 / 0.0735 |
+| LHM++ [SMPL-X GT], 1 view | 24.66 / 0.916 / 0.0847 | 21.66 / 0.886 / 0.0868 | 23.16 / 0.901 / 0.0858 |
+| LHM++ [SMPL-X GT], 16 training frames | 24.85 / 0.917 / 0.0798 | 21.88 / 0.888 / 0.0862 | 23.36 / 0.902 / 0.0830 |
 | GART (per-person, video-trained) | 31.29 / 0.959 / 0.0357 | 25.02 / 0.913 / 0.0723 | 28.15 / 0.936 / 0.0540 |
 | GaussianAvatar (per-person) | 30.37 / 0.951 / 0.0543 | 23.61 / 0.901 / 0.0793 | 26.99 / 0.926 / 0.0668 |
 | ExAvatar [GT face] (per-person) | 30.67 / 0.955 / 0.0409 | 24.39 / 0.908 / 0.0743 | 27.53 / 0.932 / 0.0576 |
+
+
+| Method | UBody (30) | X-Humans (3) | BEDLAM2 (40) |
+|---|---|---|---|
+| GUAVA-FB [GT], one photo | 19.62 / 0.786 / 0.1909 | 24.90 / 0.922 / 0.0749 | 27.19 / 0.928 / 0.0630 |
+| LHM++ [GT], 1 view | 16.72 / 0.724 / 0.2403 | 22.93 / 0.913 / 0.0832 | 24.50 / 0.901 / 0.0869 |
+| LHM++ [GT], 16 training frames | 16.94 / 0.735 / 0.2346 | 23.47 / 0.916 / 0.0784 | 24.94 / 0.905 / 0.0831 |
+
+LHM++ = LHMPP-700M (aigc3d/LHM-plusplus @ 6fa576c), the successor of LHM; feed-forward, same source frame / GT driving / crop / metrics (PREREG "FinalBench addendum: LHM++"); its 16-view row uses 16 training frames spaced uniformly (its largest documented view count), GUAVA-FB's accumulated row uses all training frames.
 
 ## ValBench-v1 (validation, the registered selection set): UBody 20 clips / 2,556 frames, BEDLAM2 30 clips / 956 frames; frame-weighted (score.py --tag vb)
 
