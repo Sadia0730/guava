@@ -1475,3 +1475,28 @@ of `run_lhm.py` and both on for the reported row: `--clamp-face` (clip y0 / x0 a
 other row get). Validation smoke (same four clips): PSNR within ±0.15 dB of the first smoke; the Online_class head is now found.
 The registered row **LHM [1 view]** is rendered again under `lhm_facefix` (all 81 clips, nothing copied); the first `lhm` renders
 and scores stay as the record of the unfixed adapter and are listed in RUNLOG, not in the tables.
+
+## FinalBench addendum 3: IDOL as a fourth feed-forward baseline (registered 2026-11-06 ~17:25, before any test clip is rendered)
+
+Same user request as addendum 2. The CUDA build (fast-SNARF extensions + antialiased rasteriser) was first refused by the
+session's permission check and then approved by the user ("Yes, build and run").
+
+- **Method:** IDOL (yiyuzhuang/IDOL @ 9fd9296, CVPR 2025, code MIT), checkpoint yiyuzhuang/IDOL @ 3c80ec95 model.ckpt (sha256
+  2294c771...) + cache_sub2, Sapiens-1B torchscript (same file as LHM's). SMPL-X v1.1 from MPI (models_smplx_v1_1.zip, credentials
+  file). Rasteriser graphdeco diff-gaussian-rasterization @ 9c5c202 (the gaussian-splatting submodule IDOL's install uses) and
+  IDOL's fast-SNARF extensions, built into `/dev/shm/ubx858_baselines/idol/pydeps` (lhmpp env unchanged).
+- **Adapter:** `phase3_dnt/baselines/idol/run_idol.py`. Source = IDOL's own `load_image` on the 512 source crop + StyleMatte alpha
+  (RGBA, so IDOL skips rembg): alpha box, square pad (box / 0.85), 896, centre 640 x 896, on white. Body: IDOL's SMPL-X v1.1 neutral
+  equals SMPL-X 2020 except for the expression basis (asserted); 10 betas fitted to the 200-beta displacement, 10 v1.1 expression
+  coefficients fitted to the 2020 expression displacement, hands = GT - hands_mean (IDOL's layer is flat_hand_mean = False), rest
+  copied, scale 1; the posed-mesh error of the conversion is logged per clip. Render = IDOL's demo decoder path (novel_pose,
+  zeros_hands_off value 0.02) with [fx, fy, cx, cy] + identity w2c at 512 x 512 and the renderer background set to 0.
+- **Settings fixed now** from a smoke on the same four ValBench-v1 clips (`valbench_v1/renders/idol_smoke/`): posed-mesh error
+  0.2-1.1 mm mean (max 3.9 mm); BEDLAM2 silhouette extents within 0-6 px at alpha > 80; smoke PSNR / IoU Online_class_S7 16.54 /
+  0.70, BEDLAM2 seq_000037 22.03 / 0.88, Olympic_S6 15.45 / 0.61, BEDLAM2 seq_000568 21.80 / 0.86 (LHM 19.33, 22.35, 15.91, 21.82
+  on the same frames). On upper-body sources IDOL's appearance degrades (full-body training data); reported as is. Nothing tuned.
+- **Row:** **IDOL [1 view]** in the main single-image table and the BEDLAM2 table; splits, scoring, clip-set rule and paired
+  differences as addendum 2.
+- **Disclosures (caption):** IDOL is trained on HuGe100K (synthetic multi-view full-body humans generated from images; full body
+  only); it drives 10 expression coefficients; UBody clips are upper body.
+- **Compute:** ~40 ms per frame + ~2 s build per clip, 6,335 frames over three free GPUs, ~10 min. User go-ahead.
