@@ -1392,3 +1392,40 @@ in phase 6 step 2; the laptop 30 fps / render-equivalence checks apply to the de
 - Risk stated now: a higher rate can move the single-image path by more than the 0.10 dB of rule (2); the 30 % single-image items are the only guard. If A2 fails (2) and passes (1), it is reported as a fail.
 
 **Round 2 verdict (2026-11-06 08:05, ValBench-v1, `p7_decide.py`, RUNLOG 120; A2 / B2 launched 04:03 after the user's go-ahead, done 07:32 / 06:41, `latest.pt` at step 12,000):** A2 FAILS rule (1) (fused 21.343 < 21.889; also below naive fusion 21.589 and below its control B2 21.399) and rule (2) (single 20.692 < 20.881); passes (3). Attribution A2 - B2 = -0.056 dB. Only LPIPS moves with fusion training (A2 fused 0.1519 vs B2 0.1555 vs naive 0.1545) and BEDLAM2 fused +0.21 over the control (26.94 vs 26.74), offset by UBody fused -0.15. Both arms lose ~0.2-0.3 dB on the single-image row against B28k (continuation drift; in-run validation of both peaked at step 8,000). **Phase 7 is closed with no adopted checkpoint: B28k stays the model, and the fused benchmark row stays the naive feed-forward fusion with B28k (D1). No further arms are registered.** People-Snapshot / NeuMan fused rows of A2 / B2 are reported descriptively (test, no selection).
+
+## FinalBench addendum: LHM++ as a second feed-forward baseline (registered 2026-11-06 ~14:30, before any test clip is rendered)
+
+User request (2026-11-06): "generate result on LHM for fair comparison" (single-image / unseen-identity methods are the fair
+comparison; GART / GaussianAvatar / ExAvatar stay the per-person reference table). Released GUAVA is the only feed-forward
+baseline so far; a reviewer will expect LHM-family results.
+
+- **Method:** LHM++ (aigc3d/LHM-plusplus @ 6fa576c, LHMPP-700M, HF snapshot fc9f7366..., weights CC BY-NC 4.0, code Apache-2.0),
+  the successor of LHM by the same group, already installed on this server (env `lhmpp`). The original LHM-1B is not run
+  (not installed; download and /raid rules); stated as such in the caption.
+- **Adapter:** `phase3_dnt/baselines/lhmpp/run_lhmpp.py` under the AvatarTest-v1 contract (CONTRACT.md): avatar from the clip's
+  source frame (512 crop x StyleMatte alpha on white, cropped to the alpha box, the app's PadRatioWithScale(5/3, 840)); shape =
+  the GT's 200 betas projected to LHM++'s 10 (same SMPL-X 2020 model file; residual logged per clip); expression = the GT's 50
+  coefficients copied (LHM++'s FLAME expression basis equals SMPL-X 2020's on the face vertices, max difference 2e-7 mm); body /
+  hands / jaw / eyes / root / transl copied; render = LHM++'s own evaluation crop (1.2 x the projected GT SMPL-X box, symmetric
+  about the image centre, 420 px wide, 5:3), pasted into the 512 board; output = neural-renderer RGB composited onto black with its
+  predicted alpha (unpremultiplied from white: the renderer's background inside the crop is 1.0). LHM++'s own pose / shape
+  estimator, rembg and BiRefNet are not used (parity with the GT rows). Environment fix: `OPENBLAS_CORETYPE=SkylakeX` (the env's
+  numpy returns wrong matrix products on the Xeon 8480+ otherwise; self-check asserted at start).
+- **Settings fixed now** from a smoke on two ValBench-v1 clips (validation; 10 test frames each; renders kept as
+  `valbench_v1/renders/lhmpp_smoke/`): alpha IoU to StyleMatte 0.88 (BEDLAM2) / 0.78 (UBody), GUAVA-FB 0.89 on the same BEDLAM2
+  frames; smoke PSNR (plain, 10 frames) LHM++ 19.14 vs GUAVA-FB 18.31 (UBody), 21.69 vs 23.26 (BEDLAM2). Nothing is tuned after
+  this; no setting is chosen on a test number.
+- **Rows:** (a) **LHM++ [1 view]** = a new row of the main single-image table and of the BEDLAM2 table, same source frame and GT
+  driving as GUAVA / GUAVA-FB [GT]; (b) **LHM++ [16 views]** = 16 recon frames spaced uniformly over the recon list (source first;
+  LHM++'s largest documented view count) -> the accumulation table (RESULTS_FUSION.md) next to GUAVA-FB + accumulated training
+  frames, on the clips where that row exists (PublicBench-v1 now); reported on all FinalBench clips.
+- **Splits:** FinalBench (AvatarTest-v1 UBody 30, PublicBench-v1 People-Snapshot 4 + NeuMan 4, PublicBench-v2 X-Humans 3) and
+  AvatarTest-v1 BEDLAM2 40. Scores with `score.py --tag full`; tables by `final_tables.py` with LHM++ added to the main rows.
+  LHM++ does not change the registered clip set (41 + 40); a clip LHM++ fails on is listed as missing, not dropped from other rows.
+- **Reporting:** numbers as they come out, whatever they are (including LHM++ above GUAVA-FB); per-dataset and paired
+  differences vs GUAVA-FB [GT] with the same bootstrap.
+- **Disclosures (caption):** LHM++'s training data is not public (in-the-wild human videos, synthetic scans, DNA-Rendering), so
+  overlap with the test identities cannot be checked (as for released GUAVA and UBody); LHM++ is trained on full-body inputs,
+  UBody clips are upper body; shape is the GT's projected to 10 betas.
+- **Compute:** one free GPU per row (0 / 3 / 4 free at registration), ~0.1-0.18 s per test frame, ~6,300 frames per row,
+  ~30-40 min per row; both rows run now (user request).
