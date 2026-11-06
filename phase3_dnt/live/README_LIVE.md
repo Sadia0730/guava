@@ -72,6 +72,9 @@ python phase3_dnt/live/live_sprint_guavafb.py --input 0 --crop center --worker o
   stays inside the square; on rec/session_01 the pose and avatar quality matched the YOLOX crop. Default `yolox`.
 - `--parallel` (default): crop + SPRINT of the next frame run in a second thread while the current frame renders; about
   one frame of pose lag. `--no-parallel` runs the serial loop.
+- `--lock-exposure --ref-best-of 10`: freeze auto exposure / white balance 1.5 s before the reference capture and pick
+  the sharpest, stillest of the last 10 countdown frames. On the laptop's session_01 the reference was over-exposed
+  (18–20% brighter than the first live frame), which made the whole avatar look whitish.
 - Laptop replay of rec/session_01: 10.3 FPS (serial, YOLOX) → 22.3 FPS (centre, parallel). Log the GPU temperature and
   the power source with every timing; this laptop throttles within a minute of load.
 

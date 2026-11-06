@@ -1315,3 +1315,80 @@ reported separately. Results in PHASE6_REPORT.md, here and RUNLOG; an adopted st
 test run. Laptop: `--worker {off, pose, pose+uv, pose+uv+geo}` in the live app and the timing script, a recording mode (frames +
 timestamps + live outputs; the user's consented "webcam set", never used for tuning), README with full-body framing and commands.
 GPU: only GPUs not needed by the queued FinalBench runs (plan reported to the user before any phase-6 GPU job).
+
+## Gap diagnosis D1-D3 (registered 2026-11-05 10:35, before any of its runs; user brief 2026-11-05: find, implement and validate a fix for the gap of GUAVA-FB [GT] to GART / GaussianAvatar / ExAvatar on People-Snapshot and NeuMan, within the RAGA live rules)
+Evidence in hand (descriptive, `O/reports/improve/view_gap/view_gap.json`, PSNR by source->test view change): People-Snapshot, GUAVA-FB [GT]
+vs GART: [0,30) 29.64 vs 30.70 (75 frames), [30,60) 27.01 vs 30.96 (20), [60,90) 27.19 vs 33.11 (23), [90,135) 26.72 vs 32.82 (31),
+[135,180] 26.68 vs 31.02 (41); NeuMan [0,30) 23.72 vs 24.62 (13 of 27 frames); X-Humans [0,30) 26.46 vs 27.34 -> [135,180] 24.31 vs 26.40.
+The gap is ~1 dB where the test view is near the source view and 4-6 dB once the view turns, on all three datasets.
+- **D1, GT-pose appearance fusion over the training frames** (`eval_split/fusion_gt_row.py`): the clip's training frames (the frames
+  the per-person baselines train on) are passed through GUAVA-FB's image encoder + inverse texture mapping with their GT poses and
+  fused into the UV feature map by the step-2 running weighted mean (weight = visibility x |cos|, source anchor prior, update where
+  weight >= threshold and accumulated weight < cap; no live gates), the UV decoder is re-run once, test frames are rendered as
+  fb_gt. Feed-forward, no gradient step, no per-person training. Two arms, fixed now: `diag_fuse_reg` = prior 2, threshold 0.3,
+  cap 4 (the registered step-2 defaults); `diag_fuse_oracle` = prior 1, threshold 0, no cap (every visible texel of every frame).
+  Data: ValBench-v1 (validation, 50 clips) and PublicBench-v1 (test, 8 clips: descriptive, disclosed, no selection on it).
+  Purpose: how much of the far-view gap is missing information (recoverable by feed-forward fusion of frames the baselines see)
+  and how much is a model limitation. Interpretation rule (fixed): if the oracle arm closes >= 50 % of the People-Snapshot
+  [30,180] gap to GART, the bottleneck is information and the deployable direction is online fusion (its own registration, validation
+  rule on ValBench-v1 / ValBench-S, a pass before any FinalBench entry); below 50 %, the direction is training-side. Diagnostic rows
+  never enter a results table; they are reported as diagnostics with these settings.
+- **D2, cheap oracles on finished renders** (`eval_split/diag_oracles.py`, CPU, descriptive): per-frame PSNR of each row plain /
+  x GT mask (spill removed) / after a per-frame affine colour fit / low-pass (sigma 4) / high-pass residual, by dataset and view bin,
+  on PublicBench-v1 and ValBench-v1; bounds for silhouette, colour and detail explanations of the near-view gap.
+- **D3, region / visibility classes on PublicBench-v1** (`eval_split/diag_regions.py` as in the improvement phase; descriptive).
+GPU: GPU 1 (shared with another user's job), every job < 15 min. The FinalBench main table is unchanged by this section.
+- **D1b (added 2026-11-05 ~18:35 after the D1 results, before its runs):** D1 result (disclosed): ValBench-v1 oracle +0.87 dB BEDLAM2 / +0.51 UBody
+  (BEDLAM2 far-view bins within 0.1-0.15 dB of GART); PublicBench-v1: NeuMan 23.04 -> 24.14, People-Snapshot 27.95 -> 27.78 with the
+  near-view bin [0,30) 29.64 -> 28.12 (blur + silhouette shift from averaging) and the far bins +0.5 to +1.0 dB. Two more fixed arms of
+  the same diagnostic separate "averaging blurs / shifts the seen texels" from "filling the unseen texels is what helps":
+  `diag_fuse_wta` = per texel the features of the single best-facing frame (no averaging; prior 1, threshold 0);
+  `diag_fuse_fill` = texels visible in the source keep the source's features exactly, unseen texels take the best-facing frame's.
+  Same data (ValBench-v1, PublicBench-v1 descriptive), same status (diagnostic, never a table row).
+
+## Phase 7: fusion-aware GUAVA-FB (registered 2026-11-05 18:20, before any training run; follows the gap diagnosis above; user brief 2026-11-05)
+**Finding behind it (RUNLOG 114):** feed-forward GT-pose fusion of a clip's training frames into the UV map already recovers most of the
+far-view gap on exact-pose data (ValBench BEDLAM2 26.13 -> 27.00 dB, GART 26.71) and on NeuMan (23.04 -> 24.14), but on People-Snapshot
+the near-view bin falls 29.64 -> 28.12 dB and the coverage misses double even when the source's own texels are left untouched (fill
+arm): the UV decoder (StyleUNet + point decoder of B28k) has only ever seen single-view maps, zero where unseen, and is out of
+distribution on filled maps. The deployed coverage misses themselves (hair, shoes, hands; 43 % of the PS squared error) are a second,
+separate limit that this phase does not address.
+**Hypothesis:** training the same network with multi-frame fused inputs makes fused maps in-distribution: the fused rows improve
+on every validation set including the near-view bins, and the single-image path does not regress.
+**Change (code 115, `fb_fusion.py`, `guava_fb_train.py --fuse-*`):** per training item, K support frames of the same group (K = 0 with
+p = 0.3, else uniform 1..4; never the source or a target; 4D-DRESS: any view / take of the subject + outfit) are encoded like the
+source and fused into its UV map by the mean rule (weight = visibility x |cos|, source prior 2, no threshold, no cap); the decoder
+runs on the fused map with the source's style / camera / vertex branch; losses, targets and everything else = recipe B.
+**Arms (fixed):** A = `--fuse-kmax 4 --fuse-p1 0.3 --fuse-mode mean --fuse-prior 2 --fuse-thr 0 --fuse-cap 0 --fuse-val-k 8`;
+B (control) = identical command without fusion (`--fuse-kmax 0`). Both: B28k init, 4,000 steps, lr 8e-6 constant, recipe B options,
+seed 0, validation every 2,000 (H2 continuation protocol); the checkpoint evaluated is step 4,000 of each arm (best.pt by the
+unchanged eligibility rule is kept for the record). Budget ~2.3 h per arm on one L40S (0.7 it/s, peak 20 GB); GPUs 4 and 5 (free
+of my jobs), after the user's go-ahead.
+**Evaluation (ValBench-v1, GT-driven, score.py --tag vb, frame-weighted):** per arm the single-image row (`eval_guava_rows.py --row fb_gt
+--fb-ckpt <arm 4k>`, name `p7_<arm>_single`) and the fused row over all recon frames (`fusion_gt_row.py --mode mean --prior 2 --thr 0
+--cap 0 --fb-ckpt <arm 4k>`, name `p7_<arm>_fused`), view-bin tables by `view_bins.py`. References: fb_gt 20.98 dB / LPIPS 0.1553
+(UBody 19.06, BEDLAM2 26.13); naive fusion with B28k = `diag_fuse_oracle` 21.59 / 0.1545 (19.57, 27.00).
+**Decision rule (all must hold):** (1) A_fused >= diag_fuse_oracle + 0.30 dB on ValBench-v1 all and LPIPS not higher by > 0.002;
+(2) A_single >= fb_gt - 0.10 dB and LPIPS not higher by > 0.002 (no regression of the deployed single-image path);
+(3) A_fused >= A_single - 0.10 dB in the [0,30) view bin of both ValBench datasets (fusion no longer hurts near views).
+Attribution (reported, not a pass condition): if A_fused - B_fused < 0.20 dB, the gain is attributed to continued training, not to
+fusion-aware training, and is reported as such.
+**On a pass, FinalBench addition (registered now):** a separate "video fusion" table on the 41 FinalBench clips (+ BEDLAM2): GUAVA-FB [GT]
++ feed-forward fusion of the clip's training frames (GT poses, no optimisation) with B28k (naive) and with the phase-7 model, captioned as
+using the same frames the per-person methods train on; the phase-7 single-image row is added to the main table as an extra row only if
+rule (2) holds (B28k rows 1-3 unchanged). Disclosure: the People-Snapshot / NeuMan numbers of the naive B28k fusion were seen (D1).
+**RAGA:** no per-frame change (same architecture, Gaussian count and render path); the fused decode runs in the background worker as
+in phase 6 step 2; the laptop 30 fps / render-equivalence checks apply to the deployed checkpoint swap.
+**Amendment 1 (2026-11-06 01:55, before any arm is launched; user go-ahead 2026-11-06: "start train … adapting idea from here that is workable", RAGA constraints unchanged).**
+- GPUs: 4 and 5 were at 80-84 % utilisation by other users' jobs at launch (nvidia-smi 01:49); the arms run on the least loaded cards instead: A on GPU 0, B on GPU 6, C on GPU 1. Wall time per arm will exceed the 2.3 h estimate; the comparison is by steps and unaffected.
+- Arm C (added; same init, steps, lr, seed, options as A): A + `--fuse-jitter 0.5` (`support_jitter` in `guava_fb_train.py`): each support frame gets, with probability 0.5, an exposure / colour jitter (brightness gain log-uniform [0.8, 1.25], saturation [0.7, 1.3], per-channel white balance [0.95, 1.05]); the source and the targets are never jittered. Motivation: the laptop session analysis (user paste 2026-11-06) found the reference frame over-exposed by 18-20 % in brightness and 25-33 % in saturation relative to the first live frames, so the live worker fuses frames of different exposure into the source's map. Hypothesis: the decoder learns to render the target's exposure from a map whose filled texels carry another one (a learned colour alignment, free per frame), at no benchmark cost.
+- Exposure-shift probe (registered now): the ValBench-v1 fused row with every support frame brightened x1.2 and desaturated x0.75 (`fusion_gt_row.py --support-gain 1.2 --support-sat 0.75`, to be added before evaluation; the fusion itself unchanged), for B28k, A and C; names `p7_<arm>_fused_exp`.
+- Adoption rule between A and C: A stays the registered primary and the decision rule (1)-(3) applies to A. C is adopted instead of A if and only if C also passes (1)-(3), C_fused >= A_fused - 0.05 dB and C_single >= A_single - 0.05 dB on ValBench-v1 (no measurable benchmark cost), and C_fused_exp >= A_fused_exp + 0.20 dB (a measurable robustness gain). If A fails and C passes, C is reported as exploratory, not adopted.
+- Checkpoint evaluated per arm: `checkpoints/latest.pt` at step 4,000 (saved at the step-4,000 validation; H2 protocol).
+- The other laptop-side ideas of the same analysis (lock exposure / white balance before the reference capture, best-of-N reference frame, chunked worker) are live-app code changes outside this training and are checked by the RAGA laptop procedure; per-texel selection instead of the mean was already tested (D1b: 27.58 / 27.91 vs 28.12 dB on the PS near-view bin) and is not pursued; gradient steps in the worker (test-time fitting) are excluded by fairness rule 3.
+**Amendment 2 (2026-11-06 03:25, registered before the ValBench rows of A / B / C are scored; their in-run validation (small caps, not the registered test) was seen: fused K = 8 moved +0.05 to +0.10 dB over naive fusion in 4,000 steps and the single-image tracks -0.1 to -0.2 dB).**
+- Observation stated now: on ValBench-v1 naive fusion (B28k) does not lose on near views (D1b: UBody [0,30) 19.06 -> 19.56, BEDLAM2 26.89 -> 27.59), so rule (3) is weak there and rule (1) asks the trained decoder to beat a baseline that already works on exact-pose data. The near-view loss of C3 was measured on People-Snapshot only (test; never used for selection). The ValBench rules stay as registered; the PS / NeuMan fused rows are reported descriptively after the decision.
+- Follow-up arms (same rules (1)-(3), same references, same evaluation drivers), **not launched; they wait for the user's GPU go-ahead**: A2 = arm A's command with `--lr 3e-5 --stop-iter 12000` (constant, H2 protocol: `--iters 100000 --lr-end 1.0`, `--val-every 4000`); B2 = control, identical without fusion (`--fuse-kmax 0`). Hypothesis: the H2 continuation protocol (8e-6, 4,000 steps) is too weak to re-teach the decoder; 3.75x the rate and 3x the steps are needed. Budget ~3.5 h per arm (12,000 steps at ~1 it/s + 3 validations), one GPU each. Checkpoint evaluated: `latest.pt` at step 12,000. Decision between A and A2: the arm with the higher ValBench fused PSNR among those passing (1)-(3); attribution per arm against its own control (A2 - B2).
+- Risk stated now: a higher rate can move the single-image path by more than the 0.10 dB of rule (2); the 30 % single-image items are the only guard. If A2 fails (2) and passes (1), it is reported as a fail.
+
+**Round 2 verdict (2026-11-06 08:05, ValBench-v1, `p7_decide.py`, RUNLOG 120; A2 / B2 launched 04:03 after the user's go-ahead, done 07:32 / 06:41, `latest.pt` at step 12,000):** A2 FAILS rule (1) (fused 21.343 < 21.889; also below naive fusion 21.589 and below its control B2 21.399) and rule (2) (single 20.692 < 20.881); passes (3). Attribution A2 - B2 = -0.056 dB. Only LPIPS moves with fusion training (A2 fused 0.1519 vs B2 0.1555 vs naive 0.1545) and BEDLAM2 fused +0.21 over the control (26.94 vs 26.74), offset by UBody fused -0.15. Both arms lose ~0.2-0.3 dB on the single-image row against B28k (continuation drift; in-run validation of both peaked at step 8,000). **Phase 7 is closed with no adopted checkpoint: B28k stays the model, and the fused benchmark row stays the naive feed-forward fusion with B28k (D1). No further arms are registered.** People-Snapshot / NeuMan fused rows of A2 / B2 are reported descriptively (test, no selection).

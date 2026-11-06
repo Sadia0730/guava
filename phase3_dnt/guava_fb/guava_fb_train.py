@@ -82,6 +82,12 @@ ap.add_argument("--gan-start", type=int, default=1000, help="iteration from whic
 ap.add_argument("--gan-lr", type=float, default=2e-4); ap.add_argument("--gram-weight", type=float, default=0.0, help="pilot D: VGG Gram texture loss on clothing-box crops")
 ap.add_argument("--grad-diag", default="", help="diagnostic (amendment 6): checkpoint whose per-loss-term gradients are measured; no training")
 ap.add_argument("--diag-per-source", type=int, default=3, help="grad-diag: batches per training source (both groups of a batch from that source)")
+ap.add_argument("--fuse-kmax", type=int, default=0, help="phase 7: fuse up to K support frames of the same group into the source's UV map (fb_fusion; 0 = off)")
+ap.add_argument("--fuse-p1", type=float, default=0.3, help="phase 7: prob. that an item has no support frame (single image, as deployed)")
+ap.add_argument("--fuse-mode", default="mean", choices=("mean", "wta", "fill")); ap.add_argument("--fuse-prior", type=float, default=2.0)
+ap.add_argument("--fuse-thr", type=float, default=0.0); ap.add_argument("--fuse-cap", type=float, default=0.0)
+ap.add_argument("--fuse-val-k", type=int, default=8, help="phase 7: support frames of the fused validation (evenly spaced other frames of the group, never a target)")
+ap.add_argument("--fuse-jitter", type=float, default=0.0, help="phase 7 arm C: prob. per support frame of an exposure / colour jitter (brightness x log-uniform [0.8, 1.25], saturation x [0.7, 1.3], per-channel white balance x [0.95, 1.05]); the source and the targets are never jittered")
 a = ap.parse_args()
 out = Path(a.out) if os.path.isabs(a.out) else O / "runs" / a.out
 assert not str(out.resolve()).startswith("/raid"), "write nothing on /raid"
@@ -185,6 +191,15 @@ gw = {s: np.array([len(g["frames"]) for g in groups[s]], np.float64) for s in sr
 log_print("effective mix", mix, {s: (len(groups[s]), int(sum(len(g["frames"]) for g in groups[s]))) for s in src_names})
 
 
+def support_jitter(st, rng):
+    """phase 7 arm C: exposure / colour jitter of a support frame's masked [0, 1] image (brightness gain, saturation, per-channel
+    white balance). Pure gains and a lerp towards luminance, so background pixels stay 0. Returns (st, [gain, sat, wb_r, wb_g, wb_b])."""
+    im = st["image"]; g = float(np.exp(rng.uniform(np.log(0.8), np.log(1.25)))); sat = float(rng.uniform(0.7, 1.3)); wb = rng.uniform(0.95, 1.05, 3)
+    lum = (0.299 * im[0] + 0.587 * im[1] + 0.114 * im[2])[None]
+    st["image"] = ((lum + (im - lum) * sat) * g * torch.tensor(wb, dtype=im.dtype).view(3, 1, 1)).clamp(0, 1)
+    return st, [round(g, 4), round(sat, 4)] + [round(float(x), 4) for x in wb]
+
+
 class GroupSampler(torch.utils.data.Dataset):
     """item i -> one source frame + n_tgt targets, from np.random.default_rng([seed, i]) (deterministic, resume-safe)."""
     def __len__(self): return 1 << 40
@@ -218,9 +233,17 @@ class GroupSampler(torch.utils.data.Dataset):
                 if rng.random() < a.zoom_p: zooms[j] = int(rng.integers(1 << 31))
         return ti, selfs, zooms
 
+    def supports(self, i, g, si, ti):
+        """phase 7: K support frames of the same group (never the source or a target); RNG [seed, i, 11]."""
+        rng = np.random.default_rng([a.seed, i, 11]); K = 0 if rng.random() < a.fuse_p1 else int(rng.integers(1, a.fuse_kmax + 1))
+        ex = {int(si)} | {int(j) for j in ti}; cand = np.array([p for p in range(len(g["frames"])) if p not in ex])
+        if K == 0 or len(cand) == 0: return []
+        return [int(p) for p in rng.choice(cand, size=min(K, len(cand)), replace=False)]
+
     def __getitem__(self, i):
         s, g, si, ti = self.draw(i)
         ti, selfs, zooms = self.extras(i, s, g, si, ti)
+        ks = self.supports(i, g, si, ti) if a.fuse_kmax > 0 else []
         src = fbd.source_info(*g["frames"][si]); tl = []
         for j, sf, z in zip(ti, selfs, zooms):
             t = fbd.target_info_zoom(*g["frames"][j], np.random.default_rng(z), a.zoom_factor, a.zoom_head_p) if z is not None else None
@@ -232,7 +255,18 @@ class GroupSampler(torch.utils.data.Dataset):
              "tgt": ["/".join(map(str, (clips[g["frames"][j][0]]["name"], g["frames"][j][1]))) for j in ti],
              "views": None if g["views"] is None else [str(g["views"][si])] + [str(g["views"][j]) for j in ti],
              "self": [bool(x) for x in selfs], "zoom": [bool(x) for x in tg["is_zoom"].tolist()]}
-        return {"source": src, "target": tg, "meta": json.dumps(m)}
+        item = {"source": src, "target": tg, "meta": json.dumps(m)}
+        if a.fuse_kmax > 0:                                                  # fixed-length (padded with the source) for collation
+            m["support"] = ["/".join(map(str, (clips[g["frames"][p][0]]["name"], g["frames"][p][1]))) for p in ks]; item["meta"] = json.dumps(m)
+            sup = [fbd.source_info(*g["frames"][p]) for p in ks]
+            if a.fuse_jitter > 0 and sup:                                    # arm C: exposure / colour jitter of support frames only
+                jr = np.random.default_rng([a.seed, i, 12]); jl = []
+                for q in range(len(sup)):
+                    if jr.random() < a.fuse_jitter: sup[q], js = support_jitter(sup[q], jr); jl.append(js)
+                    else: jl.append(None)
+                m["support_jitter"] = jl; item["meta"] = json.dumps(m)
+            item["support"] = torch.utils.data.default_collate(sup + [src] * (a.fuse_kmax - len(sup))); item["n_support"] = torch.tensor(len(sup))
+        return item
 
 
 class FromSampler(torch.utils.data.Sampler):
@@ -277,6 +311,29 @@ log_print("val tracks", {s: (len(G), sum(len(t) for _, t in G)) for s, G in VAL.
 cfg_, inf, ren, ck_meta = F.setup_a20(dev)
 F.install_box_guard()
 fg = F.FaceGeom(inf, dev)
+import fb_fusion as FU
+GEOM = FU.UVGeom(inf)
+
+
+def pick(x, *ix):
+    """index a collated nested dict (tensors) by ix and restore a batch dim of 1."""
+    if torch.is_tensor(x):
+        for i in ix: x = x[i]
+        return x[None]
+    if isinstance(x, dict): return {k: pick(v, *ix) for k, v in x.items()}
+    return x
+
+
+def fused_batch_forward(batch, src):
+    """phase 7: per source, the fused forward (fb_fusion) with its support frames; assets concatenated as inf(src) would return."""
+    vgs, ugs, verts, info = [], [], [], []
+    for b in range(src["image"].shape[0]):
+        ns = int(batch["n_support"][b]); sups = [pick(batch["support"], b, k) for k in range(ns)]
+        vg_b, ug_b, fi = FU.fused_forward(inf, pick(src, b), sups, GEOM, dev, a.fuse_mode, a.fuse_prior, a.fuse_thr, a.fuse_cap)
+        vgs.append(vg_b); ugs.append(ug_b); verts.append(inf.smplx_deform_res["vertices"]); info.append(fi)
+    inf.smplx_deform_res = {"vertices": torch.cat(verts, 0)}
+    GSTAT.update({"fuse_n_support": [f["n_support"] for f in info], "fuse_touched": float(np.mean([f["texels_touched"] for f in info]))})
+    return FU.cat_assets(vgs), FU.cat_assets(ugs), {}
 lossm = Optimization_Loss(cfg).to(dev); lp = LPIPS("vgg", "0.1").to(dev)
 arc = AF.OnnxArcFace().to(dev).eval()
 arc_fwd = AF.OnnxArcFace.forward.__wrapped__                    # forward without @torch.no_grad (gradients to the render crop)
@@ -527,10 +584,39 @@ def validate():
                 m["l1"].append(float((r - g).abs().mean())); fl = face_lpips(r, g, t)
                 if fl is not None: m["face_lpips"].append(fl)
         res[s] = {k: float(np.mean(v)) if v else None for k, v in m.items()} | {"frames": len(m["psnr"]), "face_frames": len(m["face_lpips"])}
+    if a.fuse_kmax > 0: res["fused"] = validate_fused()
     inf.train(); ren.train()
     fb = [res[s]["ssim"] for s in FULLBODY_TRACKS if s in res]
     res["fullbody_mean_ssim"] = float(np.mean(fb)) if fb else None; res["fullbody_tracks"] = [s for s in FULLBODY_TRACKS if s in res]
     res["seconds"] = time.time() - t0
+    return res
+
+
+@torch.no_grad()
+def build_avatar_fused(src, sups):
+    torch.manual_seed(0)
+    vg, ug, fi = FU.fused_forward(inf, to_dev(F.collate1(fbd.source_info(*src)), dev), [to_dev(F.collate1(fbd.source_info(*p)), dev) for p in sups],
+                                  GEOM, dev, a.fuse_mode, a.fuse_prior, a.fuse_thr, a.fuse_cap)
+    av = Ubody_Gaussian(cfg.MODEL, vg, ug, pruning=True); av.init_ehm(inf.ehm); av.eval(); return av, fi
+
+
+@torch.no_grad()
+def validate_fused():
+    """phase 7: the validation tracks rendered from the source + --fuse-val-k support frames (evenly spaced frames of the group's
+    clips, never the source or a target); same metrics as validate(). The eligibility rule stays on the single-image validation."""
+    res = {}
+    for s, G in VAL.items():
+        m = {"psnr": [], "ssim": [], "lpips": [], "l1": []}; cov = []
+        for src, tg in G:
+            cis = sorted({src[0]} | {ci for ci, _ in tg}); used = {src} | set(tg)
+            pool = [(ci, k) for ci in cis for k in clips[ci]["keys"] if (ci, k) not in used]
+            step_ = max(1, len(pool) // a.fuse_val_k); sups = pool[::step_][:a.fuse_val_k]
+            av, fi = build_avatar_fused(src, sups); cov.append(fi["texels_touched"])
+            for ref in tg:
+                t = to_dev(F.collate1(fbd.target_info(*ref)), dev)
+                torch.manual_seed(0); r = ren(av(t), t["render_cam_params"], bg=0.0)["renders"].clamp(0, 1); g = t["image"] * t["mask"]
+                m["psnr"].append(float(cal_psnr(r, g))); m["ssim"].append(float(cal_ssim(r, g))); m["lpips"].append(float(lp(r, g))); m["l1"].append(float((r - g).abs().mean()))
+        res[s] = {k: float(np.mean(v)) if v else None for k, v in m.items()} | {"frames": len(m["psnr"]), "k": a.fuse_val_k, "texels_touched": float(np.mean(cov)) if cov else None}
     return res
 
 
@@ -645,7 +731,7 @@ while step < stop_iter:
     td = time.time(); batch = next(it); t_data += time.time() - td; GSTAT.clear()
     meta_b = [json.loads(m) for m in batch.pop("meta")]
     batch = to_dev(batch, dev); src = batch["source"]; tgt = flat(batch["target"])
-    vg, ug, ex = inf(src)
+    vg, ug, ex = fused_batch_forward(batch, src) if a.fuse_kmax > 0 else inf(src)
     av = Ubody_Gaussian(cfg.MODEL, rep(vg, a.n_tgt, a.n_src), rep(ug, a.n_tgt, a.n_src), pruning=False); av.init_ehm(inf.ehm)
     assets = av(tgt); rr = ren(assets, tgt["render_cam_params"], bg=0.0)
     extra = {"uv_point_xyz": ug["local_pos"], "uv_point_scale": ug["scales"], "vertices": inf.smplx_deform_res["vertices"], "uv_point_opacity": ug["opacities"],
