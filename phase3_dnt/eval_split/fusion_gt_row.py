@@ -35,6 +35,8 @@ ap.add_argument("--every", type=int, default=1, help="use every n-th training fr
 ap.add_argument("--max-frames", type=int, default=0, help="use at most N training frames after the source (0 = all)")
 ap.add_argument("--fb-ckpt", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/runs/guava_fb_B30k/checkpoints/best.pt")
 ap.add_argument("--data-root", default=""); ap.add_argument("--overwrite", action="store_true")
+ap.add_argument("--support-gain", type=float, default=1.0, help="exposure-shift probe (PREREG phase 7 amendment 1): brightness gain applied to every training frame fused after the source")
+ap.add_argument("--support-sat", type=float, default=1.0, help="exposure-shift probe: saturation factor applied to every training frame fused after the source")
 a = ap.parse_args()
 E = Path(a.E); SPLIT = json.loads(Path(a.split).read_text()); clips = SPLIT["clips"]
 if a.clips: want = a.clips.split(","); clips = [c for c in clips if c["id"] in want]
@@ -63,6 +65,13 @@ print("model", CK, GPU, flush=True)
 
 
 @torch.no_grad()
+def exposure_shift(batch, gain, sat):
+    """probe: brightness gain + saturation factor on a masked [0, 1] image batch (background stays 0)."""
+    if gain == 1.0 and sat == 1.0: return batch
+    im = batch["image"]; lum = (0.299 * im[:, 0] + 0.587 * im[:, 1] + 0.114 * im[:, 2])[:, None]
+    batch["image"] = ((lum + (im - lum) * sat) * gain).clamp(0, 1); return batch
+
+
 def frame_feats(batch):
     """uv_fusion.UVFusion.frame_feats without the vertex-template extras: 35-channel UV map (RGB + DINO f_map1, zero where not
     visible), per-texel visibility and facing |cos|, the DINO dict (global style) and the vertex features of this frame."""
@@ -145,7 +154,7 @@ def main():
         if a.max_frames: train = train[:a.max_frames]
         per = []
         for k in train:
-            f = frame_feats(to_dev(F.collate1(fbd.source_info(0, k)), dev)); seen |= f["vis"]
+            f = frame_feats(exposure_shift(to_dev(F.collate1(fbd.source_info(0, k)), dev), a.support_gain, a.support_sat)); seen |= f["vis"]
             w = f["facing"]
             if a.mode == "mean":
                 upd = (w > 0) & (w >= a.thr) & (W < cap) & UMASK
@@ -163,7 +172,7 @@ def main():
             torchvision.io.write_png(u8(r), str(od / f"{k}.png"))
         uv_rgb_png(uv0, od / "uv_rgb_source.png"); uv_rgb_png(uvmap, od / "uv_rgb_fused.png")
         cov0 = float(f0["vis"].sum()) / n_uv; cov = float((W > 0).sum()) / n_uv; covt = float(touched.sum()) / n_uv
-        info = {"method": a.name, **CK, "gpu": GPU, "settings": {"mode": a.mode, "prior": a.prior, "thr": a.thr, "cap": a.cap, "every": a.every, "max_frames": a.max_frames},
+        info = {"method": a.name, **CK, "gpu": GPU, "settings": {"mode": a.mode, "prior": a.prior, "thr": a.thr, "cap": a.cap, "every": a.every, "max_frames": a.max_frames, "support_gain": a.support_gain, "support_sat": a.support_sat},
                 "source": fj["source"], "n_train_used": len(train), "n_train_available": len(fj["recon"]) - 1, "n_test": len(fj["test"]),
                 "coverage_source": cov0, "coverage_seen_any_frame": float(seen.sum()) / n_uv, "coverage_fused": cov, "texels_updated_frac": covt,
                 "mean_W_updated": float(W[touched].mean()) if covt > 0 else 0.0, "selfcheck_source_only_vs_static_u8": selfcheck,

@@ -2,6 +2,7 @@
 shape locked to the session's source fit) -> [+ background-worker pose correction] -> GUAVA-FB (B28k) render -> display.
 
 Session start: a reference frame is captured (webcam: after a countdown, stand 2-3 m from the camera with the whole body in view;
+--lock-exposure freezes auto exposure / white balance 1.5 s before the capture, --ref-best-of N picks the sharpest, stillest of the last N frames;
 video: --ref-frame), SPRINT fits it (150 refinement steps, ~1 s) and GUAVA-FB builds the avatar from it once.
 Per frame (main thread, high-priority CUDA stream, never waits for the worker): detector -> SPRINT -> correction -> render.
 --worker: off | pose (PREREG phase 6 step 1, phase3_dnt/worker6/worker_core.py) | uv (live appearance update = phase 6 step 2,
@@ -50,6 +51,9 @@ ap.add_argument("--frames", type=int, default=0, help="stop after N live frames 
 ap.add_argument("--no-display", action="store_true"); ap.add_argument("--view", default="side", choices=("side", "overlay", "avatar"))
 ap.add_argument("--timing-json", default=""); ap.add_argument("--warmup", type=int, default=20, help="frames excluded from timing")
 ap.add_argument("--ref-delay", type=float, default=5.0, help="webcam: countdown (s) before the reference frame is captured")
+ap.add_argument("--lock-exposure", action="store_true", help="webcam: freeze auto exposure and auto white balance at their settled values --ref-lock-at s before the reference capture, for the whole session (the reference and the fused frames then share one exposure)")
+ap.add_argument("--ref-lock-at", type=float, default=1.5, help="webcam: seconds before the reference capture at which --lock-exposure locks the camera")
+ap.add_argument("--ref-best-of", type=int, default=1, help="webcam: pick the reference among the last N countdown frames: sharpest centre crop (Laplacian variance) with the least motion (1 = the last frame)")
 ap.add_argument("--ref-frame", type=int, default=0, help="video: index of the reference frame")
 ap.add_argument("--width", type=int, default=1280); ap.add_argument("--height", type=int, default=720)
 ap.add_argument("--assets", default=str(ROOT / "live_assets"), help="package asset root (checkpoints/)")
@@ -205,10 +209,34 @@ class Capture:
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
 
     def _loop(self):
+        self.lock_request = False; self.lock_info = None
         while self.ok:
+            if self.lock_request: self.lock_info = self._lock_exposure(); self.lock_request = False   # between two reads, same thread
             ok, fr = self.cap.read()
             if not ok: self.ok = False; break
             with self.lock: self.latest = (self.n, time.perf_counter(), cv2.cvtColor(fr, cv2.COLOR_BGR2RGB)); self.n += 1
+
+    def _lock_exposure(self):
+        """Freeze auto exposure / auto white balance at their current (settled) values. V4L2 through OpenCV, best effort: a driver
+        may ignore a property; what was read back is reported so the session log shows whether the lock took."""
+        c = self.cap; P = lambda n: getattr(cv2, n, None); out = {}
+        exp = c.get(P("CAP_PROP_EXPOSURE")) if P("CAP_PROP_EXPOSURE") else 0.0
+        wb = c.get(P("CAP_PROP_WB_TEMPERATURE")) if P("CAP_PROP_WB_TEMPERATURE") else 0.0
+        out["exposure_before"], out["wb_temperature_before"] = exp, wb
+        if P("CAP_PROP_AUTO_EXPOSURE"): out["auto_exposure_set"] = bool(c.set(P("CAP_PROP_AUTO_EXPOSURE"), 1))      # V4L2: 1 = manual, 3 = auto
+        if exp and exp > 0 and P("CAP_PROP_EXPOSURE"): out["exposure_set"] = bool(c.set(P("CAP_PROP_EXPOSURE"), exp))
+        if P("CAP_PROP_AUTO_WB"): out["auto_wb_set"] = bool(c.set(P("CAP_PROP_AUTO_WB"), 0))
+        if wb and wb > 0 and P("CAP_PROP_WB_TEMPERATURE"): out["wb_temperature_set"] = bool(c.set(P("CAP_PROP_WB_TEMPERATURE"), wb))
+        out["auto_exposure_after"] = c.get(P("CAP_PROP_AUTO_EXPOSURE")) if P("CAP_PROP_AUTO_EXPOSURE") else None
+        out["exposure_after"] = c.get(P("CAP_PROP_EXPOSURE")) if P("CAP_PROP_EXPOSURE") else None
+        out["auto_wb_after"] = c.get(P("CAP_PROP_AUTO_WB")) if P("CAP_PROP_AUTO_WB") else None
+        return out
+
+    def lock_exposure(self, timeout=2.0):
+        """main thread: ask the capture thread to lock the camera; returns the report (None if the driver never answered)."""
+        self.lock_request = True; t = time.perf_counter()
+        while self.lock_request and time.perf_counter() - t < timeout: time.sleep(0.005)
+        return self.lock_info
 
     def read(self, last_idx=-1):
         if self.dir is not None:
@@ -290,11 +318,27 @@ def main():
     # warm-up of every network on a dummy frame (not timed)
     dummy = np.zeros((a.height, a.width, 3), np.uint8); fitter.det.inference_detector(YOLO, dummy)
     # reference frame
+    lock_info = None; ref_pick = None
     if cap.cam:
-        t_end = time.perf_counter() + a.ref_delay; last = -1
+        t_end = time.perf_counter() + a.ref_delay; last = -1; cands = []; prev_g = None; locked = False
         while True:
             fr = cap.read(last); last = fr[0]; left = t_end - time.perf_counter()
-            if left <= 0: ref = fr[2]; break
+            if a.lock_exposure and not locked and left <= a.ref_lock_at:
+                lock_info = cap.lock_exposure(); locked = True; cands = []; prev_g = None                 # candidates only after the lock
+                print(f"exposure lock: {json.dumps(lock_info)}", flush=True)
+            if a.ref_best_of > 1:                                                                         # sharpness / motion of the centre crop
+                h, w = fr[2].shape[:2]; side = int(h / 1.1); y0 = (h - side) // 2; x0 = (w - side) // 2
+                g = cv2.resize(cv2.cvtColor(fr[2][y0:y0 + side, x0:x0 + side], cv2.COLOR_RGB2GRAY), (256, 256), interpolation=cv2.INTER_AREA)
+                sharp = float(cv2.Laplacian(g, cv2.CV_32F).var()); motion = float(np.abs(g.astype(np.float32) - prev_g).mean()) if prev_g is not None else None
+                cands.append((fr[0], fr[2], sharp, motion)); cands = cands[-a.ref_best_of:]; prev_g = g.astype(np.float32)
+            if left <= 0:
+                ref = fr[2]
+                if a.ref_best_of > 1 and cands:
+                    sc = [c[2] * (np.exp(-c[3] / 4.0) if c[3] is not None else 1.0) for c in cands]; j = int(np.argmax(sc)); ref = cands[j][1]
+                    ref_pick = {"frame": cands[j][0], "sharpness": cands[j][2], "motion": cands[j][3], "n_candidates": len(cands),
+                                "sharpness_range": [min(c[2] for c in cands), max(c[2] for c in cands)]}
+                    print(f"reference pick: {json.dumps(ref_pick)}", flush=True)
+                break
             if not a.no_display:
                 show = np.ascontiguousarray(fr[2][..., ::-1]).copy()
                 cv2.putText(show, f"Stand 2-3 m away, whole body in view: {left:.1f} s", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2, cv2.LINE_AA)
@@ -309,6 +353,7 @@ def main():
     if rec:
         cv2.imwrite(str(Path(a.record) / "reference.png"), cv2.cvtColor(ref, cv2.COLOR_RGB2BGR))
         (Path(a.record) / "session.json").write_text(json.dumps({"input": SRC, "calib": CALIB, "worker": a.worker, "ref_ms": ref_ms, "source_box": pbox.tolist(),
+                                                                 "exposure_lock": lock_info, "ref_pick": ref_pick,
                                                                  "source_smplx": jsonable(rs["record"]["smplx_coeffs"]), "shape": rs["shape"].tolist(),
                                                                  "source_raw": jsonable(rs["raw_smplx"]), "score_every": a.score_every,
                                                                  "uv": {"prior": a.uv_prior, "upd_thr": a.uv_thr, "tmpl_avg": a.uv_tmpl_avg},
