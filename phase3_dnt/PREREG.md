@@ -1462,3 +1462,16 @@ This addendum registers LHM; IDOL is registered separately once its environment 
   identities cannot be checked; shape is the GT's projected to 10 betas.
 - **Compute:** ~25 ms per frame render + ~10-40 s build per clip, 6,335 test frames, split over free GPUs (2 / 4 / 0 at
   registration), ~20 min each. User request = go-ahead.
+
+**Amendment 1 to addendum 2 (2026-11-06 ~16:55, after the `lhm` test renders, before any LHM test score was read).** The run.json
+logs showed LHM's head branch received its zero fallback on 23 of 81 source photos (UBody 16 / 30, People-Snapshot 3 / 4,
+BEDLAM2 4 / 40). Diagnosis on the source photos only (no test frame, no score): 22 of 23 are an indexing failure, not a missed
+face. LHM expands the detected head box by 1.65 and slices `img[y0:y1, x0:x1]`; NumPy clips y1 / x1 at the edge, but a negative
+y0 / x0 (head near the top / left edge of the 512 person crop) wraps around and yields an empty crop. The other one is LHM's
+"no face" branch, which raises a NameError (`image_key` undefined) and falls back to zeros. On a validation clip
+(Olympic_S6) the detector also picks a bystander's head, as LHM keeps the largest head in the photo. Changes, both opt-in flags
+of `run_lhm.py` and both on for the reported row: `--clamp-face` (clip y0 / x0 at 0, as NumPy already does for y1 / x1) and
+`--face-on-matte` (detect and crop the head on the matted source, subject on white, the same matte LHM's body input and every
+other row get). Validation smoke (same four clips): PSNR within ±0.15 dB of the first smoke; the Online_class head is now found.
+The registered row **LHM [1 view]** is rendered again under `lhm_facefix` (all 81 clips, nothing copied); the first `lhm` renders
+and scores stay as the record of the unfixed adapter and are listed in RUNLOG, not in the tables.

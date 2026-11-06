@@ -34,6 +34,8 @@ ap.add_argument("--name", required=True, help="method name -> E/renders/<name>/<
 ap.add_argument("--clips", default="", help="comma list of clip ids (ds/clip) to run; default all of the split")
 ap.add_argument("--max-test", type=int, default=0, help="smoke only: render at most this many test keys per clip")
 ap.add_argument("--batch", type=int, default=20)
+ap.add_argument("--clamp-face", action="store_true", help="clip the face box at the top / left image edge (amendment 1)")
+ap.add_argument("--face-on-matte", action="store_true", help="head detection / crop on the matted source (amendment 1)")
 ap.add_argument("--debug-dir", default="", help="smoke only: save the preprocessed source / head images here")
 a = ap.parse_args()
 E = Path(a.E); OUTROOT = E / "renders" / a.name
@@ -139,9 +141,16 @@ for c in todo:
     t_build = time.time()
     img = rd(B / "images" / f"{src}.png"); alpha = rd(B / "masks" / f"{src}.png", cv2.IMREAD_GRAYSCALE)
     image = infer_preprocess_image(img, alpha)
+    face_box = None
     try:
-        bbox = facedetect(torch.from_numpy(img).permute(2, 0, 1))
-        head = img[int(bbox[1]): int(bbox[3]), int(bbox[0]): int(bbox[2])]
+        # --face-on-matte: detect and crop the head on the matted source (subject on white, as LHM's body input), so another
+        # person in the photo cannot be picked (LHM takes the largest head; its own app assumes one person per photo).
+        fimg = (img * (alpha[..., None] > 127) + 255 * (alpha[..., None] <= 127)).astype(np.uint8) if a.face_on_matte else img
+        bbox = facedetect(torch.from_numpy(fimg).permute(2, 0, 1)); face_box = [int(v) for v in bbox]
+        # LHM slices img[y0:y1, x0:x1] with the 1.65x expanded box; numpy clips y1 / x1 at the image edge but a negative y0 / x0
+        # wraps around and gives an empty crop (-> zeros). --clamp-face clips y0 / x0 at 0 as well (PREREG addendum 2, amendment 1).
+        y0, x0 = (max(0, face_box[1]), max(0, face_box[0])) if a.clamp_face else (face_box[1], face_box[0])
+        head = fimg[y0: face_box[3], x0: face_box[2]]
         head = cv2.resize(head, dsize=(112, 112), interpolation=cv2.INTER_AREA); face_found = True
     except Exception:
         head = np.zeros((112, 112, 3), np.uint8); face_found = False
@@ -182,7 +191,7 @@ for c in todo:
         D = Path(a.debug_dir) / ds / clip; D.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(D / f"src_{src}.png"), (image[0].permute(1, 2, 0).numpy() * 255 + 0.5).astype(np.uint8)[..., ::-1]); cv2.imwrite(str(D / f"head_{src}.png"), head[..., ::-1])
     run = {"method": a.name, "model": "LHM-1B-HF", "weights": MODEL_REV, "commit": COMMIT, "guava_commit": GUAVA_SHA, "train_s": round(build_s, 2),
-           "render_s_per_frame": round(render_s, 4), "gpu": GPU, "iterations": 0, "views": 1, "ref_keys": [src], "n_test": n_done, "face_found": face_found,
+           "render_s_per_frame": round(render_s, 4), "gpu": GPU, "iterations": 0, "views": 1, "ref_keys": [src], "n_test": n_done, "face_found": face_found, "face_box": face_box, "clamp_face": a.clamp_face, "face_on_matte": a.face_on_matte,
            "src_box_wider_than_tall": bool((lambda bb: (bb[2] - bb[0]) >= (bb[3] - bb[1]))(get_bbox(alpha).get_box())),
            "shape_fit_mm": {"mean": round(sh_mean, 3), "max": round(sh_max, 3)}, "expr_map_mm": {"mean": round(ex_mean, 3), "max": round(ex_max, 3)},
            "notes": "feed-forward, no per-person optimisation; GT SMPL-X driving; background 0; see phase3_dnt/baselines/lhm/NOTES.md",
