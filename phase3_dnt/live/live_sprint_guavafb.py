@@ -11,6 +11,9 @@ latest published avatar; EXPERIMENTAL, its validation is pending) | pose+uv | po
 --input REC_DIR: replays a --record folder (its reference.png, then frames/ at the recorded capture times, every frame processed).
 --score-every N: every N-th processed frame is marked "scored" in the recording and never used by the uv update (ablation scoring).
 --timing-json PATH: per-stage and end-to-end ms p50 / p95, FPS, worker update rate.
+RAGA speed-ups (laptop, 2026-11-05): --fourcc MJPG (default; webcam 1280x720 at 30 instead of 10 FPS), --crop center (no detector
+in the live loop: a fixed full-height centre square), --parallel (default since 2026-11-06; crop + SPRINT of the next frame in a
+second thread while the current frame renders; --no-parallel for the serial loop).
 
 YOLOX-L is the EHM-Tracker DWPose detector ONNX (yolox_l.onnx) converted to PyTorch with onnx2torch (max abs diff to
 onnxruntime 4e-5 on the same input) and run on the GPU; pre- / post-processing are EHM's own (onnxdet.inference_detector).
@@ -52,6 +55,17 @@ ap.add_argument("--timing-json", default=""); ap.add_argument("--warmup", type=i
 ap.add_argument("--ref-delay", type=float, default=5.0, help="webcam: countdown (s) before the reference frame is captured")
 ap.add_argument("--ref-frame", type=int, default=0, help="video: index of the reference frame")
 ap.add_argument("--width", type=int, default=1280); ap.add_argument("--height", type=int, default=720)
+ap.add_argument("--fourcc", default="MJPG", help="webcam pixel format: MJPG (default; this laptop's webcam gives 1280x720 at 30 FPS "
+                "only in MJPG, 10 FPS in uncompressed YUYV) | YUYV | none (the camera's default = the behaviour before this option)")
+ap.add_argument("--crop", default="yolox", choices=("yolox", "center"),
+                help="live person crop: yolox (YOLOX-L + H1c every frame) | center (no detector: a fixed square of the full frame height "
+                     "at the frame centre; stay inside it; untested with --worker pose / uv). The reference frame always uses YOLOX")
+ap.add_argument("--print-fps", type=int, default=30, metavar="N",
+                help="print the frame rate in the terminal every N frames (0 = never): smoothed FPS, mean FPS since warm-up, stage ms")
+ap.add_argument("--parallel", dest="parallel", action="store_true", default=True,
+                help="(default) person crop + SPRINT for the next frame run in a second thread (LIVE stream) while the main thread "
+                     "renders the current one; every frame read is rendered once, recorded under its own index; about one frame of pose lag")
+ap.add_argument("--no-parallel", "--serial", dest="parallel", action="store_false", help="serial loop: crop, SPRINT, render in one thread")
 ap.add_argument("--assets", default=str(ROOT / "live_assets"), help="package asset root (checkpoints/)")
 ap.add_argument("--sprint-ckpt", default=""); ap.add_argument("--fb-ckpt", default="")
 ap.add_argument("--dwpose-threads", type=int, default=4, help="CPU threads of DWPose (reference fit and worker only)")
@@ -169,6 +183,87 @@ def render(av, smplx, box, M, shp):
     return rr["renders"][0], rr["depths"][0, 0]
 
 
+def center_box(img):
+    """--crop center: the box whose SPRINT crop (box_crop_matrix: square, 1.1 x the long side) is the full frame height, centred."""
+    H, W = img.shape[:2]; h = H / 1.1 + 1e-6
+    return np.array([W / 2 - h / 2, H / 2 - h / 2, W / 2 + h / 2, H / 2 + h / 2], np.float64)
+
+
+def live_box(img, ref):
+    if a.crop == "center": return center_box(img)
+    return detect(img, ref)[0]
+
+
+def pose_step(img, pbox, shp):
+    """Person crop (detector or the fixed one) + SPRINT -> (box, raw, M, det ms, SPRINT ms, t0); None until a person is found.
+    Serial: the detector on the default stream (as before); --parallel: also on the LIVE stream, off the render's stream."""
+    t0 = time.perf_counter()
+    if a.parallel:
+        with torch.cuda.stream(LIVE): box = live_box(img, pbox)
+    else:
+        box = live_box(img, pbox)
+    t1 = time.perf_counter()
+    if box is None: return None
+    e0, e1 = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    with torch.cuda.stream(LIVE):
+        e0.record(LIVE); raw, M = live_raw(img, box, shp); e1.record(LIVE)
+    e1.synchronize()
+    return box, raw, M, (t1 - t0) * 1000, e0.elapsed_time(e1), t0
+
+
+def posed_serial(cap, pbox, shp):
+    """Frames with their pose, one after the other (the behaviour before --parallel)."""
+    last = -1
+    while True:
+        fr = cap.read(last)
+        if fr is None: return
+        last, t_cap, img = fr
+        r = pose_step(img, pbox, shp)
+        if r is None: continue
+        pbox = r[0]
+        yield last, t_cap, img, r
+
+
+class PoseThread(threading.Thread):
+    """--parallel: reads a frame and poses it while the main thread renders the previous one. It hands each result over and
+    waits until the main thread has taken it before reading the next frame: one frame ahead at most, every frame rendered once."""
+    def __init__(self, cap, pbox, shp):
+        super().__init__(daemon=True); self.cap, self.pbox, self.shp = cap, pbox, shp
+        self.q = queue.Queue(maxsize=1); self.taken = threading.Event(); self.stop = threading.Event(); self.start()
+
+    def run(self):
+        last = -1
+        try:
+            while not self.stop.is_set():
+                fr = self.cap.read(last)
+                if fr is None: break
+                last, t_cap, img = fr
+                r = pose_step(img, self.pbox, self.shp)
+                if r is None: continue
+                self.pbox = r[0]; self.taken.clear(); self.q.put((last, t_cap, img, r))
+                while not self.taken.wait(0.1):
+                    if self.stop.is_set(): return
+        except BaseException as e:                                                                     # re-raised in the main thread
+            self.q.put(e); return
+        self.q.put(None)
+
+    def get(self):
+        it = self.q.get(); self.taken.set()
+        if isinstance(it, BaseException): raise it
+        return it
+
+
+def posed_parallel(cap, pbox, shp):
+    th = PoseThread(cap, pbox, shp)
+    try:
+        while True:
+            it = th.get()
+            if it is None: return
+            yield it
+    finally:                                       # join: a thread still in a CUDA call at interpreter exit aborts the process
+        th.stop.set(); th.join(timeout=30)
+
+
 def build_avatar(img):
     """Source: SPRINT fit (150 steps) of the reference frame + GUAVA-FB avatar build. -> avatar, shape, box, fit, ms, source batch."""
     torch.cuda.synchronize(); t0 = time.perf_counter()
@@ -188,7 +283,7 @@ class Capture:
     """Webcam: a thread keeps only the latest frame (live semantics). Video: sequential frames (every frame is processed).
     --record folder: its frames/ in order, each released at its recorded capture time (frames.jsonl t_capture) unless --no-pace."""
     def __init__(self, src):
-        self.dir = Path(src) if Path(src).is_dir() else None; self.cam = False
+        self.dir = Path(src) if Path(src).is_dir() else None; self.cam = False; self.desc = None            # desc: webcam mode
         if self.dir is not None:
             tc = {}
             if (self.dir / "frames.jsonl").exists():
@@ -198,7 +293,12 @@ class Capture:
             self.k = 0; self.t0 = None; self.fps = 30.0; self.ok = True; return
         self.cam = src.isdigit(); self.cap = cv2.VideoCapture(int(src) if self.cam else src)
         if self.cam:
+            if a.fourcc.lower() != "none": self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*a.fourcc))   # before the size
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, a.width); self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, a.height)
+            self.desc = (f"{int(self.cap.get(cv2.CAP_PROP_FOURCC)).to_bytes(4, 'little').decode(errors='replace')} "
+                         f"{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))} "
+                         f"@ {self.cap.get(cv2.CAP_PROP_FPS):.0f} fps")
+            print(f"webcam: {self.desc}", flush=True)
             self.lock = threading.Lock(); self.latest = None; self.n = 0; self.ok = True
             threading.Thread(target=self._loop, daemon=True).start()
         if not self.cap.isOpened(): raise SystemExit(f"cannot open {src}")
@@ -277,7 +377,12 @@ def compose(img, ava, dep, M, fps, ms, wv):
         wa = cv2.warpAffine(ava, A, (Ws, Hs)); wm = cv2.warpAffine((dep > 1e-4).astype(np.uint8), A, (Ws, Hs)) > 0
         out = img.copy(); out[wm] = wa[wm]
     else:
-        h = 512; l = cv2.resize(img, (int(img.shape[1] * h / img.shape[0]), h)); out = np.concatenate([l, ava], 1)
+        h = 512; l = cv2.resize(img, (int(img.shape[1] * h / img.shape[0]), h))
+        if a.crop == "center":                                                                        # the fixed crop: stay inside it
+            Mi = np.linalg.inv(M); s = h / img.shape[0]
+            (x0, y0), (x1, y1) = (Mi @ [0, 0, 1])[:2] * s, (Mi @ [SAF.CROP, SAF.CROP, 1])[:2] * s
+            cv2.rectangle(l, (int(x0), int(y0)), (int(x1) - 1, int(y1) - 1), (0, 255, 0), 2)
+        out = np.concatenate([l, ava], 1)
     out = np.ascontiguousarray(out[..., ::-1])
     txt = f"{fps:5.1f} FPS | det {ms['det']:.0f} sprint {ms['sprint']:.0f} render {ms['render']:.0f} total {ms['total']:.0f} ms | worker {a.worker} v{wv}"
     cv2.putText(out, txt, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
@@ -298,6 +403,10 @@ def main():
             if not a.no_display:
                 show = np.ascontiguousarray(fr[2][..., ::-1]).copy()
                 cv2.putText(show, f"Stand 2-3 m away, whole body in view: {left:.1f} s", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2, cv2.LINE_AA)
+                if a.crop == "center":                                                                # where to stand: the fixed crop
+                    Hs, Ws = show.shape[:2]; x0 = (Ws - Hs) // 2
+                    cv2.rectangle(show, (x0, 0), (x0 + Hs - 1, Hs - 1), (0, 255, 0), 2)
+                    cv2.putText(show, "--crop center: stay inside the green square", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
                 cv2.imshow("live_sprint_guavafb", show); cv2.waitKey(1)
     elif cap.dir is not None and (cap.dir / "reference.png").exists():                                  # replay: the session's reference
         ref = cv2.cvtColor(cv2.imread(str(cap.dir / "reference.png")), cv2.COLOR_BGR2RGB)
@@ -312,7 +421,8 @@ def main():
                                                                  "source_smplx": jsonable(rs["record"]["smplx_coeffs"]), "shape": rs["shape"].tolist(),
                                                                  "source_raw": jsonable(rs["raw_smplx"]), "score_every": a.score_every,
                                                                  "uv": {"prior": a.uv_prior, "upd_thr": a.uv_thr, "tmpl_avg": a.uv_tmpl_avg},
-                                                                 "fb_ckpt": FB_CKPT, "sprint_ckpt": SPRINT_CKPT, "started": time.strftime("%Y-%m-%d %H:%M:%S")}))
+                                                                 "fb_ckpt": FB_CKPT, "sprint_ckpt": SPRINT_CKPT, "started": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                                                 "camera": cap.desc, "crop": a.crop, "parallel": a.parallel}))
     worker = None; fu = None; SC = Scored(a.score_every)
     if a.worker == "pose":
         worker = WC.Worker(fitter, shp, WORK, "pose"); worker.start()
@@ -325,24 +435,20 @@ def main():
     # session start (reference fit, avatar build): cuDNN autotuning may briefly borrow most of the free GPU memory here
     build_peak = torch.cuda.max_memory_allocated() / 1e9; torch.cuda.reset_peak_memory_stats()
     T = {k: [] for k in ("det", "sprint", "render", "total", "frame_interval", "capture_to_display")}
-    last, n, t_prev, fps_s, t_first = -1, 0, None, 0.0, None
-    ev = [torch.cuda.Event(enable_timing=True) for _ in range(3)]
-    while True:
-        fr = cap.read(last)
-        if fr is None: break
-        last, t_cap, img = fr; t0 = time.perf_counter()
-        box, _ = detect(img, pbox); t1 = time.perf_counter()
-        if box is None: continue
+    n, t_prev, fps_s, t_first, t_last = 0, None, 0.0, None, None
+    rv = [torch.cuda.Event(enable_timing=True) for _ in range(2)]
+    src_it = (posed_parallel if a.parallel else posed_serial)(cap, pbox, shp)                         # frames with their pose
+    for last, t_cap, img, (box, raw, M, ms_det, ms_sprint, t0) in src_it:
         with torch.cuda.stream(LIVE):
-            ev[0].record(LIVE); raw, M = live_raw(img, box, shp); ev[1].record(LIVE)
             corr = worker.published if a.worker == "pose" else None; used = corr.apply(raw) if corr is not None else raw
             if worker: worker.offer(n, img, box, raw)
         av_cur, wv = worker.published_av if a.worker == "uv" else (av, worker.version if worker else 0)       # one read per frame
         # render on the default stream: the rasterizer's kernels ignore the current stream (legacy default stream)
-        rgb, dep = render(av_cur, used, box, M, shp); ev[2].record(torch.cuda.default_stream())
+        rv[0].record(torch.cuda.default_stream()); rgb, dep = render(av_cur, used, box, M, shp); rv[1].record(torch.cuda.default_stream())
         ava = (rgb.clamp(0, 1) * 255).round().to(torch.uint8).permute(1, 2, 0).cpu().numpy(); depn = dep.cpu().numpy()
-        t2 = time.perf_counter(); pbox = box
-        ms = {"det": (t1 - t0) * 1000, "sprint": ev[0].elapsed_time(ev[1]), "render": ev[1].elapsed_time(ev[2]), "total": (t2 - t0) * 1000}
+        t2 = time.perf_counter()
+        # --parallel: total = latency from this frame's crop start to its render end (the frame waits while the previous renders)
+        ms = {"det": ms_det, "sprint": ms_sprint, "render": rv[0].elapsed_time(rv[1]), "total": (t2 - t0) * 1000}
         if t_prev: fps_s = 1.0 / (t2 - t_prev) if fps_s == 0.0 else 0.9 * fps_s + 0.1 / (t2 - t_prev)
         if not a.no_display:
             cv2.imshow("live_sprint_guavafb", compose(img, ava, depn, M, fps_s, ms, wv))
@@ -353,11 +459,17 @@ def main():
             if t_prev: T["frame_interval"].append((t3 - t_prev) * 1000)
             T["capture_to_display"].append((t3 - t_cap) * 1000)
             if t_first is None: t_first = t3
+            t_last = t3
+        if a.print_fps and n % a.print_fps == 0 and n:
+            mean_fps = (len(T["total"]) - 1) / (t_last - t_first) if t_first and t_last > t_first and len(T["total"]) > 1 else float("nan")
+            print(f"[fps] frame {n}: {fps_s:5.1f} now | {mean_fps:5.1f} mean since warm-up | det {ms['det']:.1f} sprint {ms['sprint']:.1f} "
+                  f"render {ms['render']:.1f} total {ms['total']:.1f} ms | capture->display {(t3 - t_cap) * 1000:.0f} ms", flush=True)
         if rec: rec.put((last, img, ava, {"i": last, "n": n, "scored": n in SC, "t_capture": t_cap, "t_display": t3, "box": box.tolist(),
                                          "M": np.asarray(M, np.float64).tolist(), "raw": jsonable(raw),
                                          "corr_version": worker.version if worker else 0, "av_version": wv, "ms": ms}))
         t_prev = t3; n += 1
         if a.frames and n >= a.frames: break
+    src_it.close()                                                                                     # stops the pose thread
     if worker: worker.wait_idle(); worker.stop()
     if rec: rec.close()
     cap.ok = False; cv2.destroyAllWindows()
@@ -365,7 +477,9 @@ def main():
     res = {"input": SRC, "worker": a.worker, "frames": n, "timed_frames": len(T["total"]), "gpu": torch.cuda.get_device_name(0),
            "cpu": platform.processor() or platform.machine(), "torch": torch.__version__, "ref_build_ms": ref_ms,
            "stages_ms": {k: {"p50": pct(v, 50), "p95": pct(v, 95), "mean": float(np.mean(v)) if v else None} for k, v in T.items()},
-           "fps_observed": (len(T["total"]) - 1) / (time.perf_counter() - t_first) if t_first and len(T["total"]) > 1 else None,
+           "camera": cap.desc, "crop": a.crop, "parallel": a.parallel,
+           # first to last displayed frame (before, the end was taken after the recorder flushed its queue, which grows with speed)
+           "fps_observed": (len(T["total"]) - 1) / (t_last - t_first) if t_first and t_last and t_last > t_first else None,
            "worker_updates": (worker.av_version if a.worker == "uv" else worker.version) if worker else 0,
            "worker_update_ms": [round((e["t_end"] - e["t_start"]) * 1000, 1) for e in worker.log if e.get("gate") == "accepted"] if worker else [],
            "worker_offers": len(worker.log) if worker else 0, "recorder_dropped": rec.dropped if rec else 0,
@@ -380,7 +494,7 @@ def main():
                      "stopped": [UF.REGIONS[k] for k in range(4) if fu.stop[k]],
                      "errors": [e["gate"] for e in worker.log if str(e.get("gate")).startswith("error")][:5]}
     print(json.dumps({k: v for k, v in res.items() if k != "worker_update_ms"}, indent=1), flush=True)
-    if a.timing_json: Path(a.timing_json).write_text(json.dumps(res, indent=1))
+    if a.timing_json: Path(a.timing_json).parent.mkdir(parents=True, exist_ok=True); Path(a.timing_json).write_text(json.dumps(res, indent=1))
 
 
 if __name__ == "__main__":
