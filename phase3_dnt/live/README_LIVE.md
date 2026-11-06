@@ -58,6 +58,25 @@ python phase3_dnt/live/live_sprint_guavafb.py --input my_clip.mp4 --ref-frame 0
 ```
 
 The on-screen line shows FPS (smoothed), the per-stage milliseconds (detector, SPRINT, render, total for the frame) and the worker state.
+The terminal gets a `[fps]` line every 30 frames (`--print-fps N`, 0 = off) and the summary JSON at the end (`fps_observed`).
+
+Speed test (2026-11-06 defaults: MJPG webcam, async loop):
+```bash
+# no detector in the loop (fixed centre square; stay inside the green square), recorded, with timing
+python phase3_dnt/live/live_sprint_guavafb.py --input 0 --crop center --worker off \
+    --record ~/rec/session_02 --timing-json ~/rec/session_02/timing.json
+```
+- `--fourcc MJPG` (default): the laptop webcam gives 30 FPS at 1280×720 only in MJPG (10 FPS in YUYV, the camera's
+  default). `--fourcc none` restores the old behaviour; `--fourcc YUYV` forces raw frames.
+- `--crop center`: a fixed full-height centre square instead of YOLOX (saves ~28 ms per frame). Valid while the person
+  stays inside the square; on rec/session_01 the pose and avatar quality matched the YOLOX crop. Default `yolox`.
+- `--parallel` (default): crop + SPRINT of the next frame run in a second thread while the current frame renders; about
+  one frame of pose lag. `--no-parallel` runs the serial loop.
+- `--lock-exposure --ref-best-of 10`: freeze auto exposure / white balance 1.5 s before the reference capture and pick
+  the sharpest, stillest of the last 10 countdown frames. On the laptop's session_01 the reference was over-exposed
+  (18–20% brighter than the first live frame), which made the whole avatar look whitish.
+- Laptop replay of rec/session_01: 10.3 FPS (serial, YOLOX) → 22.3 FPS (centre, parallel). Log the GPU temperature and
+  the power source with every timing; this laptop throttles within a minute of load.
 
 Useful options:
 - `--width/--height`: webcam resolution (default 1280×720).
