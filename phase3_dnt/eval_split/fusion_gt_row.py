@@ -72,6 +72,7 @@ def exposure_shift(batch, gain, sat):
     batch["image"] = ((lum + (im - lum) * sat) * gain).clamp(0, 1); return batch
 
 
+@torch.no_grad()
 def frame_feats(batch):
     """uv_fusion.UVFusion.frame_feats without the vertex-template extras: 35-channel UV map (RGB + DINO f_map1, zero where not
     visible), per-texel visibility and facing |cos|, the DINO dict (global style) and the vertex features of this frame."""
@@ -162,7 +163,7 @@ def main():
             else:
                 upd = (w > B) & (w >= a.thr) & UMASK
                 FB = torch.where(upd[None], f["uv"], FB); B = torch.where(upd, w, B); touched |= upd; W = torch.where(upd, w, W)
-            per.append({"key": k, "n_texels": int(upd.sum()), "visible": int(f["vis"].sum())})
+            per.append({"key": k, "n_texels": int(upd.sum()), "visible": int(f["vis"].sum()), "mem_alloc_gb": round(torch.cuda.memory_allocated() / 2**30, 3)})
         uvmap = torch.where(touched[None], S / W.clamp_min(1e-6), uv0) if a.mode == "mean" else torch.where(touched[None], FB, uv0)
         av = decode(src, f0, uvmap); t_build = (time.perf_counter() - t0) * 1000
         tr = []
