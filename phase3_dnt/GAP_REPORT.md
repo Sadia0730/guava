@@ -76,8 +76,9 @@ rendered from real fused features). The decoder simply did not move: fused-batch
 no bug; the continuation protocol (8e-6, 4,000 steps) is too weak to change the decoder's behaviour, as it was for H2 / H4 / step 1.
 
 **Round 2 (amendment 2, launched 2026-11-06 04:03 after the user's go-ahead):** A2 = fusion at lr 3e-5 for 12,000 steps, B2 = its
-control; same rules. Descriptive People-Snapshot / NeuMan fused rows of A / B / B28k (test, no selection) are being computed to
-see whether the training touched the near-view loss (C3), which ValBench cannot show (naive fusion does not lose on near views there).
+control; same rules. Descriptive People-Snapshot / NeuMan fused rows of A / B / B28k (test, no selection; RUNLOG 119): PS near view [0,30) single 29.64,
+fused B28k 28.12, control 28.24, **A 28.61**: the weak round-1 training recovered a third of the C3 near-view loss (-1.52 -> -1.03 dB),
+which ValBench cannot show (naive fusion does not lose on near views there); far bins and NeuMan unchanged (A = control within 0.1).
 
 What this can and cannot deliver, stated before the runs: it can make the fused row clearly better than today's naive fusion and
 competitive with the per-person methods where poses are exact (BEDLAM2) and on NeuMan; it cannot close the People-Snapshot gap in
