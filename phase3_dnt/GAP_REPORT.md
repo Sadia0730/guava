@@ -75,14 +75,22 @@ touched); images in [0, 1]; step-0 validation = B28k; source-only decode = stati
 rendered from real fused features). The decoder simply did not move: fused-batch image loss 0.0307 vs control 0.0313. Conclusion:
 no bug; the continuation protocol (8e-6, 4,000 steps) is too weak to change the decoder's behaviour, as it was for H2 / H4 / step 1.
 
-**Round 2 (amendment 2, launched 2026-11-06 04:03 after the user's go-ahead):** A2 = fusion at lr 3e-5 for 12,000 steps, B2 = its
-control; same rules. Descriptive People-Snapshot / NeuMan fused rows of A / B / B28k (test, no selection; RUNLOG 119): PS near view [0,30) single 29.64,
-fused B28k 28.12, control 28.24, **A 28.61**: the weak round-1 training recovered a third of the C3 near-view loss (-1.52 -> -1.03 dB),
-which ValBench cannot show (naive fusion does not lose on near views there); far bins and NeuMan unchanged (A = control within 0.1).
+**Round 2 (amendment 2; A2 = fusion at lr 3e-5 for 12,000 steps, B2 = its control; RUNLOG 120): fails again.** ValBench-v1:
+A2 fused 21.34 (needs 21.89; naive 21.59; control B2 21.40); A2 single 20.69 (rule (2) fails: -0.29 vs B28k; B2 -0.21).
+Attribution A2 - B2 = -0.06 dB. The stronger continuation does move the decoder, but not where it counts: both arms drift (in-run
+validation peaked at 8,000 steps), fusion training improves LPIPS (0.1519 vs 0.1555) and the exact-pose fused row (BEDLAM2 +0.21 vs
+control) and costs the real-video fused row (UBody -0.15). Descriptive People-Snapshot / NeuMan (test, no selection): PS near view
+[0,30) single 29.64, naive 28.12, control 28.10, **A2 28.73** (40 % of the C3 loss recovered; round 1 A 28.61); the other PS bins
+-0.1 to -0.2 vs naive, PS all 27.94 (= single 27.95; GART 31.43); NeuMan all 23.85 vs naive 24.14 (GART 24.96).
+**Phase 7 is closed without an adopted checkpoint**: B28k stays the model and the naive feed-forward fusion with B28k (D1) stays
+the fused row.
 
-What this can and cannot deliver, stated before the runs: it can make the fused row clearly better than today's naive fusion and
-competitive with the per-person methods where poses are exact (BEDLAM2) and on NeuMan; it cannot close the People-Snapshot gap in
-the single-image row (C1 is an information bound) and it does not touch C2.
+Reading of the two rounds: C3 is real (the near-view recovery on PS appears in both rounds and grows with training strength), but
+it is small next to C1 and C2, the registered rule asked for +0.30 dB on a validation set where naive fusion does not suffer from
+C3, and the continuation drift of the single-image path costs more than C3 is worth. This is the fifth continuation from B28k under
+the H2 protocol that fails its rule (H2, H4, step 1, phase 7 twice): B28k's single-image behaviour is an optimum that this protocol
+only leaves downhill, so the next appearance change has to come from training with the new objective from an earlier point, or
+from a geometry change (C2), not from another fine-tune of B28k.
 
 ## 4. RAGA
 
@@ -91,15 +99,16 @@ RAGA skill (30 fps, identical-render / ground-truth checks) apply to the checkpo
 
 ## 5. Publication assessment
 
-Supported contribution if phase 7 passes: a feed-forward, animatable, live full-body avatar whose appearance accumulates from a
-monocular stream without optimisation, trained to be consistent between the single-photo and the accumulated state; evaluated against
-per-person optimisation with the same frames. Closest prior work: GenFusion (arXiv 2603.28997, online feature averaging, novel view
-only, ~1 fps, diffusion renderer), LHM++ (batch multi-image fusion), FastAvatar (heads). Reviewer objections to expect: (i) per-person
-methods still lead on People-Snapshot by ~3 dB (answer: C1/C2 analysis, exact-pose results, zero per-person training, live); (ii)
-the fusion rule is simple (answer: the contribution is the trained consistency and the measured decoder effect, with the naive rule
-as the ablation); (iii) only 4 + 4 real clips in PublicBench (answer: X-Humans 3, BEDLAM2 40, and a larger real set below).
-Honest status today: no main-table superiority over GART on People-Snapshot; the gap is explained and two of its three causes have
-a measured, registered intervention.
+Phase 7 did not pass, so the "trained consistency between the single-photo and the accumulated state" contribution is not
+supported. What is supported with measurements: a feed-forward, animatable, live full-body avatar whose appearance accumulates from a
+monocular stream without optimisation (naive fusion with B28k: ValBench BEDLAM2 26.13 -> 27.00 vs GART 26.71; NeuMan 23.04 -> 24.14
+vs GART 24.96; People-Snapshot 27.95 -> 27.78 vs GART 31.43), and the gap analysis C1-C3 with its oracles. Closest prior work:
+GenFusion (arXiv 2603.28997, online feature averaging, novel view only, ~1 fps, diffusion renderer), LHM++ (batch multi-image fusion),
+FastAvatar (heads). Against the CVPR bar, candidly: this is a system plus analysis without a main-table win (3.5 dB behind GART on
+People-Snapshot, 1.1 dB behind on NeuMan) and with a fusion rule that is a weighted average; as it stands it is below the bar for a
+CVPR main paper. The two things that would change that are (i) C2 solved at training time (geometry freedom; the coverage oracle is
++1.2 dB on PS near views, which is most of the near-view gap) and (ii) a larger real benchmark in the exact-pose regime (section 6),
+where feed-forward fusion already matches per-person fitting.
 
 ## 6. Datasets (survey, agent report 2026-11-05; nothing downloaded)
 
