@@ -1,6 +1,6 @@
 # FinalBench: final comparison tables
 
-Generated 2026-11-06 14:41:49 CST by `eval_split/final_tables.py` (`defaults`); percentile bootstrap over clips, 10,000 resamples, `numpy.random.default_rng(20261108)` (one generator per clip pool; overall stratified by dataset). PREREG section "FinalBench: final comparison tables" (amendment 2026-11-05: main table = rows 1-3). Per-clip rows, frame-weighted means and timing fields: `results_final.csv`.
+Generated 2026-11-06 17:11:57 CST by `eval_split/final_tables.py` (`defaults`); percentile bootstrap over clips, 10,000 resamples, `numpy.random.default_rng(20261108)` (one generator per clip pool; overall stratified by dataset). PREREG section "FinalBench: final comparison tables" (amendment 2026-11-05: main table = rows 1-3). Per-clip rows, frame-weighted means and timing fields: `results_final.csv`.
 
 ## Warnings / notes
 
@@ -16,10 +16,12 @@ Generated 2026-11-06 14:41:49 CST by `eval_split/final_tables.py` (`defaults`); 
 | ↳ 95 % CI | [17.88, 21.36] / [0.758, 0.815] / [0.1675, 0.2141] | [26.93, 28.73] / [0.927, 0.940] / [0.0638, 0.0657] | [22.67, 24.18] / [0.889, 0.905] / [0.0670, 0.0828] | [22.92, 28.54] / [0.909, 0.937] / [0.0676, 0.0789] | [19.89, 22.47] / [0.801, 0.843] / [0.1416, 0.1757] |
 | GUAVA-FB [SPRINT, k = 0] | 17.22 / 0.744 / 0.2357 | 24.47 / 0.908 / 0.0831 | 22.37 / 0.886 / 0.0840 | 21.31 / 0.890 / 0.1056 | 18.73 / 0.785 / 0.1965 |
 | ↳ 95 % CI | [15.77, 18.63] / [0.715, 0.772] / [0.2134, 0.2580] | [23.30, 25.37] / [0.897, 0.920] / [0.0802, 0.0859] | [21.94, 22.81] / [0.883, 0.888] / [0.0782, 0.0903] | [18.56, 26.06] / [0.876, 0.909] / [0.1004, 0.1107] | [17.64, 19.81] / [0.763, 0.805] / [0.1802, 0.2128] |
+| LHM [SMPL-X GT, 1 view] | 16.12 / 0.692 / 0.2631 | 25.61 / 0.920 / 0.0781 | 21.71 / 0.883 / 0.0887 | 24.11 / 0.913 / 0.0911 | 18.18 / 0.749 / 0.2155 |
+| ↳ 95 % CI | [14.75, 17.55] / [0.669, 0.716] / [0.2452, 0.2804] | [24.38, 26.62] / [0.908, 0.931] / [0.0756, 0.0815] | [21.60, 21.83] / [0.877, 0.889] / [0.0851, 0.0926] | [21.31, 28.77] / [0.903, 0.932] / [0.0834, 0.1027] | [17.13, 19.27] / [0.732, 0.767] / [0.2023, 0.2282] |
 | LHM++ [SMPL-X GT, 1 view] | 16.72 / 0.724 / 0.2403 | 24.66 / 0.916 / 0.0847 | 21.66 / 0.886 / 0.0868 | 22.93 / 0.913 / 0.0832 | 18.43 / 0.772 / 0.1986 |
 | ↳ 95 % CI | [15.32, 18.14] / [0.704, 0.743] / [0.2247, 0.2559] | [23.26, 25.84] / [0.905, 0.926] / [0.0819, 0.0891] | [21.59, 21.74] / [0.880, 0.892] / [0.0827, 0.0909] | [20.21, 28.19] / [0.896, 0.934] / [0.0752, 0.0878] | [17.35, 19.53] / [0.758, 0.787] / [0.1871, 0.2101] |
 
-Caption. Self-reenactment on FinalBench (UBody 30, People-Snapshot 4, NeuMan 4, X-Humans 3 clips; one identity per clip; cells: PSNR ↑ / SSIM ↑ / LPIPS ↓ (LPIPS-VGG), second line = 95 % CI; L1 ↓ in its own table below). Single-image methods use the clip's FIRST training frame as the only source image and are driven by the GT body model of each test frame (converted to each method's body model); GUAVA-FB [SPRINT, k = 0] uses no GT at all (own detector, crop, StyleMatte matte and SPRINT pose estimate; k = 0, largest box). No test-time pose, face or expression fitting in any row. Same 512 person crop, masks and metrics for every row (`eval_split/score.py`); per clip = mean over its test frames; per dataset and overall = mean over clips (each clip weighs the same). Clip set = the clips on which all methods of the main and the reference table except LHM++ finished (excluded clips listed below; LHM++ was added after the registration at the user's request and is registered not to change the clip set). LHM++ (LHMPP-700M, aigc3d/LHM-plusplus @ 6fa576c; the successor of LHM) gets the same source frame, matte and GT driving; its shape is the GT's projected to its 10 betas; its training data is not public, so overlap with the test identities cannot be checked; it is trained on full-body images (UBody is upper body). Disclosures: the AvatarTest-v1 and PublicBench-v1 numbers of these three rows and of the per-person methods were seen before the FinalBench registration (2026-11-02); UBody clips are upper body only (UBody GT is pseudo-GT, UBody's SMPL-X fits); NeuMan test sets are 3-10 frames; released GUAVA may have trained on UBody; X-Humans images are renders of textured scans (mask = rendered depth > 0).
+Caption. Self-reenactment on FinalBench (UBody 30, People-Snapshot 4, NeuMan 4, X-Humans 3 clips; one identity per clip; cells: PSNR ↑ / SSIM ↑ / LPIPS ↓ (LPIPS-VGG), second line = 95 % CI; L1 ↓ in its own table below). Single-image methods use the clip's FIRST training frame as the only source image and are driven by the GT body model of each test frame (converted to each method's body model); GUAVA-FB [SPRINT, k = 0] uses no GT at all (own detector, crop, StyleMatte matte and SPRINT pose estimate; k = 0, largest box). No test-time pose, face or expression fitting in any row. Same 512 person crop, masks and metrics for every row (`eval_split/score.py`); per clip = mean over its test frames; per dataset and overall = mean over clips (each clip weighs the same). Clip set = the clips on which all methods of the main and the reference table except LHM and LHM++ finished (excluded clips listed below; LHM and LHM++ were added after the registration at the user's request and are registered not to change the clip set). LHM (LHM-1B-HF, aigc3d/LHM @ 4f88aae) and LHM++ (LHMPP-700M, aigc3d/LHM-plusplus @ 6fa576c; the successor of LHM) get the same source frame, matte and GT driving; their shape is the GT's projected to their 10 betas; their training data is not public, so overlap with the test identities cannot be checked; LHM++ is trained on full-body images, LHM-1B-HF on half- and full-body images (UBody is upper body). Disclosures: the AvatarTest-v1 and PublicBench-v1 numbers of these three rows and of the per-person methods were seen before the FinalBench registration (2026-11-02); UBody clips are upper body only (UBody GT is pseudo-GT, UBody's SMPL-X fits); NeuMan test sets are 3-10 frames; released GUAVA may have trained on UBody; X-Humans images are renders of textured scans (mask = rendered depth > 0).
 
 ## Reference table: per-person, video-trained methods, FinalBench (same 41 clips)
 
@@ -44,6 +46,8 @@ Caption. Trained on each person's video (training frames); not directly comparab
 | ↳ 95 % CI | [26.07, 28.34] / [0.920, 0.936] / [0.0571, 0.0692] |
 | GUAVA-FB [SPRINT, k = 0] | 22.67 / 0.874 / 0.1079 |
 | ↳ 95 % CI | [21.60, 23.75] / [0.864, 0.884] / [0.1006, 0.1157] |
+| LHM [SMPL-X GT, 1 view] | 24.29 / 0.894 / 0.0922 |
+| ↳ 95 % CI | [23.30, 25.29] / [0.885, 0.904] / [0.0852, 0.0998] |
 | LHM++ [SMPL-X GT, 1 view] | 24.50 / 0.901 / 0.0869 |
 | ↳ 95 % CI | [23.56, 25.47] / [0.892, 0.909] / [0.0819, 0.0923] |
 | *per-person, video-trained (reference)* | |
@@ -67,6 +71,8 @@ Per clip row − GUAVA (released), mean over clips with the same bootstrap CI (c
 | ↳ 95 % CI | [-0.23, +0.57] / [-0.007, +0.006] / [-0.0066, +0.0051] / [-0.0005, +0.0034] | [+1.59, +2.35] / [+0.008, +0.016] / [-0.0144, -0.0120] / [-0.0036, -0.0026] | [-0.83, +0.88] / [+0.000, +0.004] / [-0.0080, -0.0020] / [-0.0021, +0.0020] | [+1.53, +2.79] / [+0.015, +0.019] / [-0.0175, -0.0145] / [-0.0087, -0.0021] | [+0.19, +0.81] / [-0.003, +0.007] / [-0.0078, +0.0008] / [-0.0011, +0.0018] |
 | GUAVA-FB [SPRINT, k = 0] | -2.26 / -0.044 / +0.0445 / +0.0186 | -1.34 / -0.012 / +0.0051 / +0.0021 | -0.87 / -0.010 / +0.0052 / +0.0023 | -1.44 / -0.015 / +0.0150 / +0.0041 | -1.97 / -0.035 / +0.0347 / +0.0143 |
 | ↳ 95 % CI | [-2.78, -1.78] / [-0.055, -0.033] / [+0.0363, +0.0534] / [+0.0136, +0.0245] | [-1.90, -0.77] / [-0.017, -0.008] / [+0.0015, +0.0074] / [+0.0016, +0.0026] | [-1.60, -0.19] / [-0.014, -0.006] / [+0.0019, +0.0084] / [+0.0005, +0.0042] | [-1.79, -0.96] / [-0.017, -0.013] / [+0.0099, +0.0183] / [+0.0018, +0.0060] | [-2.36, -1.61] / [-0.043, -0.028] / [+0.0286, +0.0412] / [+0.0107, +0.0187] |
+| LHM [SMPL-X GT, 1 view] | -3.36 / -0.095 / +0.0720 / +0.0318 | -0.20 / -0.001 / +0.0001 / -0.0007 | -1.52 / -0.013 / +0.0099 / +0.0039 | +1.36 / +0.008 / +0.0005 / -0.0040 | -2.53 / -0.070 / +0.0537 / +0.0233 |
+| ↳ 95 % CI | [-4.39, -2.48] / [-0.117, -0.075] / [+0.0573, +0.0872] / [+0.0234, +0.0414] | [-0.54, +0.12] / [-0.004, +0.002] / [-0.0021, +0.0024] / [-0.0012, -0.0002] | [-2.23, -0.82] / [-0.018, -0.008] / [+0.0058, +0.0138] / [+0.0023, +0.0054] | [+1.15, +1.76] / [+0.003, +0.010] / [-0.0067, +0.0069] / [-0.0054, -0.0021] | [-3.29, -1.88] / [-0.086, -0.056] / [+0.0430, +0.0648] / [+0.0171, +0.0303] |
 | LHM++ [SMPL-X GT, 1 view] | -2.76 / -0.064 / +0.0491 / +0.0218 | -1.15 / -0.005 / +0.0067 / +0.0005 | -1.58 / -0.010 / +0.0080 / +0.0030 | +0.19 / +0.007 / -0.0075 / -0.0029 | -2.27 / -0.047 / +0.0368 / +0.0161 |
 | ↳ 95 % CI | [-3.74, -1.92] / [-0.081, -0.047] / [+0.0360, +0.0629] / [+0.0145, +0.0309] | [-1.55, -0.75] / [-0.007, -0.003] / [+0.0040, +0.0099] / [-0.0004, +0.0016] | [-2.26, -0.90] / [-0.015, -0.005] / [+0.0041, +0.0122] / [+0.0016, +0.0044] | [-0.69, +1.18] / [+0.003, +0.012] / [-0.0091, -0.0062] / [-0.0043, -0.0019] | [-3.00, -1.66] / [-0.060, -0.035] / [+0.0272, +0.0469] / [+0.0107, +0.0228] |
 | *per-person, video-trained (reference)* | | | | | |
@@ -85,6 +91,8 @@ Per clip row − GUAVA (released), mean over clips with the same bootstrap CI (c
 | ↳ 95 % CI | [+1.99, +2.84] / [+0.022, +0.026] / [-0.0198, -0.0162] / [-0.0049, -0.0036] |
 | GUAVA-FB [SPRINT, k = 0] | -2.14 / -0.030 / +0.0269 / +0.0063 |
 | ↳ 95 % CI | [-2.61, -1.64] / [-0.036, -0.025] / [+0.0225, +0.0314] / [+0.0048, +0.0080] |
+| LHM [SMPL-X GT, 1 view] | -0.52 / -0.010 / +0.0112 / +0.0017 |
+| ↳ 95 % CI | [-1.02, -0.10] / [-0.014, -0.006] / [+0.0080, +0.0148] / [+0.0007, +0.0031] |
 | LHM++ [SMPL-X GT, 1 view] | -0.30 / -0.004 / +0.0059 / -0.0002 |
 | ↳ 95 % CI | [-0.69, +0.11] / [-0.008, +0.000] / [+0.0028, +0.0091] / [-0.0012, +0.0008] |
 | *per-person, video-trained (reference)* | |
@@ -94,14 +102,16 @@ Per clip row − GUAVA (released), mean over clips with the same bootstrap CI (c
 | ↳ 95 % CI | [+1.48, +2.51] / [+0.016, +0.024] / [-0.0117, -0.0048] / [-0.0066, -0.0035] |
 | ExAvatar [GT face] | — |
 
-## Paired differences: LHM++ − GUAVA-FB [SMPL-X GT]
+## Paired differences: LHM / LHM++ − GUAVA-FB [SMPL-X GT]
 
-Per clip LHM++ − GUAVA-FB [SMPL-X GT] (both single image, same source and GT driving), mean with the same bootstrap CI; cells as above.
+Per clip LHM − GUAVA-FB [SMPL-X GT] and LHM++ − GUAVA-FB [SMPL-X GT] (all single image, same source and GT driving), mean with the same bootstrap CI; cells as above.
 
 ### FinalBench (41 clips)
 
 | Method | UBody (30) | People-Snapshot (4) | NeuMan (4) | X-Humans (3) | All (41 clips) |
 |---|---|---|---|---|---|
+| LHM [SMPL-X GT, 1 view] | -3.50 / -0.094 / +0.0722 / +0.0303 | -2.23 / -0.014 / +0.0134 / +0.0025 | -1.71 / -0.015 / +0.0149 / +0.0043 | -0.79 / -0.009 / +0.0162 / +0.0015 | -3.00 / -0.072 / +0.0568 / +0.0230 |
+| ↳ 95 % CI | [-4.86, -2.36] / [-0.120, -0.070] / [+0.0540, +0.0919] / [+0.0211, +0.0411] | [-2.56, -2.03] / [-0.019, -0.008] / [+0.0118, +0.0158] / [+0.0018, +0.0032] | [-2.54, -0.96] / [-0.022, -0.008] / [+0.0093, +0.0204] / [+0.0024, +0.0062] | [-1.61, +0.23] / [-0.015, -0.006] / [+0.0084, +0.0244] / [+0.0001, +0.0041] | [-4.00, -2.16] / [-0.091, -0.055] / [+0.0434, +0.0712] / [+0.0162, +0.0309] |
 | LHM++ [SMPL-X GT, 1 view] | -2.90 / -0.062 / +0.0494 / +0.0204 | -3.18 / -0.018 / +0.0201 / +0.0037 | -1.76 / -0.012 / +0.0130 / +0.0034 | -1.96 / -0.010 / +0.0083 / +0.0026 | -2.75 / -0.049 / +0.0400 / +0.0158 |
 | ↳ 95 % CI | [-4.22, -1.81] / [-0.085, -0.042] / [+0.0323, +0.0679] / [+0.0119, +0.0307] | [-3.72, -2.80] / [-0.022, -0.013] / [+0.0181, +0.0234] / [+0.0027, +0.0049] | [-2.55, -1.02] / [-0.019, -0.005] / [+0.0078, +0.0188] / [+0.0015, +0.0054] | [-2.82, -0.35] / [-0.013, -0.004] / [+0.0075, +0.0089] / [+0.0002, +0.0044] | [-3.73, -1.93] / [-0.066, -0.034] / [+0.0275, +0.0535] / [+0.0096, +0.0233] |
 
@@ -109,6 +119,8 @@ Per clip LHM++ − GUAVA-FB [SMPL-X GT] (both single image, same source and GT d
 
 | Method | BEDLAM2 (40) |
 |---|---|
+| LHM [SMPL-X GT, 1 view] | -2.91 / -0.034 / +0.0292 / +0.0060 |
+| ↳ 95 % CI | [-3.41, -2.44] / [-0.037, -0.031] / [+0.0259, +0.0330] / [+0.0048, +0.0073] |
 | LHM++ [SMPL-X GT, 1 view] | -2.70 / -0.028 / +0.0239 / +0.0041 |
 | ↳ 95 % CI | [-3.20, -2.17] / [-0.031, -0.024] / [+0.0210, +0.0267] / [+0.0029, +0.0052] |
 
@@ -124,6 +136,8 @@ Per clip LHM++ − GUAVA-FB [SMPL-X GT] (both single image, same source and GT d
 | ↳ 95 % CI | [0.0399, 0.0687] | [0.0082, 0.0108] | [0.0159, 0.0207] | [0.0078, 0.0188] | [0.0330, 0.0541] |
 | GUAVA-FB [SPRINT, k = 0] | 0.0704 | 0.0149 | 0.0210 | 0.0240 | 0.0568 |
 | ↳ 95 % CI | [0.0549, 0.0883] | [0.0127, 0.0161] | [0.0197, 0.0221] | [0.0117, 0.0305] | [0.0455, 0.0698] |
+| LHM [SMPL-X GT, 1 view] | 0.0837 | 0.0121 | 0.0226 | 0.0159 | 0.0658 |
+| ↳ 95 % CI | [0.0685, 0.0997] | [0.0101, 0.0135] | [0.0216, 0.0236] | [0.0079, 0.0206] | [0.0547, 0.0775] |
 | LHM++ [SMPL-X GT, 1 view] | 0.0737 | 0.0134 | 0.0217 | 0.0170 | 0.0586 |
 | ↳ 95 % CI | [0.0599, 0.0885] | [0.0113, 0.0151] | [0.0209, 0.0228] | [0.0080, 0.0221] | [0.0485, 0.0694] |
 | *per-person, video-trained (reference)* | | | | | |
@@ -144,6 +158,8 @@ Per clip LHM++ − GUAVA-FB [SMPL-X GT] (both single image, same source and GT d
 | ↳ 95 % CI | [0.0110, 0.0156] |
 | GUAVA-FB [SPRINT, k = 0] | 0.0238 |
 | ↳ 95 % CI | [0.0202, 0.0277] |
+| LHM [SMPL-X GT, 1 view] | 0.0192 |
+| ↳ 95 % CI | [0.0164, 0.0221] |
 | LHM++ [SMPL-X GT, 1 view] | 0.0173 |
 | ↳ 95 % CI | [0.0149, 0.0198] |
 | *per-person, video-trained (reference)* | |
@@ -165,6 +181,7 @@ Per clip LHM++ − GUAVA-FB [SMPL-X GT] (both single image, same source and GT d
 | GUAVA (released) | 143 ms | 29.5 | NVIDIA L40S | 41 |
 | GUAVA-FB [SMPL-X GT] | 99 ms | 27.5 | NVIDIA L40S | 41 |
 | GUAVA-FB [SPRINT, k = 0] | 806 ms (model only 73 ms) | 17.6 | NVIDIA L40S | 41 |
+| LHM [SMPL-X GT, 1 view] | 7730 ms | 66.5 | NVIDIA L40S | 41 |
 | LHM++ [SMPL-X GT, 1 view] | 2150 ms | 158.3 | NVIDIA L40S | 41 |
 | GART | 2.0 min | 8.8 | NVIDIA L40S | 41 |
 | GaussianAvatar | 1.2 h | 258.8 | NVIDIA L40S | 41 |
@@ -177,21 +194,24 @@ Note. GUAVA-family rows: avatar creation from the source frame (`recon_ms`; the 
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1/scores/guava_full.json`: 2026-11-01 02:03:50
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1/scores/fb_gt_full.json`: 2026-11-01 01:56:23
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1/scores/fb_sprint_full.json`: 2026-11-01 02:12:02
-- `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1/scores/lhmpp_full.json`: 2026-11-06 14:41:49
+- `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1/scores/lhm_facefix_full.json`: 2026-11-06 17:11:56
+- `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1/scores/lhmpp_full.json`: 2026-11-06 14:30:01
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1/scores/gart_full.json`: 2026-11-01 09:38:07
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1/scores/gaussianavatar_full.json`: 2026-11-02 11:38:02
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/avatar_test_v1/scores/exavatar_gtface_full.json`: 2026-11-05 17:54:47
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v1/scores/guava_full.json`: 2026-11-02 22:39:48
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v1/scores/fb_gt_full.json`: 2026-11-02 22:40:52
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v1/scores/fb_sprint_full.json`: 2026-11-02 22:41:06
-- `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v1/scores/lhmpp_full.json`: 2026-11-06 14:41:49
+- `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v1/scores/lhm_facefix_full.json`: 2026-11-06 17:11:56
+- `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v1/scores/lhmpp_full.json`: 2026-11-06 14:31:39
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v1/scores/gart_full.json`: 2026-11-02 22:40:22
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v1/scores/gaussianavatar_full.json`: 2026-11-02 22:40:37
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v1/scores/exavatar_gtface_full.json`: 2026-11-04 09:38:31
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v2/scores/guava_full.json`: 2026-11-03 01:10:42
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v2/scores/fb_gt_full.json`: 2026-11-03 01:13:34
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v2/scores/fb_sprint_full.json`: 2026-11-03 01:15:20
-- `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v2/scores/lhmpp_full.json`: 2026-11-06 14:41:49
+- `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v2/scores/lhm_facefix_full.json`: 2026-11-06 17:11:56
+- `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v2/scores/lhmpp_full.json`: 2026-11-06 14:37:17
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v2/scores/gart_full.json`: 2026-11-03 01:11:59
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v2/scores/gaussianavatar_full.json`: 2026-11-04 09:39:48
 - `/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval/publicbench_v2/scores/exavatar_gtface_full.json`: 2026-11-05 09:43:52

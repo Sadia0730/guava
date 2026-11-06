@@ -38,3 +38,10 @@ Four clips, 8-12 frames each (`valbench_v1/renders/lhm_smoke/`). Silhouette exte
 ## Licences
 
 LHM code Apache-2.0; LHM-1B-HF card: Apache-2.0; Sapiens CC BY-NC 4.0; GFPGAN / Real-ESRGAN BSD-3 / Apache-2.0. Research use only.
+
+## Amendment 1 (face crop) and results
+
+The first test run (`lhm`) fed LHM's head branch zeros on 23 / 81 sources: a 1.65x head box with a negative top / left start
+slices to an empty crop (22), and LHM's no-face branch raises a NameError (1). `--clamp-face` clips the start at 0 (NumPy already
+clips the end); `--face-on-matte` detects and crops on the matted source so a bystander's head is not chosen. The reported row
+is `lhm_facefix` (heads 81 / 81). FinalBench 18.18 dB (unfixed 18.11), BEDLAM2 24.29 (unfixed 24.24). RUNLOG 123.
