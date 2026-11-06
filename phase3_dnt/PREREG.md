@@ -1429,3 +1429,36 @@ baseline so far; a reviewer will expect LHM-family results.
   UBody clips are upper body; shape is the GT's projected to 10 betas.
 - **Compute:** one free GPU per row (0 / 3 / 4 free at registration), ~0.1-0.18 s per test frame, ~6,300 frames per row,
   ~30-40 min per row; both rows run now (user request).
+
+## FinalBench addendum 2: LHM (original) as a third feed-forward baseline (registered 2026-11-06 ~16:40, before any test clip is rendered)
+
+User request (2026-11-06): "generate result on other model like LHM++ that takes one image and don't need subject wise train".
+Candidates with public code + weights, single image, animatable, no per-person optimisation: LHM (ICCV 2025) and IDOL (CVPR 2025).
+This addendum registers LHM; IDOL is registered separately once its environment builds and its smoke passes.
+
+- **Method:** LHM (aigc3d/LHM @ 4f88aae, Apache-2.0), weights **LHM-1B-HF** (3DAIGC/LHM-1B-HF @ 92372582, sha256 59dc2516...;
+  the largest LHM, "half & full body" variant, chosen because UBody clips are upper body; fixed now, the 1B full-body-only and
+  500M variants are not run). Sapiens-1B encoder = facebook/sapiens-pretrain-1b-torchscript (sha256 b5094b60..., identical to the
+  file LHM's prior archive ships). Prior files from LHM's own archive (3DAIGC/LHM LHM_prior_model.tar on HF, read by byte range:
+  1_40000.ply sampling points, RealESRGAN_x4plus, facexlib detection / parsing) or byte-identical copies of the LHM++ ones
+  (SMPL-X / FLAME files, voxel grid, VGGHead); GFPGAN v1.3 from its GitHub release (sha256 c953a88f...). Downloads 20.6 GB in three
+  files (each < 20 GB), all under /dev/shm.
+- **Adapter:** `phase3_dnt/baselines/lhm/run_lhm.py` under the AvatarTest-v1 contract. Source = the clip's source frame through
+  LHM's own inference preprocessing (alpha box x 1.1, pad to 5:3, matte on white, 1024 input) with the package's StyleMatte
+  alpha; the function's `assert w < h` is dropped (8 UBody source boxes are wider than tall; its own half-body branch handles
+  them); head crop = LHM's VGGHead detector (zeros if no face, as in LHM); face SR on as configured. Shape / expression /
+  pose conversion identical to the LHM++ adapter (same SMPL-X layer; 200 -> 10 betas residual logged; FLAME expression map
+  exact). Render = LHM's Gaussian rasteriser at 512 with K and background 0 (premultiplied on black, the contract output).
+- **Settings fixed now** from a smoke on four ValBench-v1 clips (validation; 8-12 test frames each; renders kept as
+  `valbench_v1/renders/lhm_smoke/`): alignment checked by silhouette extents (BEDLAM2, alpha > 80/255: within 1-6 px of the
+  StyleMatte box, as LHM++); smoke PSNR / IoU: Online_class_S7 19.35 / 0.81 (LHM++ 19.14 / 0.77, GUAVA-FB 18.18 / 0.82),
+  BEDLAM2 seq_000037 22.36 / 0.84 (LHM++ 21.69 / 0.88, GUAVA-FB 23.35 / 0.89), Olympic_S6 16.30 / 0.64 (GUAVA-FB 16.82 / 0.64),
+  BEDLAM2 seq_000568 22.31 / 0.82 (GUAVA-FB 23.54 / 0.91). Nothing is tuned after this.
+- **Row:** **LHM [1 view]** in the main single-image table and the BEDLAM2 table (same source frame and GT driving as GUAVA /
+  GUAVA-FB [GT] / LHM++). Single view only (LHM takes one image).
+- **Splits / scoring / reporting:** as the LHM++ addendum (FinalBench 41 + BEDLAM2 40; `score.py --tag full`; `final_tables.py`
+  with LHM added; does not change the clip set; paired differences vs GUAVA-FB [GT]; numbers as they come out).
+- **Disclosures (caption):** LHM's training data is not public (300K in-the-wild videos + 5K synthetic scans), overlap with test
+  identities cannot be checked; shape is the GT's projected to 10 betas.
+- **Compute:** ~25 ms per frame render + ~10-40 s build per clip, 6,335 test frames, split over free GPUs (2 / 4 / 0 at
+  registration), ~20 min each. User request = go-ahead.
