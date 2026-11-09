@@ -1500,3 +1500,16 @@ session's permission check and then approved by the user ("Yes, build and run").
 - **Disclosures (caption):** IDOL is trained on HuGe100K (synthetic multi-view full-body humans generated from images; full body
   only); it drives 10 expression coefficients; UBody clips are upper body.
 - **Compute:** ~40 ms per frame + ~2 s build per clip, 6,335 frames over three free GPUs, ~10 min. User go-ahead.
+
+## FinalBench qualitative figures: example selection rule (registered 2026-11-09, before any figure is made; user request "i need qualitative result also")
+- **Purpose:** paper figures and supplementary videos from the existing FinalBench / BEDLAM2 renders (no new renders, no GPU, no
+  score changes). Examples are chosen by the rules below, written into `eval_split/fig_qualitative.py`, never by eye.
+- **Typical rows:** per dataset (UBody, People-Snapshot, NeuMan, X-Humans, BEDLAM2) the clip with the median per-clip PSNR of
+  GUAVA-FB [SMPL-X GT] (lower median for an even count). Two frames per clip: the test frame with the smallest and the one with the
+  largest root-orientation change from the source frame (`view_bins.py`'s angle; ties -> earlier key).
+- **Hard rows (failure figure):** per dataset the clip with the smallest per-clip PSNR margin of GUAVA-FB [SMPL-X GT] over the best
+  single-image baseline on that clip (GUAVA, LHM, LHM++, IDOL); frame = the test frame with the median per-frame GUAVA-FB PSNR.
+- **Columns:** source photo, ground truth, then the single-image rows (GUAVA, LHM, LHM++, IDOL, GUAVA-FB [SPRINT, k = 0],
+  GUAVA-FB [SMPL-X GT]); a second figure with the per-person rows (GART, GaussianAvatar, ExAvatar [GT face]) next to GUAVA-FB.
+  Each tile shows that frame's PSNR. Videos: all test frames of the typical clips, same columns.
+- **Output:** `O/reports/qualitative_finalbench/` (+ `selection.json` listing every chosen clip / frame and why).
