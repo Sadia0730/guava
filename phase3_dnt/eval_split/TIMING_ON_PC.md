@@ -26,6 +26,16 @@ Split files (clip lists) are in this directory: `avatar_test_v1.json` (UBody cli
 NeuMan), `publicbench_v2_xhumans.json` (X-Humans). `finalbench_ext.json` (all People-Snapshot / NeuMan sequences + UBC-Fashion)
 is pushed once its conversion on the server finishes; it is not needed for timing.
 
+## Setup on the PC
+
+- Our model's environment: `backup_for_desktop/models/guava_env.tar` (conda env `guava`, pytorch3d and GUAVA CUDA kernels, eval
+  shims; absolute paths, see the README there). PYTHONPATH as in `make_ext_jobs.py` (variable `G`).
+- The CUDA extensions (ours and the baselines') were built on the server's L40S (sm_89). If the desktop GPU is a different
+  architecture, rebuild them in place; do not change any model code.
+- Disk: about 150 GB for all baseline tars + weights. A desktop `/dev/shm` is usually too small: extract to a disk directory and
+  symlink `/dev/shm/ubx858_baselines` to it, so the absolute paths inside the envs still resolve.
+- Only the 4 timing clips are needed from the test data; copy those clip folders, not whole benchmarks.
+
 ## Timing clips (fixed rule: first clip id in sorted order per dataset)
 
 `ubody/ConductMusic_S15`, `peoplesnapshot/female-3-casual`, `neuman/bike`, `xhumans/00028`.
