@@ -1593,3 +1593,7 @@ of these clips; the model stays B28k (`runs/guava_fb_B30k/checkpoints/best.pt`);
 - **Amendment 2 (2026-11-10, presentation only; user: "dont include persubject train models like gart in visual comparison"):**
   the qualitative figures and videos of the extended benchmark show no per-person-trained method (GART, GaussianAvatar, ExAvatar);
   the update figure's GART column is dropped. They stay in the tables as the separate reference block. Selection rules unchanged.
+- **Amendment 3 (2026-11-10, presentation only; user: "add lhm lhm++ idol too in compare and describe what it solved"):** the
+  update figure and videos also show GUAVA, LHM, LHM++ and IDOL (single-image methods) on the same frames, before ours; each row
+  states the UV texture coverage from the photo and after the update (coverage_source / coverage_fused of fb_update100's run.json);
+  a caption file per figure states what the update changes. Selection rules unchanged.
