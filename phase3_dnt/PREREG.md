@@ -1574,3 +1574,19 @@ of these clips; the model stays B28k (`runs/guava_fb_B30k/checkpoints/best.pt`);
 - **Data copies to /vault (user: "send all test data and necessary things to vault"):** NeuMan raw sequences, the extracted
   People-Snapshot files, and tar archives of the baseline installs (`/dev/shm/ubx858_baselines`, code / envs / weights) and the
   SPRINT checkpoint, under `/vault/research/COS/VIRLab/ubx858/persistent_avatar/` (copies; nothing is moved or deleted).
+
+### Extended benchmark, amendment 1 (registered 2026-11-10, before any per-clip update score of a new clip was looked at; user: "find qualitative result ... 1024 resolution ... visual results with noticeable update")
+- **Update showcase figure (added; the registered median-gain update figure stays, unchanged):** per dataset, among clips whose
+  test frames include a view change >= 135 deg from the source (root-orientation change, as before; if none, the clip's largest
+  view change is used and stated), the clip with the **largest** per-clip PSNR gain fb_update100 - fb_gt; frame = among that clip's
+  test frames with view change >= 135 deg (or all, if none), the one with the largest per-frame PSNR gain (ties -> earlier key).
+  Captioned as the best case per dataset by this rule; the median-gain row of the registered rule is shown next to it (paper or
+  supplement), so typical and best case are both visible. Columns as registered: source photo, GT, ours from the photo, ours after
+  25 / 50 / 100 % of the video, GART; UV texture before / after (uv_rgb_source / uv_rgb_fused of fb_update100). Tiles show the
+  frame's PSNR (full 512 image as scored).
+- **Resolution:** every method renders at 512 px (scoring unchanged). Figure tiles are saved at 1024 x 1024 (the row's common
+  square crop of the 512 render, Lanczos-upsampled; the source photo from its 1024 crop) and stated as such in the caption.
+- **Paper table format:** cells "PSNR / SSIM / LPIPS" per dataset (UBody, People-Snapshot 24, NeuMan 6, X-Humans, UBC-Fashion),
+  all clips, mean of datasets; rows GUAVA, ours [GT pose], ours [SPRINT pose], LHM++, LHM, IDOL (bold = best of these photo-only
+  rows per metric), then ours + update 25 / 50 / 100 % (uses the clip's video frames), then the per-person references GART,
+  GaussianAvatar, ExAvatar [GT face]. Markdown and LaTeX.
