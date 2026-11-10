@@ -46,6 +46,23 @@ Same clips for every method. Per-person-trained baselines (GART, GaussianAvatar,
 - Report the UV update both ways: its own ms per fused frame, and the resulting live loop fps with `--worker uv` (the update runs
   asynchronously, so also report how many updates per second it achieves).
 
+## Table to fill (paper)
+
+| Method | Input | Reconstruction | Animation, ms/frame (fps), pose given | Pose estimation, ms/frame |
+|---|---|---|---|---|
+| Ours, GT SMPL-X pose | 1 image | | | — |
+| Ours, SPRINT pose | 1 image | (+ SPRINT fit of the photo) | | SPRINT |
+| Ours + UV appearance update | 1 image + stream | as above | + update ms per fused frame; updates/s; live fps with `--worker uv` | SPRINT |
+| GUAVA | 1 image | | | offline tracker |
+| IDOL | 1 image | | | offline |
+| LHM | 1 image | | | offline |
+| LHM++ | 1 image | | | offline |
+| GART | video | training time on `neuman/bike` | | offline |
+| GaussianAvatar | video | training time on `neuman/bike` | | offline |
+| ExAvatar | video | training time on `neuman/bike` | | offline |
+
+Animation = deformation + rasterization (+ refiner where the method has one) at 512 px output.
+
 ## Protocol
 
 - Idle GPU (nothing else running), batch 1, fp32 / the precision each method is evaluated at, 512 px output.
