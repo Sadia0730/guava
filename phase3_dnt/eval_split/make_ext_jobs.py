@@ -7,6 +7,7 @@ Single-image chunks are formed only when a dataset's split is final and all its 
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -68,7 +69,12 @@ for ds in ("neuman", "peoplesnapshot", "ubc"):
     for name, tpl in SI:
         for i in range(0, len(cs), CH):
             ch = ",".join(c["id"] for c in cs[i:i + CH])
-            add(f"{name}/ext/{ds}/{i // CH}", tpl.replace("{S}", str(S)).replace("{E}", str(XE)).replace("{C}", ch))
+            jid = f"{name}/ext/{ds}/{i // CH}"; vdone = marker(jid)[:-3] + ".verified.ok"
+            if not Path(vdone).exists() and subprocess.run([sys.executable, str(HERE / "check_renders.py"), str(XE), name, ch], capture_output=True).returncode == 0:
+                Path(vdone).parent.mkdir(parents=True, exist_ok=True); Path(vdone).touch()
+            # done only when every test render exists (some wrappers exit 0 after an out-of-memory error); else exit 1 -> retried
+            add(jid, f"({tpl.replace('{S}', str(S)).replace('{E}', str(XE)).replace('{C}', ch)}); /usr/bin/python3 {HERE / 'check_renders.py'} {XE} {name} {ch} "
+                f"&& mkdir -p {STATE / 'done'} && touch {vdone}", done=vdone)
 # 3. GART (minutes per clip), every converted clip
 for ds in ("neuman", "peoplesnapshot", "ubc"):
     for c in ready.get(ds, []):
