@@ -90,11 +90,15 @@ for ds in ("neuman", "peoplesnapshot", "ubc"):
             done=str(XE / "renders/exavatar_gtface" / ds / c["clip"] / "run.json"), heavy=True)
 # 5. retries: a job that ended (any exit code: some wrappers exit 0 after an out-of-memory error) and whose verified output is
 #    still missing is re-queued under a new id, at most twice; the outputs and settings are unchanged.
-# A second queue (user-approved GPUs 2, 5, 7; 2026-11-10) runs the job ids listed in <STATE>_b/assigned.txt; the main queue never
-# sees them, so no job runs twice. Retries follow their base id to the same queue.
-SB = STATE.parent / (STATE.name + "_b"); ASSIGNED = set((SB / "assigned.txt").read_text().split()) if (SB / "assigned.txt").exists() else set()
+# Extra queues (user-approved GPUs 2, 5, 7 -> <STATE>_b; GPUs 0, 1 -> <STATE>_c; 2026-11-10) each run the job ids listed in their
+# assigned.txt; the main queue never sees them, so no job runs twice. Retries follow their base id to the same queue.
+EXTRA = {}
+for sfx in ("_b", "_c"):
+    d = STATE.parent / (STATE.name + sfx)
+    if (d / "assigned.txt").exists(): EXTRA[d] = set((d / "assigned.txt").read_text().split())
+ASSIGNED = set().union(*EXTRA.values()) if EXTRA else set()
 fails = {}
-for QL in (STATE / "queue.log", SB / "queue.log"):
+for QL in [STATE / "queue.log"] + [d / "queue.log" for d in EXTRA]:
     if not QL.exists(): continue
     for line in QL.read_text().splitlines():
         w = line.split()
@@ -111,5 +115,5 @@ def write(path, js):
 
 
 write(OUT, [j for j in jobs if j["id"].split("#")[0] not in ASSIGNED])
-if ASSIGNED: write(SB / "jobs.jsonl", [j for j in jobs if j["id"].split("#")[0] in ASSIGNED])
+for d, ids in EXTRA.items(): write(d / "jobs.jsonl", [j for j in jobs if j["id"].split("#")[0] in ids])
 print(len(jobs), "jobs;", {ds: f"{len(ready.get(ds, []))}/{len(by.get(ds, []))} converted, final={final[ds]}" for ds in final})
