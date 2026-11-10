@@ -90,10 +90,10 @@ for ds in ("neuman", "peoplesnapshot", "ubc"):
             done=str(XE / "renders/exavatar_gtface" / ds / c["clip"] / "run.json"), heavy=True)
 # 5. retries: a job that ended (any exit code: some wrappers exit 0 after an out-of-memory error) and whose verified output is
 #    still missing is re-queued under a new id, at most twice; the outputs and settings are unchanged.
-# Extra queues (user-approved GPUs 2, 5, 7 -> <STATE>_b; GPUs 0, 1 -> <STATE>_c; 2026-11-10) each run the job ids listed in their
+# Extra queues (user-approved GPUs 2, 5, 7 -> <STATE>_b; GPUs 0, 1 -> <STATE>_c; GPU 6 -> <STATE>_d; 2026-11-10) each run the job ids listed in their
 # assigned.txt; the main queue never sees them, so no job runs twice. Retries follow their base id to the same queue.
 EXTRA = {}
-for sfx in ("_b", "_c"):
+for sfx in ("_b", "_c", "_d"):
     d = STATE.parent / (STATE.name + sfx)
     if (d / "assigned.txt").exists(): EXTRA[d] = set((d / "assigned.txt").read_text().split())
 ASSIGNED = set().union(*EXTRA.values()) if EXTRA else set()
