@@ -1612,3 +1612,8 @@ of these clips; the model stays B28k (`runs/guava_fb_B30k/checkpoints/best.pt`);
   (180 deg) photo-only vs after the update; texture coverage photo -> after update. (c) **architecture diagram**: drawn from the
   code (`models/UbodyAvatar/ubody_gaussian.py`, `fb_common.py`, `worker6/uv_fusion.py`), inherited GUAVA parts and our changes
   marked differently; no numbers other than those already in the paper text.
+  (d) Layout fixed 2026-11-10, before the UBC-Fashion update scores were read (draft seen on People-Snapshot / NeuMan / X-Humans
+  only): the main-paper teaser has three rows, the three largest datasets of the benchmark (UBC-Fashion 100 clips, People-Snapshot
+  24, NeuMan 6), so it fits the page; a four-row version with X-Humans goes to the supplement. The update column shows the top half
+  of the body (head + torso, same crop rule for both tiles), where the back of the head and the garment differ; the full-body back
+  views stay in the "new views" column.
