@@ -90,16 +90,26 @@ for ds in ("neuman", "peoplesnapshot", "ubc"):
             done=str(XE / "renders/exavatar_gtface" / ds / c["clip"] / "run.json"), heavy=True)
 # 5. retries: a job that ended (any exit code: some wrappers exit 0 after an out-of-memory error) and whose verified output is
 #    still missing is re-queued under a new id, at most twice; the outputs and settings are unchanged.
-QL = STATE / "queue.log"
-if QL.exists():
-    fails = {}
+# A second queue (user-approved GPUs 2, 5, 7; 2026-11-10) runs the job ids listed in <STATE>_b/assigned.txt; the main queue never
+# sees them, so no job runs twice. Retries follow their base id to the same queue.
+SB = STATE.parent / (STATE.name + "_b"); ASSIGNED = set((SB / "assigned.txt").read_text().split()) if (SB / "assigned.txt").exists() else set()
+fails = {}
+for QL in (STATE / "queue.log", SB / "queue.log"):
+    if not QL.exists(): continue
     for line in QL.read_text().splitlines():
         w = line.split()
         if len(w) >= 7 and w[2] == "END": b = w[3].split("#")[0]; fails[b] = fails.get(b, 0) + 1
-    byid = {j["id"]: j for j in jobs}
-    for b, n in fails.items():
-        if b in byid and n <= 2 and not Path(byid[b]["done"]).exists():
-            jobs.append(dict(byid[b], id=f"{b}#retry{n}"))
-OUT.parent.mkdir(parents=True, exist_ok=True)
-tmp = OUT.with_suffix(".tmp"); tmp.write_text("".join(json.dumps(j) + "\n" for j in jobs)); tmp.replace(OUT)
+byid = {j["id"]: j for j in jobs}
+for b, n in fails.items():
+    if b in byid and n <= 2 and not Path(byid[b]["done"]).exists():
+        jobs[jobs.index(byid[b])] = dict(byid[b], id=f"{b}#retry{n}")                              # the retry replaces the original
+
+
+def write(path, js):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp"); tmp.write_text("".join(json.dumps(j) + "\n" for j in js)); tmp.replace(path)
+
+
+write(OUT, [j for j in jobs if j["id"].split("#")[0] not in ASSIGNED])
+if ASSIGNED: write(SB / "jobs.jsonl", [j for j in jobs if j["id"].split("#")[0] in ASSIGNED])
 print(len(jobs), "jobs;", {ds: f"{len(ready.get(ds, []))}/{len(by.get(ds, []))} converted, final={final[ds]}" for ds in final})
