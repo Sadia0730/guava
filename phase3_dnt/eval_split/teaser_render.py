@@ -20,11 +20,14 @@ HERE = Path(__file__).resolve().parent
 ap = argparse.ArgumentParser()
 ap.add_argument("--E", required=True); ap.add_argument("--clip", required=True); ap.add_argument("--out", required=True)
 ap.add_argument("--angles", default="0,45,90,135,180,225,270,315"); ap.add_argument("--anim", default="0.25,0.5,0.75")
+ap.add_argument("--back-key", default="", help="test frame to also render with a zoomed camera (amendment 5): photo-only, updated, GT")
+ap.add_argument("--zoom", type=float, default=2.0)
 ap.add_argument("--fb-ckpt", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/runs/guava_fb_B30k/checkpoints/best.pt")
 a = ap.parse_args()
 E = Path(a.E); ds, name = a.clip.split("/"); OUT = Path(a.out) / ds / name; OUT.mkdir(parents=True, exist_ok=True)
 
 import cv2, torch, torchvision                                                                       # noqa: E402
+import numpy as np                                                                                   # noqa: E402
 import torch.nn.functional as Fn                                                                     # noqa: E402
 sys.path.insert(0, str(HERE.parent / "guava_fb")); sys.path.insert(0, str(HERE.parent / "worker6")); sys.path.insert(0, str(HERE.parent))
 import fb_common as F                                                                                # noqa: E402
@@ -133,6 +136,17 @@ def main():
         save(render_rgba(avs["photo"], t, t["render_cam_params"]), OUT / f"anim_photo_{k}.png")
         save(render_rgba(avs["update"], t, t["render_cam_params"]), OUT / f"anim_update_{k}.png")
         save(torch.cat([t["image"][0], t["mask"][0][:1]], 0), OUT / f"anim_gt_{k}.png")
+    if a.back_key:                                                                                   # zoomed back view (amendment 5)
+        _, _, tm = fbd.info(0, a.back_key); ys, xs = np.nonzero(tm[0].numpy() > 0.5)                 # centre: 38 % down the body
+        cen = (float(np.median(xs)), float(ys.min() + 0.38 * (ys.max() - ys.min())))
+        tz = fbd.target_info_zoom(0, a.back_key, factor=a.zoom, center=cen, min_cover=0.0)
+        tz = to_dev(F.collate1(tz), dev); z = f"zoom{a.zoom:g}"
+        save(render_rgba(avs["photo"], tz, tz["render_cam_params"]), OUT / f"back_{z}_photo_{a.back_key}.png")
+        save(render_rgba(avs["update"], tz, tz["render_cam_params"]), OUT / f"back_{z}_update_{a.back_key}.png")
+        save(torch.cat([tz["image"][0], tz["mask"][0][:1]], 0), OUT / f"back_{z}_gt_{a.back_key}.png")
+        t = to_dev(F.collate1(fbd.target_info(0, a.back_key)), dev)
+        for kind in ("photo", "update"): save(render_rgba(avs[kind], t, t["render_cam_params"]), OUT / f"back_full_{kind}_{a.back_key}.png")
+        save(torch.cat([t["image"][0], t["mask"][0][:1]], 0), OUT / f"back_full_gt_{a.back_key}.png")
     img = sorted((E / "base" / ds / name / "images").glob(fj["source"] + ".*"))
     if img: shutil.copyfile(img[0], OUT / ("source" + img[0].suffix))
     for kk, uv in (("source", f0["uv"]), ("fused", uvmap)):
