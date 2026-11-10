@@ -31,6 +31,21 @@ is pushed once its conversion on the server finishes; it is not needed for timin
 `ubody/ConductMusic_S15`, `peoplesnapshot/female-3-casual`, `neuman/bike`, `xhumans/00028`.
 Same clips for every method. Per-person-trained baselines (GART, GaussianAvatar, ExAvatar): train time on `neuman/bike` only is enough.
 
+## Our model: the four configurations to time
+
+| Configuration | Quality row (server) | Reconstruction | Per frame |
+|---|---|---|---|
+| Ours, GT SMPL-X pose | `fb_gt` | avatar from photo | render (deformation + rasterization + refiner) |
+| Ours, SPRINT pose | `fb_sprint` | avatar from photo + SPRINT fit of the photo | SPRINT pose + render |
+| Ours, GT SMPL-X pose + UV appearance update | `fb_update25/50/100` | as `fb_gt` | render + UV update (fuse one new frame into the UV map, decode) |
+| Ours, SPRINT pose + UV appearance update | none (live app only; no quality row) | as `fb_sprint` | SPRINT pose + render + UV update |
+
+- The update rows' quality on the test set uses GT SMPL-X poses (`fusion_gt_row.py`, as registered). SPRINT + UV update exists
+  only in the live app (`live_sprint_guavafb.py --worker uv`, `phase3_dnt/worker6/uv_fusion.py`); time it there, and report it as
+  a speed number only.
+- Report the UV update both ways: its own ms per fused frame, and the resulting live loop fps with `--worker uv` (the update runs
+  asynchronously, so also report how many updates per second it achieves).
+
 ## Protocol
 
 - Idle GPU (nothing else running), batch 1, fp32 / the precision each method is evaluated at, 512 px output.
