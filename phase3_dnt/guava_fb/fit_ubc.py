@@ -43,6 +43,7 @@ D = Path("/vault/research/COS/VIRLab/ubx858/persistent_avatar/data/ubc_fashion")
 O = Path("/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb")
 CKPT = "/raid/ubx858/outputs/dnt/eval_programme/sprint_scratch/best_ema.pt"
 CROP, PART = 1024, 512
+SPLIT = "train"                                                    # --split test: the official test videos (extended benchmark, PREREG 2026-11-09)
 DIAG = np.diag([-1.0, -1.0, 1.0]).astype(np.float32)
 FILT_IDX = np.array([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 23])   # openpose134 body + feet (no neck / ears)
 # limbs for the filter's "max per-limb error" (openpose134: 18-20 left big toe / small toe / heel, 21-23 right)
@@ -153,7 +154,7 @@ def frame_filter(sil, alpha, uv134, tgt, sc, box, Hm):
 
 # ---------------------------------------------------------------- per-video CPU stage (prefetch thread)
 def cpu_stage(fitter, name, stride_min, cap):
-    cap_ = cv2.VideoCapture(str(D / "train" / f"{name}.mp4")); n = int(cap_.get(7)); W = int(cap_.get(3)); H = int(cap_.get(4))
+    cap_ = cv2.VideoCapture(str(D / SPLIT / f"{name}.mp4")); n = int(cap_.get(7)); W = int(cap_.get(3)); H = int(cap_.get(4))
     stride = max(stride_min, math.ceil(n / cap)); want = set(range(0, n, stride))
     frames, t0, i, fails = [], time.perf_counter(), 0, []
     while True:
@@ -406,7 +407,10 @@ def main():
     ap.add_argument("--stride", type=int, default=4); ap.add_argument("--cap", type=int, default=100)
     ap.add_argument("--dwpose-threads", type=int, default=8); ap.add_argument("--out", type=Path, default=O / "data" / "ubc")
     ap.add_argument("--diag", type=Path, default=O / "runs" / "ubc" / "clips"); ap.add_argument("--redo", action="store_true")
+    ap.add_argument("--split", default="train", choices=("train", "test"))
+    ap.add_argument("--save-params", action="store_true", help="also write fit_params.npz (raw fitted SMPL-X + crop geometry) next to fit.json")
     a = ap.parse_args()
+    global SPLIT; SPLIT = a.split
     names = list(a.videos or []) + ([l.strip() for l in a.list.read_text().splitlines() if l.strip()] if a.list else [])
     names = names[a.shard::a.nshard]
     def done(n):
@@ -437,6 +441,15 @@ def main():
                 write_clip(a.out / name, name, V, R, vf)
                 t_write = time.perf_counter() - t1
                 overlays(dd, V, R, vf, vc)
+                if a.save_params:
+                    import roma
+                    aa_ = roma.rotmat_to_rotvec(R["rots"].reshape(-1, 3, 3)).reshape(len(V["frames"]), 55, 3).numpy().astype(np.float32)
+                    np.savez_compressed(dd / "fit_params.npz", idx=np.array([fr["idx"] for fr in V["frames"]]), rots_aa=aa_,
+                                        beta=R["beta"].numpy().astype(np.float32), exp=R["exp"].numpy().astype(np.float32), Tt=R["Tt"].numpy().astype(np.float32),
+                                        Rv=np.stack(R["Rv"]).astype(np.float64), inv=np.asarray(R["inv"], np.float64), Hm=np.stack(R["Hm"]).astype(np.float64),
+                                        W=V["W"], H=V["H"], n_video=V["n"], stride=V["stride"], pass_=np.array([r["pass"] for r in R["filt"]]),
+                                        note=np.array("virtual camera = full camera (f = W, principal point = image centre) rotated by Rv; mesh_virtual = "
+                                                      "lean_batch(rots, beta, exp) + Tt (OpenCV axes); rots_aa = axis-angle of the 55 joint rotations"))
                 np.savez_compressed(dd / "frames.npz", keys=np.array([r["key"] for r in R["filt"]]),
                                     **{k: np.array([r[k] for r in R["filt"]]) for k in ("mesh_out_frac", "max_kp_err_rel", "max_single_kp_err_rel", "n_kp05", "pass_a", "pass_b", "pass", "facing", "invtanfov")})
                 npass = sum(r["pass"] for r in R["filt"])

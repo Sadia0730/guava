@@ -81,7 +81,7 @@ def gpu_name(idx):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset", required=True, choices=["ubody", "bedlam2", "peoplesnapshot", "neuman", "xhumans"])
+    ap.add_argument("--dataset", required=True, choices=["ubody", "bedlam2", "peoplesnapshot", "neuman", "xhumans", "ubc"])
     ap.add_argument("--clip", required=True)
     ap.add_argument("--E", default=E_DEFAULT)
     ap.add_argument("--profile", default=f"{CODE}/profiles/people/people_1m.yaml")

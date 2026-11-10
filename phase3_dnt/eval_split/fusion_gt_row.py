@@ -32,6 +32,7 @@ ap.add_argument("--prior", type=float, default=2.0); ap.add_argument("--thr", ty
 ap.add_argument("--mode", default="mean", choices=("mean", "wta", "fill"), help="mean: weighted running mean (as registered); wta: per texel the single "
                 "best-facing frame's features (source weight x prior); fill: source texels untouched, unseen texels from the best-facing frame")
 ap.add_argument("--every", type=int, default=1, help="use every n-th training frame (1 = all)")
+ap.add_argument("--max-frac", type=float, default=0.0, help="use the first ceil(frac x n) training frames after the source, in time order (extended benchmark 25 / 50 %% rows; 0 = all)")
 ap.add_argument("--max-frames", type=int, default=0, help="use at most N training frames after the source (0 = all)")
 ap.add_argument("--fb-ckpt", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/runs/guava_fb_B30k/checkpoints/best.pt")
 ap.add_argument("--data-root", default=""); ap.add_argument("--overwrite", action="store_true")
@@ -153,6 +154,7 @@ def main():
         selfcheck = float((r_static.int() - r_dec0.int()).abs().max())
         train = [k for k in fj["recon"] if k != fj["source"] and k in recs][:: a.every]
         if a.max_frames: train = train[:a.max_frames]
+        if a.max_frac: import math; train = train[:math.ceil(a.max_frac * len(train))]
         per = []
         for k in train:
             f = frame_feats(exposure_shift(to_dev(F.collate1(fbd.source_info(0, k)), dev), a.support_gain, a.support_sat)); seen |= f["vis"]
@@ -173,7 +175,7 @@ def main():
             torchvision.io.write_png(u8(r), str(od / f"{k}.png"))
         uv_rgb_png(uv0, od / "uv_rgb_source.png"); uv_rgb_png(uvmap, od / "uv_rgb_fused.png")
         cov0 = float(f0["vis"].sum()) / n_uv; cov = float((W > 0).sum()) / n_uv; covt = float(touched.sum()) / n_uv
-        info = {"method": a.name, **CK, "gpu": GPU, "settings": {"mode": a.mode, "prior": a.prior, "thr": a.thr, "cap": a.cap, "every": a.every, "max_frames": a.max_frames, "support_gain": a.support_gain, "support_sat": a.support_sat},
+        info = {"method": a.name, **CK, "gpu": GPU, "settings": {"mode": a.mode, "prior": a.prior, "thr": a.thr, "cap": a.cap, "every": a.every, "max_frames": a.max_frames, "max_frac": a.max_frac, "support_gain": a.support_gain, "support_sat": a.support_sat},
                 "source": fj["source"], "n_train_used": len(train), "n_train_available": len(fj["recon"]) - 1, "n_test": len(fj["test"]),
                 "coverage_source": cov0, "coverage_seen_any_frame": float(seen.sum()) / n_uv, "coverage_fused": cov, "texels_updated_frac": covt,
                 "mean_W_updated": float(W[touched].mean()) if covt > 0 else 0.0, "selfcheck_source_only_vs_static_u8": selfcheck,
