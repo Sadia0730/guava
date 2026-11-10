@@ -1513,3 +1513,64 @@ session's permission check and then approved by the user ("Yes, build and run").
   GUAVA-FB [SMPL-X GT]); a second figure with the per-person rows (GART, GaussianAvatar, ExAvatar [GT face]) next to GUAVA-FB.
   Each tile shows that frame's PSNR. Videos: all test frames of the typical clips, same columns.
 - **Output:** `O/reports/qualitative_finalbench/` (+ `selection.json` listing every chosen clip / frame and why).
+
+## Extended benchmark: all People-Snapshot and NeuMan sequences + UBC-Fashion test videos, and the appearance-update rows (registered 2026-11-09, before any conversion, render or score of a new clip; user decision)
+User decision (2026-11-09): "use all seq from people snapshot and all sequence from neuman. use full ubc"; skip BEDLAM2 for
+evaluation (multi-person scenes); generate LHM, LHM++, IDOL, GART, ExAvatar, GaussianAvatar results on multiple GPUs; save visual
+results; add the UV appearance update so a side unseen in the source photo can be shown filled in later. Nothing is tuned on any
+of these clips; the model stays B28k (`runs/guava_fb_B30k/checkpoints/best.pt`); the pose regressor stays SPRINT scratch EMA 128k.
+- **Clip pool (real video only; BEDLAM2 is no longer reported in the paper tables, its existing results stay in the records):**
+
+  | dataset | clips | people | status |
+  |---|---|---|---|
+  | UBody | 30 | 30 | existing (AvatarTest-v1), reused unchanged |
+  | X-Humans | 3 | 3 | existing (PublicBench-v2), reused unchanged |
+  | People-Snapshot | 24 (4 standard + 20 new) | 12 | standard 4 reused unchanged |
+  | NeuMan | 6 (4 + lab, parkinglot) | 6 | 4 reused unchanged |
+  | UBC-Fashion | 100 official test videos (`data/ubc_fashion/fashion_test.txt`) | ~44 (face clusters, below) | new |
+
+  New clips live in E = `O/eval/finalbench_ext/` (same base / gt512 / renders / scores layout and contract as AvatarTest-v1).
+- **New People-Snapshot sequences (20):** frames = InstantAvatar's processing (sequential cv2 read, `cv2.undistort` with
+  camera.pkl); every 4th frame from frame 0; recon = the first two thirds of these frames (in time; as the standard sequences'
+  train / test proportion), test = the rest; source = the first recon frame. GT = the dataset's own `reconstructed_poses.hdf5`
+  (pose 72, trans, betas) with the gendered SMPL of GART's rule (female-* / male-*); camera = camera.pkl (extrinsic applied if not
+  the identity). SMPL-X 2020 fitted to the GT SMPL mesh exactly as for the standard four. Disclosed: these poses are the dataset's
+  original fits, not the Anim-NeRF refinement used for the standard four. Extraction needs the zip password (environment variable
+  only, never stored).
+- **New NeuMan sequences (lab, parkinglot):** the same official split rule (`get_data_splits`) and GT as the other four.
+- **UBC-Fashion (100 test videos):** never used for training (only train videos were; identity matches removed, `ubc_identity.py`).
+  Frames = every 4th frame from 0. Pseudo-GT = `fit_ubc.py`'s pipeline unchanged (SPRINT scratch EMA 128k + joint video refinement,
+  300 iterations, one shared shape per video), run on the test videos; frames failing its registered alignment filter (mesh outside
+  matte >= 5 % or limb error >= 3 % of body height) are dropped from the clip. recon = the first half of the kept frames (in time),
+  test = the second half, source = the first kept frame. A video is excluded iff the fit fails or fewer than 10 recon or 10 test
+  frames remain (reported, not replaced). Crop / records / StyleMatte / GT = image x alpha as X-Humans' converter (perspective crop
+  from the projected pseudo-GT mesh box, 1.1 x, 1024). Disclosed: the pseudo-GT comes from our own regressor + fitting (every method
+  is driven by the same parameters); GUAVA-FB trained on other UBC-Fashion videos (in-domain for us).
+- **Rows (every new clip):** GUAVA (released), GUAVA-FB [SMPL-X GT], GUAVA-FB [SPRINT, k = 0], LHM (`lhm_facefix`), LHM++, IDOL,
+  GART, GaussianAvatar, ExAvatar [GT face]; adapters, settings and contract unchanged. Order of per-person work: UBC-Fashion videos
+  in a seeded random order (numpy default_rng(20261109).permutation of the sorted list); GPUs: any GPU with < 2 GB in use, checked
+  before each job. **Fallback (fixed now):** if GaussianAvatar or ExAvatar has not finished every UBC-Fashion video when the user
+  stops the runs, their UBC-Fashion cell is reported on the completed prefix of that seeded order, and every row is also reported
+  on that same subset (a separate column); no video is dropped for any other reason.
+- **Appearance-update rows (new; every clip of the extended pool, old and new):** `fusion_gt_row.py` with the live setting
+  (`--mode mean --prior 2 --thr 0 --cap 0`): the clip's recon frames are encoded with their GT poses and fused into the UV map, the
+  decoder is re-run once, the test frames are rendered with GT poses. Rows: **update after 25 %, 50 %, 100 % of the recon frames**
+  (`--max-frames` = ceil(fraction x (n_recon - 1)), in time order) -> `fb_update25`, `fb_update50`, `fb_update100`. The 100 % row is
+  the main "with update" row; the 25 / 50 % rows give the curve against video seen. Disclosed: GT poses in the update (the live app
+  uses SPRINT poses; its live test gave +0.25 dB, RUNLOG); People-Snapshot standard-4 / NeuMan-4 numbers of this setting were seen
+  before (RESULTS_FUSION.md, 27.66 / 24.13), so the update rows on those clips are not a blind test.
+- **Scoring:** unchanged scorer (PSNR, SSIM, LPIPS-VGG, L1 on the 512 crop; per clip = mean over test frames). Per dataset = mean
+  over clips; People-Snapshot also as "standard 4" and NeuMan as "standard 4" columns (comparable with the earlier tables).
+  Overall = mean over all real clips AND mean of the five dataset means (UBC-Fashion would otherwise be 100 of 163 clips).
+  Bootstrap 10,000, seed 20261109, stratified by dataset, resampling **people** (People-Snapshot: the 12 subjects; UBC-Fashion:
+  ArcFace clusters of the test videos, max face-pair cosine > 0.5, connected components, from `reports/ubc/ubc_identity.npz`;
+  others: one person per clip); paired differences per clip within the resampled people.
+- **Visual results (selection fixed now, by script, never by eye):** all renders kept as PNG. (1) the typical / hard figures of
+  the FinalBench rule above, extended to UBC-Fashion and the full People-Snapshot / NeuMan pools; (2) **update figure:** per
+  dataset, among clips whose test frames include a view change >= 135 deg from the source, the clip with the median per-clip PSNR
+  gain fb_update100 - fb_gt; frame = its test frame with the largest view change (ties -> earlier key). Columns: source photo,
+  GT, ours from the photo, ours after 25 / 50 / 100 % of the video, GART; plus the UV texture before / after (uv_rgb_*.png).
+  (3) videos of those clips, same columns. Output `O/reports/qualitative_ext/`.
+- **Data copies to /vault (user: "send all test data and necessary things to vault"):** NeuMan raw sequences, the extracted
+  People-Snapshot files, and tar archives of the baseline installs (`/dev/shm/ubx858_baselines`, code / envs / weights) and the
+  SPRINT checkpoint, under `/vault/research/COS/VIRLab/ubx858/persistent_avatar/` (copies; nothing is moved or deleted).
