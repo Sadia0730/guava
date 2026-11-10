@@ -15,7 +15,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parent; P3 = HERE.parent
 ap = argparse.ArgumentParser(); ap.add_argument("--O", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval")
 ap.add_argument("--boot", type=int, default=10000); ap.add_argument("--seed", type=int, default=20261109)
-ap.add_argument("--out-md", default=str(P3 / "RESULTS_EXT.md")); ap.add_argument("--out-csv", default=str(P3 / "results_ext.csv")); a = ap.parse_args()
+ap.add_argument("--out-md", default=str(P3 / "RESULTS_EXT.md")); ap.add_argument("--out-paper", default=str(P3 / "RESULTS_EXT_paper")); ap.add_argument("--out-csv", default=str(P3 / "results_ext.csv")); a = ap.parse_args()
 O = Path(a.O)
 ROOTS = [("avatar_test_v1", "avatar_test_v1.json", {"ubody"}), ("publicbench_v1", "publicbench_v1.json", None),
          ("publicbench_v2", "publicbench_v2_xhumans.json", None), ("finalbench_ext", "finalbench_ext.json", None)]
@@ -113,4 +113,31 @@ with open(a.out_csv, "w", newline="") as f:
     for m in R:
         for k in MET:
             for c, v in R[m][k].items(): w.writerow([m, c, k, *[f"{x:.6f}" for x in v]])
+# ---- paper table (PREREG amendment 1): cells PSNR / SSIM / LPIPS; bold = best photo-only row per metric and column
+if clips:
+    PH = ["guava", "fb_gt", "fb_sprint", "lhmpp", "lhm_facefix", "idol"]; UP = ["fb_update25", "fb_update50", "fb_update100"]
+    PN = {**NAME, "guava": "GUAVA (released)", "fb_gt": "GUAVA-FB, GT poses (ours)", "fb_sprint": "GUAVA-FB, SPRINT poses (ours, live)",
+          "fb_update25": "+ appearance update, 25 % of video", "fb_update50": "+ appearance update, 50 % of video", "fb_update100": "+ appearance update, 100 % of video"}
+    PC = DSP + ["all_clips", "mean_of_ds"]
+    hd = {d: f"{DSN[d]} ({len(ids[d])})" for d in DSP}; hd.update({"all_clips": f"All clips ({len(clips)})", "mean_of_ds": "Mean of datasets"})
+    FMT = {"psnr": "{:.2f}", "ssim": "{:.3f}", "lpips": "{:.4f}"}
+    best = {(k, c): (max if k != "lpips" else min)(R[m][k][c][0] for m in PH) for k in ("psnr", "ssim", "lpips") for c in PC}
+    def pc(m, c, tex):
+        out = []
+        for k in ("psnr", "ssim", "lpips"):
+            s = FMT[k].format(R[m][k][c][0]); b = m in PH and FMT[k].format(best[(k, c)]) == s
+            out.append(("\\textbf{%s}" % s if tex else f"**{s}**") if b else s)
+        return " / ".join(out)
+    md = ["| Method | " + " | ".join(hd[c] for c in PC) + " |", "|---|" + "---|" * len(PC)]
+    tx = ["\\begin{tabular}{l" + "c" * len(PC) + "}", "\\toprule", "Method & " + " & ".join(hd[c].replace("%", "\\%") for c in PC) + " \\\\", "\\midrule"]
+    for sec, rows in (("", PH), ("Ours + appearance update (uses the clip's video frames):", UP), ("Trained on each person's video (reference, not directly comparable):", REF)):
+        if sec: md.append(f"| *{sec}* |" + " |" * len(PC)); tx += ["\\midrule", "\\multicolumn{%d}{l}{\\textit{%s}} \\\\" % (len(PC) + 1, sec.replace("%", "\\%"))]
+        for m in rows:
+            md.append(f"| {PN[m]} | " + " | ".join(pc(m, c, False) for c in PC) + " |")
+            tx.append(PN[m].replace("%", "\\%") + " & " + " & ".join(pc(m, c, True) for c in PC) + " \\\\")
+    tx += ["\\bottomrule", "\\end{tabular}"]
+    note = (f"Cells: PSNR ↑ / SSIM ↑ / LPIPS ↓; per dataset = mean over clips; bold = best photo-only row. {len(clips)} clips"
+            + (f" ({len(excl)} pool clips not yet complete)" if excl else "") + ".")
+    Path(a.out_paper + ".md").write_text("\n".join([note, ""] + md) + "\n"); Path(a.out_paper + ".tex").write_text("% " + note + "\n" + "\n".join(tx) + "\n")
+
 print(len(clips), "clips in table;", len(excl), "not yet;", "missing per row:", {m: len(v) for m, v in missing.items()})
