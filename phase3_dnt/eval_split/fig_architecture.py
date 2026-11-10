@@ -77,6 +77,9 @@ def crop_person(path, aspect=0.62, pad=0.06):
 def crop_photo(path, aspect=0.62, pad=0.06):
     """the photo (with its background) cropped to the person's matte box (masks/<key>.png), fixed aspect w/h."""
     im = np.asarray(Image.open(path).convert("RGB")); m = np.asarray(Image.open(path.parent.parent / "masks" / (path.stem + ".png")).convert("L")) > 127
+    from scipy import ndimage                                                                        # crop padding -> white
+    lab, _ = ndimage.label(im.max(-1) < 15); edge = np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))
+    im = np.where(ndimage.binary_dilation(np.isin(lab, edge[edge > 0]), iterations=4)[..., None], 255, im).astype(np.uint8)
     ys, xs = np.nonzero(m); y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max(); cy, cx = (y0 + y1) / 2, (x0 + x1) / 2
     hh = (y1 - y0) * (1 + 2 * pad); ww = max((x1 - x0) * (1 + 2 * pad), hh * aspect); hh = ww / aspect
     H0, W0 = im.shape[:2]; Y0, X0 = int(round(cy - hh / 2)), int(round(cx - ww / 2))

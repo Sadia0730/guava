@@ -42,6 +42,10 @@ def rd_rgba(p): return np.asarray(Image.open(p).convert("RGBA")).astype(np.float
 
 def photo(base, key, asp=ASP, pad=0.05):
     p = next(base.glob(f"images/{key}.*")); im = np.asarray(Image.open(p).convert("RGB")).astype(np.float32) / 255
+    from scipy import ndimage                                                                        # crop padding -> white:
+    lab, _ = ndimage.label(im.max(-1) < 0.06); edge = np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))
+    pad_ = ndimage.binary_dilation(np.isin(lab, edge[edge > 0]), iterations=4)                      # near-black regions touching the border
+    im = np.where(pad_[..., None], 1.0, im)
     m = np.asarray(Image.open(base / "masks" / f"{key}.png").convert("L")) > 127; ys, xs = np.nonzero(m)
     rgba = np.concatenate([im, np.ones_like(im[..., :1])], -1); al = np.zeros(m.shape, np.float32); al[ys.min():ys.max() + 1, xs.min():xs.max() + 1] = 1
     y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max(); cy, cx = (y0 + y1) / 2, (x0 + x1) / 2

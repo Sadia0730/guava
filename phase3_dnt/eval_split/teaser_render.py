@@ -1,7 +1,7 @@
 """Teaser renders (presentation only; PREREG "Extended benchmark, amendment 4"): for one clip, build the avatar from the source photo
 (the fb_gt build) and the updated avatar (the fb_update100 build: every recon frame fused into the UV map with its GT pose, mean,
 prior 2, thr 0, cap 0), then render
-  orbit:  both avatars in the source pose, the camera turned about the body's vertical axis by the given angles (no GT exists);
+  orbit:  both avatars in the source pose, the camera turned about the body's long axis by the given angles (no GT exists);
   anim:   the photo-only avatar at the test frames at the given fractions of the test list, GT poses (+ the GT crop);
 each as RGBA PNG at 512 (alpha = rasterised Gaussian coverage, the silhouette term's a_t), plus the 1024 source photo and the UV RGB
 maps. Nothing is scored; the clip and frames are fixed by rule (fig_teaser.py), never by eye.
@@ -99,10 +99,13 @@ def save(x, p):
 
 
 def orbit_cam(t, V, deg):
-    """w2c' = T(c) R_y(deg) T(-c) w2c: the camera turned about the vertical (camera-y) axis through the body centre c (camera
-    coordinates of the mean posed vertex); returns render_cam_params for 512 px with the record's own invtanfov."""
-    w2c = t["w2c_cam"][0].double(); c = (w2c[:3, :3] @ V[0].double().mean(0) + w2c[:3, 3])
-    r = math.radians(deg); R = torch.tensor([[math.cos(r), 0, math.sin(r)], [0, 1, 0], [-math.sin(r), 0, math.cos(r)]], dtype=torch.float64, device=dev)
+    """w2c' = [R_u(deg) | c - R_u c] w2c: the camera turned about the body's long axis u (first principal axis of the posed
+    vertices in camera coordinates, sign towards camera +y) through the body centre c; render_cam_params for 512 px with the
+    record's own invtanfov. (Camera-y as the axis tilts the body when the perspective crop is rotated.)"""
+    w2c = t["w2c_cam"][0].double(); Vc = V[0].double() @ w2c[:3, :3].T + w2c[:3, 3]; c = Vc.mean(0)
+    u = torch.linalg.svd(Vc - c, full_matrices=False).Vh[0]; u = u if float(u[1]) >= 0 else -u
+    r = math.radians(deg); K = torch.tensor([[0, -u[2], u[1]], [u[2], 0, -u[0]], [-u[1], u[0], 0]], dtype=torch.float64, device=dev)
+    R = torch.eye(3, dtype=torch.float64, device=dev) + math.sin(r) * K + (1 - math.cos(r)) * (K @ K)
     M = torch.eye(4, dtype=torch.float64, device=dev); M[:3, :3] = R; M[:3, 3] = c - R @ c
     w = (M @ w2c).float(); itf = float(t["invtanfov"][0]) if torch.is_tensor(t["invtanfov"]) else float(t["invtanfov"])
     return to_dev(F.collate1(F.render_cam_params(w.cpu(), torch.linalg.inv(w).cpu(), itf, 512)), dev)
