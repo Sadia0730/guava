@@ -6,7 +6,8 @@ from the source (root-orientation change; if no clip qualifies, all clips, state
             view change (ties -> earlier key)                                                  [registered rule]
   showcase: clip with the LARGEST per-clip gain; frame = among its test frames with view change >= 135 deg (or all, if none), the
             largest per-frame PSNR gain (ties -> earlier key); captioned as the best case        [amendment 1]
-Columns: source photo, ground truth, ours from the photo, ours after 25 / 50 / 100 % of the video, GART, UV texture before / after.
+Columns: source photo, ground truth, ours from the photo, ours after 25 / 50 / 100 % of the video, UV texture before / after
+(no per-person-trained method in the figures: amendment 2).
 Each row uses one square crop (union of GT and all rendered silhouettes, 6 % margin); tiles saved at --size (1024: the 512 render
 crop Lanczos-upsampled; the source from its own crop) with the frame's PSNR (full 512 image, as scored).
 Usage: python fig_update_ext.py --out O/reports/qualitative_ext [--size 1024] [--no-video]"""
@@ -23,7 +24,7 @@ SPLITS = [("avatar_test_v1", "avatar_test_v1.json", {"ubody"}), ("publicbench_v1
 DS = ["ubody", "peoplesnapshot", "neuman", "xhumans", "ubc"]
 DSN = {"ubody": "UBody", "peoplesnapshot": "People-Snapshot", "neuman": "NeuMan", "xhumans": "X-Humans", "ubc": "UBC-Fashion"}
 COLS = [("fb_gt", "Ours, photo only"), ("fb_update25", "+ update, 25 % video"), ("fb_update50", "+ update, 50 % video"),
-        ("fb_update100", "+ update, 100 % video"), ("gart", "GART (trained per person)")]
+        ("fb_update100", "+ update, 100 % video")]
 ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); ap.add_argument("--size", type=int, default=1024)
 ap.add_argument("--no-video", action="store_true"); ap.add_argument("--fps", type=int, default=10); ap.add_argument("--thr", type=float, default=135.0)
 a = ap.parse_args(); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)

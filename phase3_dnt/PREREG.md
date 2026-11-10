@@ -1590,3 +1590,6 @@ of these clips; the model stays B28k (`runs/guava_fb_B30k/checkpoints/best.pt`);
   all clips, mean of datasets; rows GUAVA, ours [GT pose], ours [SPRINT pose], LHM++, LHM, IDOL (bold = best of these photo-only
   rows per metric), then ours + update 25 / 50 / 100 % (uses the clip's video frames), then the per-person references GART,
   GaussianAvatar, ExAvatar [GT face]. Markdown and LaTeX.
+- **Amendment 2 (2026-11-10, presentation only; user: "dont include persubject train models like gart in visual comparison"):**
+  the qualitative figures and videos of the extended benchmark show no per-person-trained method (GART, GaussianAvatar, ExAvatar);
+  the update figure's GART column is dropped. They stay in the tables as the separate reference block. Selection rules unchanged.
