@@ -1597,3 +1597,18 @@ of these clips; the model stays B28k (`runs/guava_fb_B30k/checkpoints/best.pt`);
   update figure and videos also show GUAVA, LHM, LHM++ and IDOL (single-image methods) on the same frames, before ours; each row
   states the UV texture coverage from the photo and after the update (coverage_source / coverage_fused of fb_update100's run.json);
   a caption file per figure states what the update changes. Selection rules unchanged.
+- **Amendment 4 (2026-11-10, presentation only; user: "teaser for my paper ... and detailed architectural diagram", registered
+  before any UBC-Fashion per-clip update score was looked at):** (a) **teaser clips** = the update-showcase clip of amendment 1
+  (largest per-clip PSNR gain fb_update100 - fb_gt among clips with a test view change >= 135 deg) of People-Snapshot, NeuMan,
+  X-Humans and UBC-Fashion; UBody is not used (upper-body framing; its only eligible clip has another person in the source frame).
+  Until the final score files exist, the draft uses the 41-clip score files (People-Snapshot / NeuMan / X-Humans) and the UBC-Fashion
+  per-clip scores of fb_gt and fb_update100 computed with the unchanged scorer under the tag `teaser` (a new file; the final
+  `_full` files are written by the end-of-queue scoring); the final teaser is regenerated from the final files by the same rule.
+  (b) **teaser renders** (`eval_split/teaser_render.py`, B28k, nothing scored): the photo-only avatar (fb_gt build) and the updated
+  avatar (fb_update100 build: identical fusion, coverage checked equal to the row's run.json) rendered in the source pose with the
+  camera turned about the body's vertical axis by 0, 45, ..., 315 deg (no ground truth exists for these views), and at the test
+  frames at 25 / 50 / 75 % of the test list with GT poses; RGBA (alpha = rasterised Gaussian coverage) composited on white.
+  Columns fixed now: source photo; photo-only avatar at 0 / 90 / 180 deg; two of the animation frames (25 / 75 %); back view
+  (180 deg) photo-only vs after the update; texture coverage photo -> after update. (c) **architecture diagram**: drawn from the
+  code (`models/UbodyAvatar/ubody_gaussian.py`, `fb_common.py`, `worker6/uv_fusion.py`), inherited GUAVA parts and our changes
+  marked differently; no numbers other than those already in the paper text.
