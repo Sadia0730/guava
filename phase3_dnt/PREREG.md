@@ -1617,3 +1617,13 @@ of these clips; the model stays B28k (`runs/guava_fb_B30k/checkpoints/best.pt`);
   24, NeuMan 6), so it fits the page; a four-row version with X-Humans goes to the supplement. The update column shows the top half
   of the body (head + torso, same crop rule for both tiles), where the back of the head and the garment differ; the full-body back
   views stay in the "new views" column.
+- **Amendment 5 (2026-11-10, presentation only; user: "image quality does not look good. it does not show how uv update can
+  improve unseen. dont need so many dataset to show. choose good image. it will be first impression."):** the teaser is an
+  illustration chosen by eye, replacing the rule of amendment 4 (a) / (d) for the teaser only (the update figures of amendments
+  1-3 keep their rules). Candidates: `eval_split/teaser_candidates.py` ranks every clip by the mean PSNR gain fb_update100 - fb_gt
+  on its test frames turned >= 135 deg from the source (existing renders; top: UBC A1wrrhGRZmS +2.69 dB, People-Snapshot
+  female-3-sport +2.49, UBC A1YNmKj0sCS +2.41, UBC A17RfvegkdS +1.97). Chosen from the top 10 by eye: UBC-Fashion A1YNmKj0sCS
+  (open back hidden in the photo) and A17RfvegkdS (printed back). Back views: the clip's best turned-away test frame (largest
+  gain) rendered with a 2x zoomed camera on the clothing band (`target_info_zoom`, the GT crop warped by the same homography), photo
+  only | after the update | real frame. The caption states that the examples were selected and that the paper's numbers come from
+  the full benchmark.
