@@ -1627,3 +1627,41 @@ of these clips; the model stays B28k (`runs/guava_fb_B30k/checkpoints/best.pt`);
   gain) rendered with a 2x zoomed camera on the clothing band (`target_info_zoom`, the GT crop warped by the same homography), photo
   only | after the update | real frame. The caption states that the examples were selected and that the paper's numbers come from
   the full benchmark.
+
+### Extended benchmark, amendment 6: appearance update with SPRINT pose, and GUAVA-FB fine-tuned per subject (registered 2026-11-11, before any of their runs; user: "i need another row avatar appearance update with Sprint pose" and "GART Gaussian Avatar Exavatar was trained per subject ... i also want to add another row trained my model subjectwise: GT + no update, GT with update, Sprint with update")
+Same 163 clips, frames, crops, masks, scorer and tables as the extended benchmark; four E roots as before (UBody in avatar_test_v1,
+publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k/checkpoints/best.pt`, step 28k) unless stated.
+- **(a) `fb_sprint_update100`, "Ours + video update (SPRINT pose)".** No GT pose, camera, shape or matte anywhere. Source avatar =
+  `fb_sprint`'s (SPRINT fit of the first training frame, 150 refinement iterations, own detector box / crop / StyleMatte matte).
+  Every later training frame (frames.json `recon`, time order): SPRINT fit with the live worker's setting (k = 60 refinement,
+  body shape locked to the source fit; detector path as `fb_sprint`: largest detection, previous box if none). Accepted iff the
+  matte is non-empty and the keypoint error <= 20 px at 1024 (the worker's fit-quality gate, `worker_core.py`). Accepted frames
+  go through the source's input path (SPRINT crop x matte, `write_tracked` -> `FBData.source_info`) and are fused with the rule of
+  `fb_update100` (weighted mean, texel weight = visibility x facing |cos|, source prior 2, threshold 0, no cap; code copied from
+  `fusion_gt_row.py`); the UV decoder is re-run once (vertex branch, style, camera = the source's). Test frames are driven exactly
+  as `fb_sprint` (raw SPRINT k = 0 with the shape lock, SPRINT crop camera, warped into the metric crop). This is not the live
+  worker's full rule (novelty gate, face rule, outlier rejection, ArcFace rollback, stop rule); that would be its own row.
+  Self-check before the run: with fusion switched off (`--upd-max-frames 0`) the path must reproduce `fb_sprint` on 2 clips
+  (renders compared with the existing ones; small differences from GPU non-determinism are reported, not tuned away).
+- **(b) GUAVA-FB fine-tuned per subject (`eval_split/subject_ft.py`).** Per clip, B28k is fine-tuned on that clip's training
+  frames only (frames.json `recon`, the frames GART / GaussianAvatar / ExAvatar train on), with their GT records (allowed by the
+  fairness rule: training-frame data of the subject; nothing from test frames). Source = the first training frame, as in every
+  GUAVA-FB row. Objective: GUAVA's `Optimization_Loss` (lambda_head_crop 0.5, local-offset threshold 3.0, loss iteration offset
+  188k = B28k's last) + ArcFace identity loss 0.05 with B28k's face rule (face box >= 48 px, head within 60 deg, landmarks inside).
+  B28k's other training terms (edge, cloth crop, silhouette, normal prior, zoomed targets, self targets) are not used (stated).
+  GUAVA's parameter groups (`configure_optimizers`), Adam betas (0, 0.99), constant lr 5e-5 (B28k's initial lr), batch = 1 source x
+  4 targets drawn without replacement from the training frames (RNG seeded by the clip id), NaN-zeroed gradients, seed 0. The
+  fine-tuned weights are written only to /dev/shm for the clip's three rows and deleted afterwards (no checkpoint kept). Rows, each
+  the existing code with the fine-tuned weights (`--fb-ckpt`): `ft_gt` ("fine-tuned, GT pose, no update": `eval_guava_rows.py
+  --row fb_gt`), `ft_update100` ("fine-tuned, GT pose + update": `fusion_gt_row.py`, rule of `fb_update100`), `ft_sprint_update100`
+  ("fine-tuned, SPRINT pose + update": rule (a)). They go in the tables' per-person block, next to GART / GaussianAvatar / ExAvatar,
+  with the fine-tuning time per clip stated.
+- **(c) Number of fine-tuning steps N, fixed by a pilot that uses no test frame.** Pilot clips = the first clip by id of each
+  dataset, plus the second UBC-Fashion clip (largest dataset): ubody/ConductMusic_S15, peoplesnapshot/female-1-casual,
+  neuman/bike, xhumans/00028, ubc/91-3003CN5S, ubc/91-NTYmAx2S. Each is fine-tuned on the first 80 % of its training frames (time
+  order) and validated on the last 20 % (held-out training frames; source unchanged; render vs GT x mask at 512, PSNR / SSIM /
+  LPIPS-VGG as in `score.py`) at steps 0, 250, 500, 1000, 1500, 2000. N = the step count with the highest mean held-out PSNR over the
+  six clips; any count within 0.05 dB of it -> the smallest such count. SSIM / LPIPS are reported. The final runs train on all
+  training frames for N steps. If no count beats step 0 by >= 0.1 dB, the rows are still run at N = 500 and the outcome is stated.
+- Jobs through `gpu_queue.py` on GPUs the user approved for the benchmark (2, 5, 7, 0, 1, 6) plus any GPU where other users hold
+  < 2 GB; finished rows scored by `score.py --tag full` and added to `ext_tables.py` (all metrics, all clips, same bootstrap).
