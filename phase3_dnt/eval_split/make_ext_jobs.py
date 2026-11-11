@@ -89,7 +89,7 @@ for ds in ("neuman", "peoplesnapshot", "ubc"):
         add(f"exavatar_gtface/{c['id']}", f"{CLEAN} EXA_FORCE_GPU=1 EVAL_ROOT={XE} bash {B}/exavatar/run_clip_gtface.sh {ds} {c['clip']} {{gpu}}",
             done=str(XE / "renders/exavatar_gtface" / ds / c["clip"] / "run.json"), heavy=True)
 # 5. retries: a job that ended (any exit code: some wrappers exit 0 after an out-of-memory error) and whose verified output is
-#    still missing is re-queued under a new id, at most twice; the outputs and settings are unchanged.
+#    still missing is re-queued under a new id, at most four times (twice until 2026-11-11, RUNLOG 134); the outputs and settings are unchanged.
 # Extra queues (user-approved GPUs 2, 5, 7 -> <STATE>_b; GPUs 0, 1 -> <STATE>_c; GPU 6 -> <STATE>_d; 2026-11-10) each run the job ids listed in their
 # assigned.txt; the main queue never sees them, so no job runs twice. Retries follow their base id to the same queue.
 EXTRA = {}
@@ -105,7 +105,7 @@ for QL in [STATE / "queue.log"] + [d / "queue.log" for d in EXTRA]:
         if len(w) >= 7 and w[2] == "END": b = w[3].split("#")[0]; fails[b] = fails.get(b, 0) + 1
 byid = {j["id"]: j for j in jobs}
 for b, n in fails.items():
-    if b in byid and n <= 2 and not Path(byid[b]["done"]).exists():
+    if b in byid and n <= 4 and not Path(byid[b]["done"]).exists():
         jobs[jobs.index(byid[b])] = dict(byid[b], id=f"{b}#retry{n}")                              # the retry replaces the original
 
 
