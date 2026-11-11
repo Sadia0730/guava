@@ -1,7 +1,9 @@
 """Architecture figure, v4 (PREREG "Extended benchmark", amendment 4 (c), presentation only): the three stages drawn from the
 code (models/UbodyAvatar/ubody_gaussian.py, guava_fb/fb_common.py, worker6/uv_fusion.py), every thumbnail an image of the model's
 own tensors for one example (teaser_render.py --arch-key: SMPL-X mesh, DINO features (PCA), per-vertex features, UV maps, the
-32-channel feature raster (PCA), renders). Gray = baseline modules (GUAVA), orange = ours. The avatar sits on one vertical line:
+32-channel feature raster (PCA), renders). Modules are coloured by stage (creation blue, animation green, update orange; the UV
+decoder keeps its creation colour where the update re-runs it); no "ours / inherited" legend in the drawing: the credit to GUAVA
+for the creation and rendering design goes in the caption and the method text. The avatar sits on one vertical line:
 creation -> skinning <- updated avatar. No timings; the only number is the clip's back-view PSNR gain (teaser_candidates.json).
 Every element is drawn through T / RECT / POLY / SEG / ELL / IMG, which also record it; --export DIR writes layout.json + the
 thumbnails for fig_architecture_pptx.py (an editable PowerPoint version of the same layout).
@@ -33,8 +35,9 @@ EXP = Path(a.export) if a.export else None
 if EXP: (EXP / "img").mkdir(parents=True, exist_ok=True)
 plt.rcParams.update({"font.family": "STIXGeneral", "mathtext.fontset": "stix", "font.size": 6.4, "pdf.fonttype": 42})
 INK, MUTED, ARW = "#1f1f1f", "#5b6068", "#3b3f45"
-GF, GE = "#ECEEF1", "#8C939D"                                                                        # baseline modules (GUAVA)
-OF, OE = "#FCE3CC", "#D9771E"                                                                        # ours
+GE = "#8C939D"                                                                                       # thumbnail borders
+PAL = {"a": ("#E4ECF7", "#5E82B5"), "b": ("#E2F0E4", "#4F9561"), "c": ("#FCE3CC", "#D9771E")}        # module fill / edge per stage
+OE = PAL["c"][1]
 BAND = {"a": ("#F4F7FB", "#33507A"), "b": ("#F2F8F2", "#2F6B3A"), "c": ("#FEF5EC", "#B4590E")}
 DARK = (0.105, 0.115, 0.135); BLUE = "#3F7FBF"; GREEN = "#2F8F46"
 W, H = 6.875, 3.98
@@ -113,14 +116,14 @@ def uv_tile(path, x, y, w, h, **kw):
 
 
 # ------------------------------------------------------------------------------------------------ composite helpers
-def box(x, y, w, h, title, sub="", ours=False, ts=6.6, ss=5.5):
-    RECT(x, y, w, h, OF if ours else GF, OE if ours else GE, 0.8)
+def box(x, y, w, h, title, sub="", k="a", ts=6.6, ss=5.5):
+    RECT(x, y, w, h, PAL[k][0], PAL[k][1], 0.8)
     T(x + w / 2, y + h / 2 + (0.06 if sub else 0), title, size=ts, color=INK, va="center", bold=True)
     if sub: T(x + w / 2, y + h / 2 - 0.075, sub, size=ss, va="center", ls=1.0)
 
 
-def encoder(x, y, w, h, fc=GF, ec=GE, lw=0.8, z=3.0): POLY([(x, y - h / 2), (x + w, y - h / 3.4), (x + w, y + h / 3.4), (x, y + h / 2)], fc, ec, lw, z)
-def unet(x, y, w, h): POLY([(x, y - h / 2), (x + w / 2, y - h / 4.2), (x + w, y - h / 2), (x + w, y + h / 2), (x + w / 2, y + h / 4.2), (x, y + h / 2)], GF, GE)
+def encoder(x, y, w, h, k="a"): POLY([(x, y - h / 2), (x + w, y - h / 3.4), (x + w, y + h / 3.4), (x, y + h / 2)], PAL[k][0], PAL[k][1], 0.8, 3.0)
+def unet(x, y, w, h, k="a"): POLY([(x, y - h / 2), (x + w / 2, y - h / 4.2), (x + w, y - h / 2), (x + w, y + h / 2), (x + w / 2, y + h / 4.2), (x, y + h / 2)], PAL[k][0], PAL[k][1])
 
 
 def band(key, y0, y1, title, sub):
@@ -149,7 +152,7 @@ ya = YA0 + 0.185; yc = ya + TH / 2
 im = np.asarray(Image.open(next(base.glob(f"images/{src_key}.*"))).convert("RGB")).astype(np.float32) / 255
 mk = np.asarray(Image.open(base / "masks" / f"{src_key}.png").convert("L")).astype(np.float32) / 255
 IMG(crop_body(im * mk[..., None] + (1 - mk[..., None]), mk, TW / TH), 0.10, ya, TW, TH); T(0.10 + TW / 2, ya - 0.025, "photo $I_s$")
-body_tile(A / "mesh_source.png", 0.52, ya, TW, TH, kind="premul", ec=OE, lw=0.9); T(0.52 + TW / 2, ya - 0.025, "SMPL-X fit", color=OE)
+body_tile(A / "mesh_source.png", 0.52, ya, TW, TH, kind="premul"); T(0.52 + TW / 2, ya - 0.025, "SMPL-X fit")
 SEG([(0.90, yc), (1.02, yc)])
 encoder(1.02, yc, 0.30, 0.66); T(1.17, yc, "DINOv2", size=6.6, color=INK, va="center", bold=True, rot=90)
 T(1.115, ya - 0.062, "❄", size=6.2, color=BLUE, va="center", family="DejaVu Sans"); T(1.165, ya - 0.025, "frozen", ha="left")
@@ -178,44 +181,40 @@ T(ux_ + 0.30, yb - 0.175, "1 Gaussian / texel", size=5.6); T(vx0 - 0.02 + uw / 2
 xa = bx + 0.86 + 0.34; SEG([(bx + 0.86, yt), (xa - 0.12, yt), (xa - 0.12, yc)], arrow=False); SEG([(ux_ + 0.56, yb), (xa - 0.12, yb), (xa - 0.12, yc), (xa, yc)])
 body_tile(D / "orbit_photo_000.png", xa, ya, TW, TH, kind="render", ec=INK, lw=0.9); T(xa + TW / 2 + 0.06, ya - 0.075, "avatar $\\mathcal{G}_s$", color=INK, bold=True, ha="left", va="center")
 # magnifier: schematic 3D Gaussians (crisp, opaque, all inside the lens)
-mc = (xa + TW + 0.36, yc + 0.02); mr = 0.27; SEG([(xa + TW * 0.72, yc + 0.10), (mc[0] - mr * 0.93, mc[1] + 0.05)], color=INK, lw=0.5, arrow=False, z=5.5)
+mc = (xa + TW + 0.50, yc + 0.02); mr = 0.33; SEG([(xa + TW * 0.72, yc + 0.10), (mc[0] - mr * 0.93, mc[1] + 0.05)], color=INK, lw=0.5, arrow=False, z=5.5)
 ELL(xa + TW * 0.66, yc + 0.10, 0.06, 0.06, fc="none", ec=INK, lw=0.6, z=5.6); ELL(mc[0], mc[1], 2 * mr, 2 * mr, fc="white", ec=INK, lw=0.9, z=6.0)
 rng = np.random.default_rng(11); pal = [("#F1E4D2", "#B79A78"), ("#E6D2B8", "#A88B66"), ("#D8BC98", "#967650"), ("#B98A63", "#7C5636"), ("#8A5A3C", "#55331D"), ("#F7EEE2", "#C2AA8C")]
 pts = []
 for _ in range(6000):
-    r_, th = (mr - 0.095) * np.sqrt(rng.random()), rng.random() * 2 * np.pi; q = (mc[0] + r_ * np.cos(th), mc[1] + r_ * np.sin(th))
-    if all((q[0] - o[0]) ** 2 + (q[1] - o[1]) ** 2 > 0.108 ** 2 for o in pts): pts.append(q)
+    r_, th = (mr - 0.10) * np.sqrt(rng.random()), rng.random() * 2 * np.pi; q = (mc[0] + r_ * np.cos(th), mc[1] + r_ * np.sin(th))
+    if all((q[0] - o[0]) ** 2 + (q[1] - o[1]) ** 2 > 0.118 ** 2 for o in pts): pts.append(q)
 for j, q in enumerate(pts):
-    fc_, ec_ = pal[j % len(pal)]; wd, ht, ang = 0.115 + 0.04 * rng.random(), 0.052 + 0.028 * rng.random(), rng.random() * 180
+    fc_, ec_ = pal[j % len(pal)]; wd, ht, ang = 0.125 + 0.045 * rng.random(), 0.056 + 0.03 * rng.random(), rng.random() * 180
     hi = "#" + "".join(f"{int(0.45 * int(fc_[k:k + 2], 16) + 0.55 * 255):02X}" for k in (1, 3, 5))
     ELL(q[0], q[1], wd, ht, ang, fc_, ec_, 0.45, 6.2); ELL(q[0] - 0.012 * np.cos(np.radians(ang)), q[1] + 0.008, wd * 0.42, ht * 0.38, ang, hi, hi, 0, 6.3)
-T(mc[0] + mr + 0.08, mc[1] + 0.085, "$\\approx$207k 3D Gaussians", size=6.4, color=INK, ha="left", va="center", bold=True)
-T(mc[0] + mr + 0.08, mc[1] - 0.075, "position, scale, rotation,\nopacity, 32-d feature", size=5.8, ha="left", va="center")
-# legend
-lx, ly = 5.62, YA1 - 0.30
-RECT(lx, ly, 0.17, 0.11, OF, OE, 0.8, r=0.025); T(lx + 0.23, ly + 0.055, "ours (new or changed)", size=6.0, color=INK, ha="left", va="center")
-T(lx + 0.085, ly - 0.19 + 0.055, "❄", size=7, color=BLUE, va="center", family="DejaVu Sans"); T(lx + 0.23, ly - 0.19 + 0.055, "frozen weights", size=6.0, color=INK, ha="left", va="center")
+T(mc[0] + mr + 0.12, mc[1] + 0.10, "$\\approx$207k 3D Gaussians", size=7.4, color=INK, ha="left", va="center", bold=True)
+T(mc[0] + mr + 0.12, mc[1] - 0.085, "each with position, scale, rotation,\nopacity and a 32-d appearance feature", size=6.0, ha="left", va="center")
 
 # ------------------------------------------------------------------------------------------------ (b) animation: the avatar spine is x = gx
 gx = xa + TW / 2; yb0 = YB0 + 0.185; ybc = yb0 + TH / 2; SW = 0.70; xl = gx - SW / 2
 body_tile(A / f"drive_gt_{dk}.png", 0.10, yb0, TW, TH, kind="straight"); T(0.10 + TW / 2, yb0 - 0.025, "live frame")
 SEG([(0.48, ybc), (0.62, ybc)])
-sx0, sw_, sh_ = 0.62, 1.66, 0.66; RECT(sx0, ybc - sh_ / 2, sw_, sh_, OF, OE, 0.9, r=0.05)                # pose regressor (ours): backbone + SMPL-X regressor
+sx0, sw_, sh_ = 0.62, 1.66, 0.66; PB = PAL["b"]; RECT(sx0, ybc - sh_ / 2, sw_, sh_, PB[0], PB[1], 0.9, r=0.05)   # pose regressor: backbone + SMPL-X regressor
 T(sx0 + 0.08, ybc + sh_ / 2 - 0.085, "Pose regressor", size=6.6, color=INK, ha="left", va="center", bold=True)
-POLY([(sx0 + 0.10, ybc - 0.27), (sx0 + 0.50, ybc - 0.20), (sx0 + 0.50, ybc + 0.06), (sx0 + 0.10, ybc + 0.13)], "white", OE, 0.7, 4.0)
+POLY([(sx0 + 0.10, ybc - 0.27), (sx0 + 0.50, ybc - 0.20), (sx0 + 0.50, ybc + 0.06), (sx0 + 0.10, ybc + 0.13)], "white", PB[1], 0.7, 4.0)
 T(sx0 + 0.30, ybc - 0.07, "ViT\nbackbone", size=5.4, color=INK, va="center", ls=0.95)
-SEG([(sx0 + 0.52, ybc - 0.07), (sx0 + 0.66, ybc - 0.07)], color=OE, lw=0.8)
-RECT(sx0 + 0.66, ybc - 0.22, 0.88, 0.30, "white", OE, 0.7, r=0.035, z=4.0); T(sx0 + 1.10, ybc - 0.07, "SMPL-X regressor\npose, expression, camera", size=5.4, color=INK, va="center", ls=1.0)
+SEG([(sx0 + 0.52, ybc - 0.07), (sx0 + 0.66, ybc - 0.07)], color=PB[1], lw=0.8)
+RECT(sx0 + 0.66, ybc - 0.22, 0.88, 0.30, "white", PB[1], 0.7, r=0.035, z=4.0); T(sx0 + 1.10, ybc - 0.07, "SMPL-X regressor\npose, expression, camera", size=5.4, color=INK, va="center", ls=1.0)
 SEG([(sx0 + sw_ + 0.02, ybc), (sx0 + sw_ + 0.16, ybc)]); mx = sx0 + sw_ + 0.16
-body_tile(A / f"drive_mesh_{dk}.png", mx, yb0, TW, TH, kind="premul", ec=OE, lw=0.9); T(mx + TW / 2, yb0 - 0.025, "pose $\\theta_t$", color=OE)
-SEG([(mx + TW + 0.02, ybc), (xl - 0.02, ybc)]); box(xl, ybc - 0.19, SW, 0.38, "Skinning", "LBS on SMPL-X")
+body_tile(A / f"drive_mesh_{dk}.png", mx, yb0, TW, TH, kind="premul"); T(mx + TW / 2, yb0 - 0.025, "pose $\\theta_t$")
+SEG([(mx + TW + 0.02, ybc), (xl - 0.02, ybc)]); box(xl, ybc - 0.19, SW, 0.38, "Skinning", "LBS on SMPL-X", k="b")
 SEG([(gx, ya - 0.115), (gx, ybc + 0.195)], lw=1.1)                                                     # avatar from (a), straight down
 SEG([(xl + SW + 0.02, ybc), (xl + SW + 0.14, ybc)])
 fx = xl + SW + 0.16; fpc, fal = premul_on(rgba(A / f"drive_featpca_{dk}.png")); ft = crop_body(fpc, fal, TW / TH)
 for i, perm in enumerate(((2, 0, 1), (1, 2, 0), (0, 1, 2))): IMG(ft[..., list(perm)], fx + (2 - i) * 0.045, yb0 + (2 - i) * 0.03 - 0.03, TW, TH - 0.06, z=3 + i * 0.3, r=0.02)
 T(fx + TW / 2 + 0.045, yb0 - 0.045, "32-channel raster", size=6.0)
 SEG([(fx + TW + 0.11, ybc), (fx + TW + 0.23, ybc)]); rx = fx + TW + 0.23
-unet(rx, ybc, 0.50, 0.40); T(rx + 0.25, ybc, "refine", size=5.6, color=INK, va="center", bold=True); T(rx + 0.25, ybc - 0.24, "StyleUNet refiner", size=5.6)
+unet(rx, ybc, 0.50, 0.40, k="b"); T(rx + 0.25, ybc, "refine", size=5.6, color=INK, va="center", bold=True); T(rx + 0.25, ybc - 0.24, "StyleUNet refiner", size=5.6)
 SEG([(rx + 0.52, ybc), (rx + 0.64, ybc)]); ox = rx + 0.64
 body_tile(A / f"drive_out_{dk}.png", ox, yb0, TW, TH, kind="render", ec=INK, lw=0.9); T(ox + TW / 2, yb0 - 0.025, "output $\\hat{I}_t$", color=INK, bold=True)
 for i, f_ in enumerate((D / "anim_photo_frame_000276.png", D / "orbit_photo_000.png")):
@@ -226,14 +225,14 @@ T(ox + 1.5 * (TW + 0.06) + TW / 2, yb0 - 0.025, "other frames")
 yc0 = YC0 + 0.20; ycc = yc0 + TH / 2
 fan([A / f"stream_frame_{k}.png" for k in sk], 0.10, yc0 + 0.07, 0.28, TH - 0.07, 0.12, "straight"); T(0.10 + 0.26, yc0 - 0.03, "video frames")
 SEG([(0.64, ycc), (0.74, ycc)])
-gx0, gw, gh = 0.74, 0.80, 0.74; RECT(gx0, ycc - gh / 2, gw, gh, OF, OE, 0.8)
+gx0, gw, gh = 0.74, 0.80, 0.74; RECT(gx0, ycc - gh / 2, gw, gh, PAL["c"][0], PAL["c"][1], 0.8)
 T(gx0 + gw / 2, ycc + gh / 2 - 0.085, "Frame gates", size=6.6, color=INK, va="center", bold=True)
 for i, s_ in enumerate(("sharp image", "pose fits keypoints", "surface faces camera", "not an outlier")):
     yy = ycc + 0.13 - i * 0.125; T(gx0 + 0.065, yy, "✓", size=5.6, color=GREEN, va="center", bold=True, family="DejaVu Sans"); T(gx0 + 0.12, yy, s_, size=5.5, color=INK, ha="left", va="center")
 SEG([(gx0 + gw + 0.02, ycc), (gx0 + gw + 0.12, ycc)]); ux = gx0 + gw + 0.12
 fan([A / f"stream_uv_{k}.png" for k in sk], ux, yc0 + 0.23, 0.42, 0.42, 0.10, "uv"); T(ux + 0.31, yc0 + 0.075, "UV observations $U_t$,\nweights $w_t$", size=5.8)
 SEG([(ux + 0.65, ycc), (ux + 0.75, ycc)]); sx = ux + 0.88
-ELL(sx, ycc, 0.25, 0.25, fc=OF, ec=OE, lw=0.9, z=3.0); T(sx, ycc - 0.005, "$\\Sigma$", size=8.6, color=INK, va="center")
+ELL(sx, ycc, 0.25, 0.25, fc=PAL["c"][0], ec=OE, lw=0.9, z=3.0); T(sx, ycc - 0.005, "$\\Sigma$", size=8.6, color=INK, va="center")
 T(sx, ycc + 0.16, "weighted\nmean", size=5.6, va="bottom", color=INK); T(sx, ycc - 0.16, "over all\nframes", size=5.6)
 fw = 0.54; dw = 0.56; dx2 = gx - dw / 2; fx2 = dx2 - 0.13 - fw; SEG([(sx + 0.135, ycc), (fx2 - 0.02, ycc)])
 fused = np.asarray(Image.open(D / "uv_rgb_fused.png").convert("RGB")).astype(np.float32) / 255; m_ = fused.max(-1, keepdims=True) > 0.004
