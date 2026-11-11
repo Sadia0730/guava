@@ -15,15 +15,24 @@ import numpy as np
 HERE = Path(__file__).resolve().parent; P3 = HERE.parent
 ap = argparse.ArgumentParser(); ap.add_argument("--O", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/eval")
 ap.add_argument("--boot", type=int, default=10000); ap.add_argument("--seed", type=int, default=20261109)
-ap.add_argument("--out-md", default=str(P3 / "RESULTS_EXT.md")); ap.add_argument("--out-paper", default=str(P3 / "RESULTS_EXT_paper")); ap.add_argument("--out-csv", default=str(P3 / "results_ext.csv")); a = ap.parse_args()
+ap.add_argument("--out-md", default=str(P3 / "RESULTS_EXT.md")); ap.add_argument("--out-paper", default=str(P3 / "RESULTS_EXT_paper")); ap.add_argument("--out-csv", default=str(P3 / "results_ext.csv"))
+ap.add_argument("--amend6", action="store_true", help="PREREG ext. amendment 6 rows (SPRINT-pose update; GUAVA-FB fine-tuned per subject) -> RESULTS_EXT_A6*")
+a = ap.parse_args()
+if a.amend6:                                                                                          # registered outputs stay untouched
+    a.out_md, a.out_paper, a.out_csv = (x.replace("RESULTS_EXT", "RESULTS_EXT_A6").replace("results_ext", "results_ext_a6") for x in (a.out_md, a.out_paper, a.out_csv))
 O = Path(a.O)
 ROOTS = [("avatar_test_v1", "avatar_test_v1.json", {"ubody"}), ("publicbench_v1", "publicbench_v1.json", None),
          ("publicbench_v2", "publicbench_v2_xhumans.json", None), ("finalbench_ext", "finalbench_ext.json", None)]
 SINGLE = ["guava", "fb_gt", "fb_sprint", "fb_update25", "fb_update50", "fb_update100", "lhm_facefix", "lhmpp", "idol"]
-REF = ["gart", "gaussianavatar", "exavatar_gtface"]; ROWS = SINGLE + REF
+REF = ["gart", "gaussianavatar", "exavatar_gtface"]
+A6_UP, A6_FT = ["fb_sprint_update100"], ["ft_gt", "ft_update100", "ft_sprint_update100"]
+if a.amend6: SINGLE = SINGLE[:SINGLE.index("fb_update100") + 1] + A6_UP + SINGLE[SINGLE.index("fb_update100") + 1:]; REF = REF + A6_FT
+ROWS = SINGLE + REF
 NAME = {"guava": "GUAVA (released)", "fb_gt": "Ours [SMPL-X GT]", "fb_sprint": "Ours [SPRINT pose]",
         "fb_update25": "Ours + update, 25 % of video", "fb_update50": "Ours + update, 50 % of video", "fb_update100": "Ours + update, 100 % of video",
-        "lhm_facefix": "LHM", "lhmpp": "LHM++", "idol": "IDOL", "gart": "GART", "gaussianavatar": "GaussianAvatar", "exavatar_gtface": "ExAvatar [GT face]"}
+        "lhm_facefix": "LHM", "lhmpp": "LHM++", "idol": "IDOL", "gart": "GART", "gaussianavatar": "GaussianAvatar", "exavatar_gtface": "ExAvatar [GT face]",
+        "fb_sprint_update100": "Ours + update, 100 % of video, SPRINT pose", "ft_gt": "Ours fine-tuned per subject [SMPL-X GT]",
+        "ft_update100": "Ours fine-tuned per subject + update [SMPL-X GT]", "ft_sprint_update100": "Ours fine-tuned per subject + update [SPRINT pose]"}
 DS = ["ubody", "peoplesnapshot", "neuman", "xhumans", "ubc"]
 DSN = {"ubody": "UBody", "peoplesnapshot": "People-Snapshot", "neuman": "NeuMan", "xhumans": "X-Humans", "ubc": "UBC-Fashion"}
 MET = ("psnr", "ssim", "lpips", "l1"); DEC = {"psnr": 2, "ssim": 3, "lpips": 3, "l1": 4}
@@ -83,7 +92,11 @@ def stats(vals):
 R = {m: {k: stats({c: S[m][c][k] for c in clips}) for k in MET} for m in ROWS} if clips else {}
 D = {}
 if clips:
-    for ref, rows in (("guava", [m for m in ROWS if m != "guava"]), ("fb_gt", ["fb_update25", "fb_update50", "fb_update100"])):
+    PAIRS = [("guava", [m for m in ROWS if m != "guava"]), ("fb_gt", ["fb_update25", "fb_update50", "fb_update100"])]
+    if a.amend6: PAIRS += [("fb_sprint", ["fb_sprint_update100"]), ("fb_update100", ["fb_sprint_update100"]), ("fb_gt", ["ft_gt"]),
+                           ("ft_gt", ["ft_update100"]), ("fb_update100", ["ft_update100"]), ("fb_sprint_update100", ["ft_sprint_update100"]),
+                           ("gart", ["ft_gt", "ft_update100", "ft_sprint_update100"])]
+    for ref, rows in PAIRS:
         for m in rows: D[(m, ref)] = {k: stats({c: S[m][c][k] - S[ref][c][k] for c in clips}) for k in MET}
 # ---- write
 COLS = [d for d in DSP] + [c for c in ("peoplesnapshot_std4", "neuman_std4") if clips and c in R["fb_gt"]["psnr"]] + ["all_clips", "mean_of_ds"]
@@ -115,9 +128,11 @@ with open(a.out_csv, "w", newline="") as f:
             for c, v in R[m][k].items(): w.writerow([m, c, k, *[f"{x:.6f}" for x in v]])
 # ---- paper table (PREREG amendment 1): cells PSNR / SSIM / LPIPS; bold = best photo-only row per metric and column
 if clips:
-    PH = ["guava", "fb_gt", "fb_sprint", "lhmpp", "lhm_facefix", "idol"]; UP = ["fb_update25", "fb_update50", "fb_update100"]
+    PH = ["guava", "fb_gt", "fb_sprint", "lhmpp", "lhm_facefix", "idol"]; UP = ["fb_update25", "fb_update50", "fb_update100"] + (A6_UP if a.amend6 else [])
     PN = {**NAME, "guava": "GUAVA (released)", "fb_gt": "GUAVA-FB, GT poses (ours)", "fb_sprint": "GUAVA-FB, SPRINT poses (ours, live)",
-          "fb_update25": "+ appearance update, 25 % of video", "fb_update50": "+ appearance update, 50 % of video", "fb_update100": "+ appearance update, 100 % of video"}
+          "fb_update25": "+ appearance update, 25 % of video", "fb_update50": "+ appearance update, 50 % of video", "fb_update100": "+ appearance update, 100 % of video", "fb_sprint_update100": "+ appearance update, 100 % of video, SPRINT poses (live)",
+          "ft_gt": "GUAVA-FB fine-tuned per subject, GT poses (ours)", "ft_update100": "GUAVA-FB fine-tuned per subject + update, GT poses (ours)",
+          "ft_sprint_update100": "GUAVA-FB fine-tuned per subject + update, SPRINT poses (ours)"}
     PC = DSP + ["all_clips", "mean_of_ds"]
     hd = {d: f"{DSN[d]} ({len(ids[d])})" for d in DSP}; hd.update({"all_clips": f"All clips ({len(clips)})", "mean_of_ds": "Mean of datasets"})
     FMT = {"psnr": "{:.2f}", "ssim": "{:.3f}", "lpips": "{:.4f}"}

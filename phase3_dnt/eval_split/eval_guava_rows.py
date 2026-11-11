@@ -30,7 +30,7 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-ap = argparse.ArgumentParser(); ap.add_argument("--row", required=True, choices=("fb_gt", "guava", "fb_sprint"))
+ap = argparse.ArgumentParser(); ap.add_argument("--row", required=True, choices=("fb_gt", "guava", "fb_sprint", "fb_sprint_update"))
 ap.add_argument("--clips", default=""); ap.add_argument("--sprint-iters", type=int, default=150)
 ap.add_argument("--fb-ckpt", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/runs/guava_fb_B30k/checkpoints/best.pt")
 ap.add_argument("--guava-ckpt", default=str(ROOT / "assets/GUAVA/checkpoints/best_160000.pt"))
@@ -54,6 +54,10 @@ ap.add_argument("--sprint-amp", action="store_true", help="experimental FP16 aut
 ap.add_argument("--host-camera-scalars", action="store_true", help="keep rasterizer dimensions/FOV scalars on CPU to avoid CUDA synchronization")
 ap.add_argument("--box-source", default="yolox", choices=("yolox", "mediapipe", "track"), help="PREREG phase 5: driving-frame person box (yolox = H1b/H1c path)")
 ap.add_argument("--box-margin", type=float, default=1.25, help="phase 5: margin on the landmark / keypoint box (mediapipe, track)")
+ap.add_argument("--upd-iters", type=int, default=60, help="fb_sprint_update: SPRINT refinement on each training frame (live worker: 60)")
+ap.add_argument("--upd-kp-thr", type=float, default=20.0, help="fb_sprint_update: accept a training frame iff keypoint error <= this (px at 1024) and the matte is non-empty")
+ap.add_argument("--upd-prior", type=float, default=2.0, help="fb_sprint_update: source prior of the mean fusion (fb_update100: 2)")
+ap.add_argument("--upd-max-frames", type=int, default=-1, help="fb_sprint_update: use at most N training frames after the source (-1 = all; 0 = self-check, must equal fb_sprint)")
 ap.add_argument("--dwpose-threads", type=int, default=0, help="DWPose onnxruntime threads (0 = SprintFitter's default, 16); bound it on a CPU-saturated host")
 a = ap.parse_args()
 if not a.fast_backend and a.dwpose_provider != 'CPUExecutionProvider':
@@ -68,7 +72,7 @@ if a.sprint_amp and not a.sprint_graph:
     ap.error('--sprint-amp requires --sprint-graph')
 SPLIT = json.loads(Path(a.split).read_text())
 E = Path(a.E)
-ROWNAME = a.name or (a.row + (f"_k{a.drive_iters}" if a.drive_iters else ""))
+ROWNAME = a.name or ((a.row + "100" if a.row == "fb_sprint_update" else a.row) + (f"_k{a.drive_iters}" if a.drive_iters else ""))
 OUT = E / "renders" / ROWNAME
 DATA = Path(a.data_root) if a.data_root else E / "data"
 LOCAL = Path("/dev/shm/ubx858_eval/renders") / ROWNAME                                               # written here, then one bulk copy per clip
@@ -76,7 +80,7 @@ clips = SPLIT["clips"]
 if a.clips: want = a.clips.split(","); clips = [c for c in clips if c["id"] in want]
 
 fitter = None
-if a.row == "fb_sprint":                                    # SPRINT first: it loads PEAR's packages, then purges them
+if a.row in ("fb_sprint", "fb_sprint_update"):              # SPRINT first: it loads PEAR's packages, then purges them
     fitter_file = 'sprint_fast_driving.py' if a.fast_backend else 'sprint_avatar_fit.py'
     spec = importlib.util.spec_from_file_location("sprint_avatar_fit", ROOT / 'phase3_dnt' / fitter_file)
     SAF = importlib.util.module_from_spec(spec); spec.loader.exec_module(SAF)
@@ -114,6 +118,9 @@ else:
     cfg, inf, ren, _ = F.setup_a20(dev); CK = load_ckpt(inf, ren, a.fb_ckpt)
 inf.eval(); ren.eval()
 print("model", CK, GPU, flush=True)
+if a.row == "fb_sprint_update":                                                                    # PREREG ext. amendment 6 (a)
+    sys.path.insert(0, str(HERE.parent / "worker6")); import uv_fusion as UF; import uv_update_fns as UPD   # noqa: E401
+    FRAME_FEATS, DECODE, MEANFUSION = UPD.make(inf, cfg, dev, F, UF)
 
 
 class FBDataRel(F.FBData):
@@ -154,7 +161,10 @@ def original_frames(c, frames):
     if c["dataset"] == "bedlam2": return cb.decode_frames(c["job"], c["seq"], frames)
     if c["dataset"] in ("peoplesnapshot", "ubc"):                                                    # PublicBench / extended: originals saved by the converter
         b = E / "base" / c["dataset"] / c["clip"] / "orig"
-        return {f: cv2.cvtColor(cv2.imread(str(b / f"frame_{f:06d}.png")), cv2.COLOR_BGR2RGB) for f in frames}
+        out = {f: cv2.cvtColor(cv2.imread(str(b / f"frame_{f:06d}.png")), cv2.COLOR_BGR2RGB) for f in frames if (b / f"frame_{f:06d}.png").exists()}
+        miss = [f for f in frames if f not in out]
+        if miss: out.update(video_frames(c, miss))                                                   # training frames (update rows): from the video
+        return out
     if c["dataset"] == "neuman":
         import convert_publicbench as PB; return PB.neuman_images(c["clip"], frames)
     if c["dataset"] == "xhumans":                                                                    # PublicBench-v2: the X-Humans color pngs
@@ -168,6 +178,24 @@ def original_frames(c, frames):
     return out
 
 
+def video_frames(c, want):
+    """original frames not saved under base/orig (the training frames): the converters' readers, re-implemented: UBC-Fashion =
+    convert_ext.ubc_frames (cv2 sequential read of the mp4); People-Snapshot = convert_publicbench.ps_frames (sequential read +
+    cv2.undistort with the split's K / camera_k) from the extracted dataset in PS_ROOT (no zip / password here)."""
+    ws = set(want); out = {}; i = 0
+    if c["dataset"] == "ubc": cap = cv2.VideoCapture(c["video"]); K = None
+    else:
+        s = c["clip"]; cap = cv2.VideoCapture(str(PS_ROOT / s / f"{s}.mp4"))
+        K = np.asarray(c["camera"]["K"], np.float64); dist = np.asarray(c["camera"]["dist"], np.float64)
+    while len(out) < len(ws):
+        ok, fr = cap.read()
+        if not ok: break
+        if i in ws: out[i] = cv2.cvtColor(fr if K is None else cv2.undistort(fr, K, dist), cv2.COLOR_BGR2RGB)
+        i += 1
+    cap.release(); assert len(out) == len(ws), (c["id"], len(out), len(ws)); return out
+
+
+PS_ROOT = Path("/dev/shm/ubx858_eval/finalbench_ext_tmp/ps_raw/people_snapshot_public")
 _ANN, _MAPS = {}, {}
 
 
@@ -284,6 +312,29 @@ def main():
                 src = to_dev(F.collate1(fbd.source_info(0, key)), dev)
             if not warm: build(src); warm = True
             av, ms = build(src)
+            if a.row == "fb_sprint_update":                                                       # amendment 6 (a): SPRINT-pose update
+                tu0 = time.perf_counter(); f0 = FRAME_FEATS(src); fus = MEANFUSION(f0, prior=a.upd_prior)
+                rk = [k for k in fj["recon"] if k != fj["source"]]
+                if a.upd_max_frames >= 0: rk = rk[:a.upd_max_frames]
+                rfr = [int(k.split("_")[1]) for k in rk]; ulog, ubox, ori_r = [], rs["box"], {}
+                for j, (k, f) in enumerate(zip(rk, rfr)):
+                    if f not in ori_r: ori_r = original_frames(c, rfr[j:j + 200])                   # originals in chunks of 200 (RAM)
+                    r_, fb_ = fit_track(fitter, ori_r[f], ubox, iters=a.upd_iters, shape_lock=shp); ubox = r_["box"]; dg = r_["diag"]
+                    kpe = float(dg["kp_err_px1024_after"]); ok = (not dg["matte_empty"]) and np.isfinite(kpe) and kpe <= a.upd_kp_thr
+                    e = {"key": k, "kp_err": round(kpe, 2), "matte_empty": bool(dg["matte_empty"]), "accepted": bool(ok), "fallback": fb_}
+                    if ok:
+                        with tempfile.TemporaryDirectory(dir="/dev/shm") as td2:
+                            SAF.write_tracked(Path(td2), name, k, r_)
+                            cl2 = F.load_clips_parallel([(td2, None, True)], workers=1); fb2 = F.FBData(cfg, cl2)
+                            b2 = to_dev(F.collate1(fb2.source_info(0, k)), dev)
+                        e["n_texels"] = fus.add(FRAME_FEATS(b2))
+                    ulog.append(e)
+                n_acc = sum(e["accepted"] for e in ulog)
+                if n_acc: av = DECODE(src, f0, fus.uvmap())
+                info.update(update_settings={"rule": "fb_update100 mean", "prior": a.upd_prior, "thr": 0, "cap": 0, "upd_iters": a.upd_iters,
+                                             "kp_thr": a.upd_kp_thr, "max_frames": a.upd_max_frames},
+                            n_train_offered=len(rk), n_train_accepted=n_acc, update_ms=(time.perf_counter() - tu0) * 1000, update_frames=ulog, **fus.coverage())
+                del ori_r
             info["recon_ms"] = ms + rs["times"]["total"] * 1000; info["recon_ms_model"] = ms; info["sprint_fit_ms"] = rs["times"]["total"] * 1000
             info["sprint_fit_times_s"] = rs["times"]; info["recon_input"] = "first frame (SPRINT fit, own box / crop / matte)"
             info['gaussians'] = int(av._smplx_xyz.shape[1] + av._uv_local_xyz.shape[1])
@@ -343,7 +394,7 @@ def timing():
     sel = [x for pair in zip(ub, b2) for x in pair][:a.timing]; per = []
     for c in sel:
         ds, name = c["dataset"], c["clip"]; fj = json.loads((E / "base" / ds / name / "frames.json").read_text()); cdir = DATA / ds / name
-        if a.row == "fb_sprint":
+        if a.row in ("fb_sprint", "fb_sprint_update"):
             ori = original_frames(c, [c["source_frame"]])[c["source_frame"]]
             for _ in range(3): fitter.fit(ori)
             tf = []
