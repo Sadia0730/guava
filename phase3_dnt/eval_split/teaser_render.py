@@ -22,6 +22,9 @@ ap.add_argument("--E", required=True); ap.add_argument("--clip", required=True);
 ap.add_argument("--angles", default="0,45,90,135,180,225,270,315"); ap.add_argument("--anim", default="0.25,0.5,0.75")
 ap.add_argument("--back-key", default="", help="test frame to also render with a zoomed camera (amendment 5): photo-only, updated, GT")
 ap.add_argument("--zoom", type=float, default=2.0)
+ap.add_argument("--anim-keys", default="", help="test frames to render (photo-only, updated, GT) instead of the --anim fractions")
+ap.add_argument("--arch-key", default="", help="architecture-figure assets (fig_architecture.py): this test frame as the driving frame -> <out>/arch/")
+ap.add_argument("--arch-views", default="70,125,175", help="architecture assets: training frames whose view change from the source is closest to these (deg)")
 ap.add_argument("--fb-ckpt", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/runs/guava_fb_B30k/checkpoints/best.pt")
 a = ap.parse_args()
 E = Path(a.E); ds, name = a.clip.split("/"); OUT = Path(a.out) / ds / name; OUT.mkdir(parents=True, exist_ok=True)
@@ -114,6 +117,81 @@ def orbit_cam(t, V, deg):
     return to_dev(F.collate1(F.render_cam_params(w.cpu(), torch.linalg.inv(w).cpu(), itf, 512)), dev)
 
 
+def pca_rgb(x, w=None):
+    """x: N x C features -> N x 3 in [0, 1] (first 3 principal components, robust range); w: rows used to fit (bool)."""
+    xf = x[w] if w is not None else x; mu = xf.mean(0, keepdim=True); _, _, V = torch.pca_lowrank(xf - mu, q=3, center=False)
+    y = (x - mu) @ V[:, :3]; lo = torch.quantile((xf - mu) @ V[:, :3], 0.02, dim=0); hi = torch.quantile((xf - mu) @ V[:, :3], 0.98, dim=0)
+    return ((y - lo) / (hi - lo).clamp_min(1e-6)).clamp(0, 1)
+
+
+@torch.no_grad()
+def mesh_rgba(batch, tint=(0.80, 0.84, 0.90)):
+    """shaded SMPL-X mesh of a record in its own camera (the inferer's mesh rasteriser): RGBA at the raster size."""
+    itf = F.batch_invtanfov(batch, 1, dev); V = inf.ehm(batch["smplx_coeffs"], batch["flame_coeffs"])["vertices"]
+    p2f, _ = F.render_fragments_fb(inf.mesh_renderer, V, batch["w2c_cam"], itf); pf = p2f[0, ..., 0] if p2f.dim() == 4 else p2f[0]
+    v0, v1, v2 = V[0][FACES[:, 0]], V[0][FACES[:, 1]], V[0][FACES[:, 2]]
+    n = Fn.normalize(torch.linalg.cross(v1 - v0, v2 - v0, dim=-1), dim=-1) @ batch["w2c_cam"][0, :3, :3].T
+    L = Fn.normalize(torch.tensor([0.3, -0.4, -1.0], device=dev), dim=0); sh = (0.30 + 0.70 * (n @ L).abs()).clamp(0, 1)
+    ok = pf >= 0; img = sh[(pf.clamp_min(0) % NF).long()][None] * torch.tensor(tint, device=dev)[:, None, None]
+    return torch.cat([img * ok[None], ok[None].float()], 0), V
+
+
+@torch.no_grad()
+def arch_assets(fbd, fj, recs, src, f0, avs):
+    """images for the architecture figure, all from the model's own tensors (nothing scored)."""
+    from scipy.spatial.transform import Rotation as Rot
+    A = OUT / "arch"; A.mkdir(exist_ok=True); k = a.arch_key
+    m, Vs = mesh_rgba(src); save(m, A / "mesh_source.png")
+    # image features F1 (PCA -> RGB) inside the matte
+    f1 = f0["d"]["f_map1"][0]; C, h, w = f1.shape; mk = Fn.interpolate(src["image"].amax(1, keepdim=True), (h, w), mode="bilinear")[0, 0] > 0.02
+    rgb = pca_rgb(f1.reshape(C, -1).T, mk.reshape(-1)).T.reshape(3, h, w)
+    save(torch.cat([rgb * mk[None], mk[None].float()], 0), A / "feat_pca.png")
+    # per-vertex features (PCA) at their projected positions, source camera
+    itf = F.batch_invtanfov(src, 1, dev); px, _ = F.project_px(Vs[:, :f0["vfeat"].shape[0]], src["w2c_cam"], itf, size=512)
+    np.savez(A / "verts.npz", px=px[0].cpu().numpy(), rgb=pca_rgb(f0["vfeat"]).cpu().numpy())
+    # the avatar as splats (Gaussian scales x 0.35, first 3 feature channels = the coarse colour), source pose
+    ts = to_dev(F.collate1(fbd.target_info(0, fj["source"])), dev)
+    for kind in ("photo", "update"):
+        torch.manual_seed(0); g = avs[kind](ts); rr = ren.forward_raw(g, ts["render_cam_params"], bg=0.0, scaling_modifier=0.35)["raw_features"][0, :3].clamp(0, 1)
+        g1 = dict(g); g1["features_color"] = torch.ones_like(g["features_color"])
+        al = ren.forward_raw(g1, ts["render_cam_params"], bg=0.0, scaling_modifier=0.35)["raw_features"][0, :1].clamp(0, 1)
+        save(torch.cat([rr, al], 0), A / f"splats_{kind}.png")
+    # magnified splats (true zoomed camera on the source crop; Gaussian scales x 0.4) for the "3D Gaussians" inset
+    _, _, tm = fbd.info(0, fj["source"]); ys, xs = np.nonzero(tm[0].numpy() > 0.5)
+    for nm, fy, fac in (("chest", 0.21, 8.0), ("face", 0.065, 8.0)):
+        cen = (float(np.median(xs)), float(ys.min() + fy * (ys.max() - ys.min())))
+        tz = to_dev(F.collate1(fbd.target_info_zoom(0, fj["source"], factor=fac, center=cen, min_cover=0.0)), dev)
+        torch.manual_seed(0); g = avs["photo"](tz); g1 = dict(g); g1["features_color"] = torch.ones_like(g["features_color"])
+        for sc, tag in ((0.4, "splat"), (1.0, "full")):
+            rr = ren.forward_raw(g, tz["render_cam_params"], bg=0.0, scaling_modifier=sc)["raw_features"][0, :3].clamp(0, 1)
+            al = ren.forward_raw(g1, tz["render_cam_params"], bg=0.0, scaling_modifier=sc)["raw_features"][0, :1].clamp(0, 1)
+            save(torch.cat([rr, al], 0), A / f"zoom_{nm}_{tag}.png")
+    # driving frame: GT crop, posed mesh, coarse feature render (first 3 of 32 channels), refined output
+    t = to_dev(F.collate1(fbd.target_info(0, k)), dev); save(torch.cat([t["image"][0], t["mask"][0][:1]], 0), A / f"drive_gt_{k}.png")
+    save(mesh_rgba(t)[0], A / f"drive_mesh_{k}.png")
+    torch.manual_seed(0); g = avs["photo"](t); raw = ren.forward_raw(g, t["render_cam_params"], bg=0.0)["raw_features"][0]
+    g1 = dict(g); g1["features_color"] = torch.ones_like(g["features_color"]); al = ren.forward_raw(g1, t["render_cam_params"], bg=0.0)["raw_features"][0, :1].clamp(0, 1)
+    save(torch.cat([raw[:3].clamp(0, 1), al], 0), A / f"drive_coarse_{k}.png")
+    C2 = raw.shape[0]; pr = pca_rgb(raw[3:].reshape(C2 - 3, -1).T, (al.reshape(-1) > 0.5)).T.reshape(3, *raw.shape[1:])
+    save(torch.cat([pr * (al > 0.05), al], 0), A / f"drive_featpca_{k}.png")
+    save(render_rgba(avs["photo"], t, t["render_cam_params"]), A / f"drive_out_{k}.png")
+    save(render_rgba(avs["update"], t, t["render_cam_params"]), A / f"drive_out_update_{k}.png")
+    # streaming update: three training frames by view change; their UV observations (RGB channels) and texel weights
+    sm_ = np.load(E / "base" / ds / name / "smplx2020.npz"); idx = {str(x): i for i, x in enumerate(sm_["keys"])}
+    R = Rot.from_rotvec(sm_["global_orient"]).as_matrix(); Rs = R[idx[fj["source"]]]
+    rk = [x for x in fj["recon"] if x != fj["source"] and x in recs and x in idx]
+    view = {x: float(np.degrees(np.linalg.norm(Rot.from_matrix(R[idx[x]] @ Rs.T).as_rotvec()))) for x in rk}; picks = []
+    for deg in [float(x) for x in a.arch_views.split(",")]:
+        x = min((y for y in rk if y not in picks), key=lambda y: abs(view[y] - deg)); picks.append(x)
+        b = to_dev(F.collate1(fbd.source_info(0, x)), dev); f = frame_feats(b); tt = fbd.target_info(0, x)
+        save(torch.cat([tt["image"], tt["mask"][:1]], 0), A / f"stream_frame_{x}.png")
+        save(torch.cat([f["uv"][:3].clamp(0, 1), f["vis"][None].float()], 0), A / f"stream_uv_{x}.png")
+        save(torch.cat([f["facing"][None].expand(3, -1, -1), f["vis"][None].float()], 0), A / f"stream_w_{x}.png")
+        save(mesh_rgba(b)[0], A / f"stream_mesh_{x}.png")
+    save(torch.cat([f0["uv"][:3].clamp(0, 1), f0["vis"][None].float()], 0), A / "uv_source.png")
+    (A / "arch.json").write_text(json.dumps({"drive": k, "stream": picks, "view": {x: view[x] for x in picks}}, indent=1))
+
+
 def main():
     cdir = E / "data" / ds / name; fj = json.loads((E / "base" / ds / name / "frames.json").read_text())
     cl = F.load_clips_parallel([(str(cdir), None, True)], workers=1); fbd = F.FBData(cfg, cl); recs = set(cl[0]["recs"])
@@ -130,8 +208,8 @@ def main():
         rcp = orbit_cam(ts, f0["V"], deg)
         for kind, av in avs.items(): save(render_rgba(av, ts, rcp), OUT / f"orbit_{kind}_{int(deg):03d}.png")
     test = fj["test"]; anim = []
-    for fr in [float(x) for x in a.anim.split(",")]:
-        k = test[min(len(test) - 1, int(round(fr * (len(test) - 1))))]; anim.append(k)
+    for k in (a.anim_keys.split(",") if a.anim_keys else [test[min(len(test) - 1, int(round(float(x) * (len(test) - 1))))] for x in a.anim.split(",")]):
+        anim.append(k)
         t = to_dev(F.collate1(fbd.target_info(0, k)), dev)
         save(render_rgba(avs["photo"], t, t["render_cam_params"]), OUT / f"anim_photo_{k}.png")
         save(render_rgba(avs["update"], t, t["render_cam_params"]), OUT / f"anim_update_{k}.png")
@@ -147,6 +225,7 @@ def main():
         t = to_dev(F.collate1(fbd.target_info(0, a.back_key)), dev)
         for kind in ("photo", "update"): save(render_rgba(avs[kind], t, t["render_cam_params"]), OUT / f"back_full_{kind}_{a.back_key}.png")
         save(torch.cat([t["image"][0], t["mask"][0][:1]], 0), OUT / f"back_full_gt_{a.back_key}.png")
+    if a.arch_key: arch_assets(fbd, fj, recs, src, f0, avs)
     img = sorted((E / "base" / ds / name / "images").glob(fj["source"] + ".*"))
     if img: shutil.copyfile(img[0], OUT / ("source" + img[0].suffix))
     for kk, uv in (("source", f0["uv"]), ("fused", uvmap)):

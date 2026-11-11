@@ -4,7 +4,7 @@
      (eval_guava_rows --row fb_gt) -> ft_update100 (fusion_gt_row, fb_update100's rule) -> ft_sprint_update100
      (eval_guava_rows --row fb_sprint_update). Fine-tune log (time, settings) -> O/reports/subject_ft/<root>/<clip>.json.
 A job is done only when check_renders.py finds every test render of its rows (some failures exit 0). Retries: a job that ended
-with its output missing is re-queued under "<id>#retryN" (at most 2), replacing the original; settings and outputs unchanged.
+with its output missing is re-queued under "<id>#retryN" (at most 4; 2 until RUNLOG 138: out-of-memory on shared GPUs), replacing the original; settings and outputs unchanged.
 Usage: python make_a6_jobs.py --steps N [--out /dev/shm/ubx858_eval/a6_queue/jobs.jsonl]"""
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ if QL.exists():
         if len(w) >= 7 and w[2] == "END": b = w[3].split("#")[0]; fails[b] = fails.get(b, 0) + 1
 byid = {j["id"]: i for i, j in enumerate(jobs)}
 for b, nf in fails.items():
-    if b in byid and nf <= 2 and not Path(jobs[byid[b]]["done"]).exists(): jobs[byid[b]] = dict(jobs[byid[b]], id=f"{b}#retry{nf}")
+    if b in byid and nf <= 4 and not Path(jobs[byid[b]]["done"]).exists(): jobs[byid[b]] = dict(jobs[byid[b]], id=f"{b}#retry{nf}")
 OUT.parent.mkdir(parents=True, exist_ok=True); tmp = OUT.with_suffix(".tmp")
 tmp.write_text("".join(json.dumps(j) + "\n" for j in jobs)); tmp.replace(OUT)
 print(len(jobs), "jobs:", len(sp), "SPRINT-update chunks,", len(ft), "fine-tune clips;", sum(Path(j["done"]).exists() for j in jobs), "done")
