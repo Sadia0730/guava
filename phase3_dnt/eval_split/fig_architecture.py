@@ -116,9 +116,9 @@ def uv_tile(path, x, y, w, h, **kw):
 
 
 # ------------------------------------------------------------------------------------------------ composite helpers
-def box(x, y, w, h, title, sub="", k="a", ts=6.6, ss=5.5):
+def box(x, y, w, h, title, sub="", k="a", ts=6.6, ss=5.5, ty=None):
     RECT(x, y, w, h, PAL[k][0], PAL[k][1], 0.8)
-    T(x + w / 2, y + h / 2 + (0.06 if sub else 0), title, size=ts, color=INK, va="center", bold=True)
+    T(x + w / 2, y + h / 2 + (0.06 if sub else 0) if ty is None else ty, title, size=ts, color=INK, va="center", bold=True)
     if sub: T(x + w / 2, y + h / 2 - 0.075, sub, size=ss, va="center", ls=1.0)
 
 
@@ -223,18 +223,18 @@ T(ox + 1.5 * (TW + 0.06) + TW / 2, yb0 - 0.025, "other frames")
 
 # ------------------------------------------------------------------------------------------------ (c) streaming update
 yc0 = YC0 + 0.20; ycc = yc0 + TH / 2
-fan([A / f"stream_frame_{k}.png" for k in sk], 0.10, yc0 + 0.07, 0.28, TH - 0.07, 0.12, "straight"); T(0.10 + 0.26, yc0 - 0.03, "video frames")
-SEG([(0.64, ycc), (0.74, ycc)])
-gx0, gw, gh = 0.74, 0.80, 0.74; RECT(gx0, ycc - gh / 2, gw, gh, PAL["c"][0], PAL["c"][1], 0.8)
-T(gx0 + gw / 2, ycc + gh / 2 - 0.085, "Frame gates", size=6.6, color=INK, va="center", bold=True)
-for i, s_ in enumerate(("sharp image", "pose fits keypoints", "surface faces camera", "not an outlier")):
-    yy = ycc + 0.13 - i * 0.125; T(gx0 + 0.065, yy, "✓", size=5.6, color=GREEN, va="center", bold=True, family="DejaVu Sans"); T(gx0 + 0.12, yy, s_, size=5.5, color=INK, ha="left", va="center")
-SEG([(gx0 + gw + 0.02, ycc), (gx0 + gw + 0.12, ycc)]); ux = gx0 + gw + 0.12
-fan([A / f"stream_uv_{k}.png" for k in sk], ux, yc0 + 0.23, 0.42, 0.42, 0.10, "uv"); T(ux + 0.31, yc0 + 0.075, "UV observations $U_t$,\nweights $w_t$", size=5.8)
-SEG([(ux + 0.65, ycc), (ux + 0.75, ycc)]); sx = ux + 0.88
+fan([A / f"stream_frame_{k}.png" for k in sk], 0.10, yc0 + 0.07, 0.30, TH - 0.07, 0.12, "straight"); T(0.10 + 0.27, yc0 - 0.03, "video frames")
+SEG([(0.66, ycc), (0.77, ycc)])
+ex, ew, eh = 0.78, 0.74, 0.56; box(ex, ycc - eh / 2, ew, eh, "Encode + unwrap", "", k="a", ts=6.4, ty=ycc + eh / 2 - 0.105)             # the creation stage's encoder + inverse texture mapping, per frame
+T(ex + ew / 2, ycc + 0.06, "DINOv2 features,\nunwrapped to UV\nwith each frame's pose", size=5.4, va="top", ls=1.05)
+SEG([(ex + ew + 0.02, ycc), (ex + ew + 0.12, ycc)]); ux = ex + ew + 0.12
+fan([A / f"stream_uv_{k}.png" for k in sk], ux, yc0 + 0.22, 0.44, 0.44, 0.10, "uv")
+T(ux + 0.32, yc0 + 0.07, "UV observations $U_t$,\nweighted by view angle", size=5.8)
+fw = 0.56; dw = 0.56; dx2 = gx - dw / 2; fx2 = dx2 - 0.13 - fw; sx = (ux + 0.68 + fx2) / 2
+SEG([(ux + 0.68, ycc), (sx - 0.14, ycc)])
 ELL(sx, ycc, 0.25, 0.25, fc=PAL["c"][0], ec=OE, lw=0.9, z=3.0); T(sx, ycc - 0.005, "$\\Sigma$", size=8.6, color=INK, va="center")
 T(sx, ycc + 0.16, "weighted\nmean", size=5.6, va="bottom", color=INK); T(sx, ycc - 0.16, "over all\nframes", size=5.6)
-fw = 0.54; dw = 0.56; dx2 = gx - dw / 2; fx2 = dx2 - 0.13 - fw; SEG([(sx + 0.135, ycc), (fx2 - 0.02, ycc)])
+SEG([(sx + 0.135, ycc), (fx2 - 0.02, ycc)])
 fused = np.asarray(Image.open(D / "uv_rgb_fused.png").convert("RGB")).astype(np.float32) / 255; m_ = fused.max(-1, keepdims=True) > 0.004
 IMG(np.where(m_, fused, np.asarray(DARK, np.float32)), fx2, ycc - fw / 2, fw, fw, ec=OE, lw=0.9); T(fx2 + fw / 2, ycc - fw / 2 - 0.025, "fused UV map", size=5.8, color=OE, bold=True)
 SEG([(fx2 + fw + 0.02, ycc), (dx2 - 0.01, ycc)]); unet(dx2, ycc, dw, 0.32); T(gx, ycc, "UV decoder", size=5.7, color=INK, va="center", bold=True)
