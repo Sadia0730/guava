@@ -28,6 +28,8 @@ ap = argparse.ArgumentParser(); ap.add_argument("--rows", required=True); ap.add
 ap.add_argument("--renders", required=True); ap.add_argument("--out", required=True); ap.add_argument("--name", default="fig_teaser")
 ap.add_argument("--zoom", default="1.4"); ap.add_argument("--width", type=float, default=6.875)
 ap.add_argument("--no-rim-trim", action="store_true"); ap.add_argument("--dpi", type=int, default=600)
+ap.add_argument("--cands", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/reports/paper_figures/teaser_candidates.json",
+                help="teaser_candidates.py output: per clip, the mean PSNR gain of the update on its test frames seen from behind (>= 135 deg)")
 a = ap.parse_args(); RR = Path(a.renders); E = Path(a.E); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 plt.rcParams.update({"font.family": "STIXGeneral", "mathtext.fontset": "stix", "font.size": 7, "pdf.fonttype": 42})
 INK, MUTED, ACC, ACC_F, PANEL, LINE = "#1f1f1f", "#5a5a5a", "#D9771E", "#FDF1E6", "#F2F5F9", "#D9DEE5"
@@ -77,12 +79,13 @@ def fit(t, w_in, h_in):
     return np.asarray(Image.fromarray((np.clip(t, 0, 1) * 255).round().astype(np.uint8)).resize((W, H), Image.LANCZOS))
 
 
+GAIN = {c["clip"]: c["gain_back_mean"] for c in json.loads(Path(a.cands).read_text())}
 rows = []
 for r in a.rows.split(","):
     cid, bkey, pkey = r.split(":"); ds, clip = cid.split("/"); d = RR / ds / clip; run = json.loads((d / "run.json").read_text())
     base = E / "base" / ds / clip; fj = json.loads((base / "frames.json").read_text()); z = f"zoom{a.zoom}"
     front = render_on(rgba(d / "orbit_photo_000.png")); pose = render_on(rgba(d / f"anim_photo_{pkey}.png"))
-    rows.append({"cov": (run["coverage_photo"], run["coverage_after_update"]),
+    rows.append({"gain": GAIN[cid],
                  "narrow": [source_photo(base, fj["source"], (1, 1, 1)), crop_body(*front), crop_body(*pose)],
                  "square": [render_on(rgba(d / f"back_{z}_photo_{bkey}.png"))[0], render_on(rgba(d / f"back_{z}_update_{bkey}.png"))[0],
                             photo_on(rgba(d / f"back_{z}_gt_{bkey}.png"))[0]]})
@@ -116,8 +119,7 @@ for ri, r in enumerate(rows):
                                  mutation_scale=8, lw=1.5, color=ACC, zorder=3))
     ax.text((xs[0] + nw + xs[1]) / 2 - 0.02, ym + 0.055, "RAGA", ha="center", va="bottom", fontsize=6.8, weight="bold", color=ACC)
     ax.text((xs[0] + nw + xs[1]) / 2 - 0.02, ym - 0.06, "feed-\nforward", ha="center", va="top", fontsize=5.6, style="italic", color=MUTED, linespacing=0.95)
-    c0, c1 = r["cov"]
-    ax.text(xs[4] + sq / 2, y + 0.045, f"body surface seen  {c0 * 100:.0f}% $\\rightarrow$ {c1 * 100:.0f}%", ha="center", va="bottom", fontsize=6.2,
+    ax.text(xs[4] + sq / 2, y + 0.045, f"back views:  +{r['gain']:.1f} dB PSNR", ha="center", va="bottom", fontsize=6.4,
             color=ACC, weight="bold", zorder=4, bbox=dict(boxstyle="round,pad=0.18", fc="white", ec=ACC, lw=0.5, alpha=0.92))
 fig.savefig(OUT / f"{a.name}.pdf", dpi=a.dpi); fig.savefig(OUT / f"{a.name}.png", dpi=300)
 print("wrote", OUT / f"{a.name}.pdf", f"{a.width:.2f} x {Hfig:.2f} in")

@@ -20,6 +20,8 @@ from scipy import ndimage                                                       
 ap = argparse.ArgumentParser(); ap.add_argument("--E", required=True); ap.add_argument("--clip", required=True)
 ap.add_argument("--renders", required=True); ap.add_argument("--out", required=True); ap.add_argument("--name", default="fig_architecture")
 ap.add_argument("--back-key", required=True); ap.add_argument("--zoom", default="1.4"); ap.add_argument("--dpi", type=int, default=600)
+ap.add_argument("--cands", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/reports/paper_figures/teaser_candidates.json",
+                help="teaser_candidates.py output: mean PSNR gain of the update on the clip's back-view test frames")
 a = ap.parse_args(); ds, clip = a.clip.split("/"); D = Path(a.renders) / ds / clip; A = D / "arch"; E = Path(a.E)
 OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True); meta = json.loads((A / "arch.json").read_text()); run = json.loads((D / "run.json").read_text())
 plt.rcParams.update({"font.family": "STIXGeneral", "mathtext.fontset": "stix", "font.size": 6.4, "pdf.fonttype": 42})
@@ -106,10 +108,11 @@ def fan(paths, x, y, w, h, dx, kind, ec=GE):
 
 # ================================================================================================ bands
 YA0, YA1 = 2.60, 3.95; YB0, YB1 = 1.36, 2.53; YC0, YC1 = 0.03, 1.29
-band("a", YA0, YA1, "(a) Avatar creation", "one photo, one forward pass, 55 ms")
+band("a", YA0, YA1, "(a) Avatar creation", "one photo, one forward pass")
 band("b", YB0, YB1, "(b) Real-time animation", "every frame")
 band("c", YC0, YC1, "(c) Streaming appearance update", "background worker, no gradient steps")
 src_key = run["source"]; base = E / "base" / ds / clip; dk = meta["drive"]; sk = meta["stream"]
+gain = next((c["gain_back_mean"] for c in json.loads(Path(a.cands).read_text()) if c["clip"] == a.clip), None) if Path(a.cands).exists() else None
 TH = 0.80; TW = 0.35
 
 # ------------------------------------------------------------------------------------------------ (a) creation
@@ -141,47 +144,53 @@ uw = 0.38; uv_tile(A / "uv_source.png", vx0 - 0.02, yb - uw / 2, uw, uw)
 ux_ = vx0 + uw + 0.12; arrow((vx0 - 0.02 + uw + 0.02, yb), (ux_, yb)); unet(ux_, yb, 0.56, 0.32)
 ax.text(ux_ + 0.28, yb, "UV decoder", ha="center", va="center", fontsize=5.7, weight="bold", color=INK, zorder=6)
 label(ux_ + 0.30, yb - 0.175, "1 Gaussian / texel", size=5.6)
-label(vx0 - 0.02 + uw / 2 - 0.03, yb - uw / 2 - 0.02, f"{run['coverage_photo'] * 100:.0f} % visible", size=5.6)
+label(vx0 - 0.02 + uw / 2 - 0.04, yb - uw / 2 - 0.02, "UV map", size=5.6)
 # avatar
 xa = bx + 0.86 + 0.34; line([(bx + 0.86, yt), (xa - 0.12, yt)]); line([(ux_ + 0.56, yb), (xa - 0.12, yb)])
 line([(xa - 0.12, yb), (xa - 0.12, yt)]); arrow((xa - 0.12, yc), (xa, yc))
-body_tile(D / "orbit_photo_000.png", xa, ya, TW, TH, kind="render", ec=INK, lw=0.9); label(xa + TW / 2, ya - 0.025, "avatar $\\mathcal{G}_s$", color=INK, weight="bold")
-# magnifier: schematic 3D Gaussians
-mc = (xa + TW + 0.30, yc + 0.17); mr = 0.20; ax.add_patch(Circle(mc, mr, fc="white", ec=INK, lw=0.8, zorder=6))
-rng = np.random.default_rng(3); pal = ["#EADBC8", "#F3E7D8", "#D9C4A9", "#C9A27E", "#F7EFE4", "#B98A63", "#E2CDB3"]
-clipc = Circle(mc, mr - 0.008, transform=ax.transData)
-for _ in range(34):
-    r_, th = mr * 0.86 * np.sqrt(rng.random()), rng.random() * 2 * np.pi
-    e = Ellipse((mc[0] + r_ * np.cos(th), mc[1] + r_ * np.sin(th)), 0.05 + 0.09 * rng.random(), 0.03 + 0.05 * rng.random(), angle=rng.random() * 180,
-                fc=pal[rng.integers(len(pal))], ec="#8a6a4a", lw=0.25, alpha=0.85, zorder=6.2); ax.add_patch(e); e.set_clip_path(clipc)
-line([(xa + TW * 0.72, yc + 0.10), (mc[0] - mr * 0.92, mc[1] - 0.03)], color=INK, lw=0.5, z=5.5)
+body_tile(D / "orbit_photo_000.png", xa, ya, TW, TH, kind="render", ec=INK, lw=0.9); label(xa + TW / 2 + 0.06, ya - 0.075, "avatar $\\mathcal{G}_s$", color=INK, weight="bold", ha="left", va="center")
+# magnifier: schematic 3D Gaussians (crisp, opaque, a few sizes and orientations)
+mc = (xa + TW + 0.36, yc + 0.02); mr = 0.27; ax.add_patch(Circle(mc, mr, fc="white", ec=INK, lw=0.9, zorder=6))
+rng = np.random.default_rng(11); pal = [("#F1E4D2", "#B79A78"), ("#E6D2B8", "#A88B66"), ("#D8BC98", "#967650"), ("#B98A63", "#7C5636"), ("#8A5A3C", "#55331D"), ("#F7EEE2", "#C2AA8C")]
+clipc = Circle(mc, mr - 0.012, transform=ax.transData); pts = []
+for _ in range(4000):
+    r_, th = mr * 0.80 * np.sqrt(rng.random()), rng.random() * 2 * np.pi; q = (mc[0] + r_ * np.cos(th), mc[1] + r_ * np.sin(th))
+    if all((q[0] - o[0]) ** 2 + (q[1] - o[1]) ** 2 > 0.112 ** 2 for o in pts): pts.append(q)
+for j, q in enumerate(pts):
+    fc_, ec_ = pal[j % len(pal)]; wd, ht, ang = 0.115 + 0.05 * rng.random(), 0.052 + 0.03 * rng.random(), rng.random() * 180
+    e = Ellipse(q, wd, ht, angle=ang, fc=fc_, ec=ec_, lw=0.45, zorder=6.2); ax.add_patch(e); e.set_clip_path(clipc)
+    h_ = Ellipse((q[0] - 0.012 * np.cos(np.radians(ang)), q[1] + 0.008), wd * 0.42, ht * 0.38, angle=ang, fc="white", ec="none", alpha=0.55, zorder=6.3); ax.add_patch(h_); h_.set_clip_path(clipc)
+line([(xa + TW * 0.72, yc + 0.10), (mc[0] - mr * 0.93, mc[1] + 0.05)], color=INK, lw=0.5, z=5.5)
 ax.add_patch(Circle((xa + TW * 0.66, yc + 0.10), 0.03, fc="none", ec=INK, lw=0.6, zorder=5.6))
-label(mc[0] + mr + 0.06, mc[1] + 0.08, "$\\approx$207k 3D Gaussians", size=6.2, color=INK, ha="left", va="center", weight="bold")
-label(mc[0] + mr + 0.06, mc[1] - 0.075, "position, scale, rotation,\nopacity, 32-d feature", size=5.6, ha="left", va="center")
-label(xa + TW + 0.12, ya + 0.20, "bound to the SMPL-X surface,\nanimatable by skinning", size=5.6, ha="left", va="center")
+label(mc[0] + mr + 0.08, mc[1] + 0.085, "$\\approx$207k 3D Gaussians", size=6.4, color=INK, ha="left", va="center", weight="bold")
+label(mc[0] + mr + 0.08, mc[1] - 0.075, "position, scale, rotation,\nopacity, 32-d feature", size=5.8, ha="left", va="center")
 # legend
-lx, ly = 5.55, YA1 - 0.34
-for i, (fc, ec, s) in enumerate(((GF, GE, "inherited from GUAVA"), (OF, OE, "ours (new or changed)"))):
+lx, ly = 5.62, YA1 - 0.30
+for i, (fc, ec, s_) in enumerate(((GF, GE, "inherited from GUAVA"), (OF, OE, "ours (new or changed)"))):
     ax.add_patch(FancyBboxPatch((lx, ly - i * 0.19), 0.17, 0.11, boxstyle="round,pad=0,rounding_size=0.025", lw=0.8, ec=ec, fc=fc, zorder=3))
-    label(lx + 0.23, ly - i * 0.19 + 0.055, s, size=6.0, color=INK, ha="left", va="center")
+    label(lx + 0.23, ly - i * 0.19 + 0.055, s_, size=6.0, color=INK, ha="left", va="center")
 ax.text(lx + 0.085, ly - 0.38 + 0.055, "❄", ha="center", va="center", fontsize=7, color="#3F7FBF", family="DejaVu Sans", zorder=6)
 label(lx + 0.23, ly - 0.38 + 0.055, "frozen weights", size=6.0, color=INK, ha="left", va="center")
-line([(lx, ly - 0.57 + 0.055), (lx + 0.17, ly - 0.57 + 0.055)], color=OE, lw=1.1, ls=(0, (3, 2)))
-label(lx + 0.23, ly - 0.57 + 0.055, "updated avatar swapped in", size=6.0, color=INK, ha="left", va="center")
 
-# ------------------------------------------------------------------------------------------------ (b) animation
-yb0 = YB0 + 0.185; ybc = yb0 + TH / 2
+# ------------------------------------------------------------------------------------------------ (b) animation: the avatar spine is x = gx
+gx = xa + TW / 2; yb0 = YB0 + 0.185; ybc = yb0 + TH / 2; SW = 0.70; xl = gx - SW / 2
 body_tile(A / f"drive_gt_{dk}.png", 0.10, yb0, TW, TH, kind="straight"); label(0.10 + TW / 2, yb0 - 0.025, "live frame")
-arrow((0.48, ybc), (0.60, ybc)); box(0.60, ybc - 0.21, 0.80, 0.42, "SPRINT", "pose regressor\n$\\approx$7 ms / frame", ours=True)
-arrow((1.42, ybc), (1.54, ybc))
-body_tile(A / f"drive_mesh_{dk}.png", 1.54, yb0, TW, TH, kind="premul", ec=OE, lw=0.9); label(1.54 + TW / 2, yb0 - 0.025, "pose $\\theta_t$", color=OE)
-arrow((1.92, ybc), (2.04, ybc)); xl = 2.04; box(xl, ybc - 0.18, 0.66, 0.36, "Skinning", "LBS on SMPL-X")
-# avatar G_s enters from (a)
-gx = xa + TW / 2; line([(gx, ya - 0.115), (gx, YB1 + 0.035), (xl + 0.33, YB1 + 0.035)], lw=1.0); arrow((xl + 0.33, YB1 + 0.035), (xl + 0.33, ybc + 0.185), lw=1.0)
-label(xl + 0.37, ybc + 0.30, "$\\mathcal{G}_s$", size=6.6, color=INK, ha="left", va="center")
-arrow((xl + 0.68, ybc), (xl + 0.80, ybc))
-# 32-channel feature raster (stack)
-fx = xl + 0.84; fpc, fal = premul_on(rgba(A / f"drive_featpca_{dk}.png")); ft, _ = crop_body(fpc, fal, TW / TH)
+arrow((0.48, ybc), (0.62, ybc))
+# SPRINT (ours): image backbone + SMPL-X regressor
+sx0, sw_, sh_ = 0.62, 1.66, 0.66
+ax.add_patch(FancyBboxPatch((sx0, ybc - sh_ / 2), sw_, sh_, boxstyle="round,pad=0,rounding_size=0.05", lw=0.9, ec=OE, fc=OF, zorder=3))
+ax.text(sx0 + 0.08, ybc + sh_ / 2 - 0.085, "SPRINT pose regressor", ha="left", va="center", fontsize=6.6, weight="bold", color=INK, zorder=6)
+ax.add_patch(Polygon([(sx0 + 0.10, ybc - 0.27), (sx0 + 0.50, ybc - 0.20), (sx0 + 0.50, ybc + 0.06), (sx0 + 0.10, ybc + 0.13)], closed=True, lw=0.7, ec=OE, fc="white", zorder=4, joinstyle="round"))
+ax.text(sx0 + 0.30, ybc - 0.07, "ViT\nbackbone", ha="center", va="center", fontsize=5.4, color=INK, zorder=6, linespacing=0.95)
+arrow((sx0 + 0.52, ybc - 0.07), (sx0 + 0.66, ybc - 0.07), color=OE, lw=0.8)
+ax.add_patch(FancyBboxPatch((sx0 + 0.66, ybc - 0.22), 0.88, 0.30, boxstyle="round,pad=0,rounding_size=0.035", lw=0.7, ec=OE, fc="white", zorder=4))
+ax.text(sx0 + 1.10, ybc - 0.07, "SMPL-X regressor\npose, expression, camera", ha="center", va="center", fontsize=5.4, color=INK, zorder=6, linespacing=1.0)
+arrow((sx0 + sw_ + 0.02, ybc), (sx0 + sw_ + 0.16, ybc)); mx = sx0 + sw_ + 0.16
+body_tile(A / f"drive_mesh_{dk}.png", mx, yb0, TW, TH, kind="premul", ec=OE, lw=0.9); label(mx + TW / 2, yb0 - 0.025, "pose $\\theta_t$", color=OE)
+arrow((mx + TW + 0.02, ybc), (xl - 0.02, ybc)); box(xl, ybc - 0.19, SW, 0.38, "Skinning", "LBS on SMPL-X")
+arrow((gx, ya - 0.115), (gx, ybc + 0.195), lw=1.1)                                                    # avatar from (a), straight down
+arrow((xl + SW + 0.02, ybc), (xl + SW + 0.14, ybc))
+fx = xl + SW + 0.16; fpc, fal = premul_on(rgba(A / f"drive_featpca_{dk}.png")); ft, _ = crop_body(fpc, fal, TW / TH)
 for i, perm in enumerate(((2, 0, 1), (1, 2, 0), (0, 1, 2))):
     tile(ft[..., list(perm)], fx + (2 - i) * 0.045, yb0 + (2 - i) * 0.03 - 0.03, TW, TH - 0.06, z=3 + i * 0.3, r=0.02)
 label(fx + TW / 2 + 0.045, yb0 - 0.045, "32-channel raster", size=6.0)
@@ -190,42 +199,44 @@ unet(rx, ybc, 0.50, 0.40); ax.text(rx + 0.25, ybc, "refine", ha="center", va="ce
 label(rx + 0.25, ybc - 0.24, "StyleUNet refiner", size=5.6)
 arrow((rx + 0.52, ybc), (rx + 0.64, ybc)); ox = rx + 0.64
 body_tile(A / f"drive_out_{dk}.png", ox, yb0, TW, TH, kind="render", ec=INK, lw=0.9); label(ox + TW / 2, yb0 - 0.025, "output $\\hat{I}_t$", color=INK, weight="bold")
-ax.text(ox + TW + 0.16, ybc + 0.12, "real time", ha="left", va="center", fontsize=9.5, weight="bold", color=BAND["b"][1], zorder=6)
-label(ox + TW + 0.16, ybc - 0.07, "per frame: pose $\\approx$7 ms,\nrender 12 ms", size=6.0, ha="left", va="center")
+for i, f_ in enumerate((D / "anim_photo_frame_000276.png", D / "orbit_photo_000.png")):
+    if f_.exists(): body_tile(f_, ox + (i + 1) * (TW + 0.06), yb0, TW, TH, kind="render", lw=0.4)
+label(ox + 1.5 * (TW + 0.06) + TW / 2, yb0 - 0.025, "other frames")
 
 # ------------------------------------------------------------------------------------------------ (c) streaming update
 yc0 = YC0 + 0.20; ycc = yc0 + TH / 2
-fan([A / f"stream_frame_{k}.png" for k in sk], 0.10, yc0 + 0.07, 0.30, TH - 0.07, 0.15, "straight"); label(0.10 + 0.30, yc0 - 0.03, "video frames")
-arrow((0.76, ycc), (0.88, ycc))
-gx0, gw, gh = 0.88, 0.84, 0.74; ax.add_patch(FancyBboxPatch((gx0, ycc - gh / 2), gw, gh, boxstyle="round,pad=0,rounding_size=0.045", lw=0.8, ec=OE, fc=OF, zorder=3))
+fan([A / f"stream_frame_{k}.png" for k in sk], 0.10, yc0 + 0.07, 0.28, TH - 0.07, 0.13, "straight"); label(0.10 + 0.27, yc0 - 0.03, "video frames")
+arrow((0.68, ycc), (0.79, ycc))
+gx0, gw, gh = 0.79, 0.82, 0.74; ax.add_patch(FancyBboxPatch((gx0, ycc - gh / 2), gw, gh, boxstyle="round,pad=0,rounding_size=0.045", lw=0.8, ec=OE, fc=OF, zorder=3))
 ax.text(gx0 + gw / 2, ycc + gh / 2 - 0.085, "Frame gates", ha="center", va="center", fontsize=6.6, weight="bold", color=INK, zorder=6)
-for i, s in enumerate(("sharp image", "pose fits keypoints", "surface faces camera", "not an outlier frame")):
+for i, s_ in enumerate(("sharp image", "pose fits keypoints", "surface faces camera", "not an outlier frame")):
     yy = ycc + 0.13 - i * 0.125
-    ax.text(gx0 + 0.07, yy, "✓", ha="center", va="center", fontsize=5.6, color="#2F8F46", family="DejaVu Sans", weight="bold", zorder=6)
-    ax.text(gx0 + 0.13, yy, s, ha="left", va="center", fontsize=5.5, color=INK, zorder=6)
-arrow((gx0 + gw + 0.02, ycc), (gx0 + gw + 0.14, ycc)); ux = gx0 + gw + 0.14
-fan([A / f"stream_uv_{k}.png" for k in sk], ux, yc0 + 0.21, 0.50, 0.50, 0.13, "uv"); label(ux + 0.38, yc0 + 0.02, "UV observations $U_t$,\nweights $w_t$", size=5.8)
-arrow((ux + 0.80, ycc), (ux + 0.92, ycc)); sx = ux + 1.06
-ax.add_patch(Circle((sx, ycc), 0.135, fc=OF, ec=OE, lw=0.9, zorder=3)); ax.text(sx, ycc - 0.005, "$\\Sigma$", ha="center", va="center", fontsize=9, color=INK, zorder=6)
-label(sx, ycc + 0.17, "weighted\nrunning mean", size=5.6, va="bottom", color=INK)
-label(sx, ycc - 0.17, "$\\bar{U}=S/W$", size=6.0)
-arrow((sx + 0.14, ycc), (sx + 0.27, ycc)); fx2 = sx + 0.27; fw = 0.62
+    ax.text(gx0 + 0.065, yy, "✓", ha="center", va="center", fontsize=5.6, color="#2F8F46", family="DejaVu Sans", weight="bold", zorder=6)
+    ax.text(gx0 + 0.12, yy, s_, ha="left", va="center", fontsize=5.5, color=INK, zorder=6)
+arrow((gx0 + gw + 0.02, ycc), (gx0 + gw + 0.12, ycc)); ux = gx0 + gw + 0.12
+fan([A / f"stream_uv_{k}.png" for k in sk], ux, yc0 + 0.23, 0.44, 0.44, 0.11, "uv"); label(ux + 0.33, yc0 + 0.06, "UV observations $U_t$,\nweights $w_t$", size=5.8)
+arrow((ux + 0.69, ycc), (ux + 0.79, ycc)); sx = ux + 0.92
+ax.add_patch(Circle((sx, ycc), 0.125, fc=OF, ec=OE, lw=0.9, zorder=3)); ax.text(sx, ycc - 0.005, "$\\Sigma$", ha="center", va="center", fontsize=8.6, color=INK, zorder=6)
+label(sx, ycc + 0.16, "weighted\nmean", size=5.6, va="bottom", color=INK)
+label(sx, ycc - 0.16, "$\\bar{U}=S/W$", size=6.0)
+fw = 0.56; dw = 0.46; dx2 = gx - dw / 2; fx2 = dx2 - 0.13 - fw; arrow((sx + 0.13, ycc), (fx2 - 0.02, ycc))
 fused = np.asarray(Image.open(D / "uv_rgb_fused.png").convert("RGB")).astype(np.float32) / 255; m_ = fused.max(-1, keepdims=True) > 0.004
-tile(np.where(m_, fused, np.asarray(DARK, np.float32)), fx2, ycc - fw / 2 + 0.02, fw, fw, ec=OE, lw=0.9)
-label(fx2 + fw / 2, ycc - fw / 2 - 0.005, f"fused UV map: {run['coverage_photo'] * 100:.0f} $\\rightarrow$ {run['coverage_after_update'] * 100:.0f} % seen", size=5.6, color=OE, weight="bold")
-arrow((fx2 + fw + 0.02, ycc + 0.02), (fx2 + fw + 0.14, ycc + 0.02)); dx2 = fx2 + fw + 0.14
-unet(dx2, ycc + 0.02, 0.44, 0.30); ax.text(dx2 + 0.22, ycc + 0.02, "UV", ha="center", va="center", fontsize=5.6, weight="bold", color=INK, zorder=6)
-label(dx2 + 0.22, ycc - 0.16, "same UV decoder,\nre-run once", size=5.6)
-arrow((dx2 + 0.46, ycc + 0.02), (dx2 + 0.58, ycc + 0.02)); bx2 = dx2 + 0.58; bw = 0.62
-z = f"zoom{a.zoom}"
-for i, (kind, lab, ec, lw) in enumerate((("photo", "before", GE, 0.5), ("update", "after", OE, 1.0))):
-    im_, _ = render_on(rgba(D / f"back_{z}_{kind}_{a.back_key}.png")); n = im_.shape[0]; c0 = int(0.20 * n)
-    tile(im_[: n - 2 * c0 + int(0.2 * n), c0: n - c0][: n - 2 * c0], bx2 + i * (bw + 0.05), ycc - bw / 2 + 0.02, bw, bw, ec=ec, lw=lw)
-    label(bx2 + i * (bw + 0.05) + bw / 2, ycc - bw / 2 - 0.005, lab + (" the update" if i else ": photo only"), size=5.6, color=OE if i else MUTED, weight="bold" if i else "normal")
-# swap-in: updated avatar replaces G_s (dashed, ours)
-ux2 = bx2 + 2 * bw + 0.05; ytop = YB1 + 0.035; xr = W - 0.14
-line([(ux2 + 0.02, ycc + 0.02), (xr, ycc + 0.02), (xr, ytop), (gx + 0.02, ytop)], color=OE, lw=1.1, ls=(0, (3, 2)))
-ax.add_patch(FancyArrowPatch((gx + 0.10, ytop), (gx + 0.012, ytop), arrowstyle="-|>,head_length=0.5,head_width=0.28", mutation_scale=6.5, lw=1.1, color=OE, zorder=5))
-label((ux2 + xr) / 2 + 0.01, ycc - 0.03, "swapped in while\nrendering continues", size=5.8, color=OE, ha="center", va="top", style="italic")
+tile(np.where(m_, fused, np.asarray(DARK, np.float32)), fx2, ycc - fw / 2, fw, fw, ec=OE, lw=0.9)
+label(fx2 + fw / 2, ycc - fw / 2 - 0.025, "fused UV map", size=5.8, color=OE, weight="bold")
+arrow((fx2 + fw + 0.02, ycc), (dx2 - 0.01, ycc))
+unet(dx2, ycc, dw, 0.32); ax.text(gx, ycc, "UV", ha="center", va="center", fontsize=5.6, weight="bold", color=INK, zorder=6)
+label(gx, ycc - 0.175, "same UV decoder,\nre-run once", size=5.6)
+# updated avatar: straight up the spine into Skinning (ours), and shown on the unseen back
+arrow((gx, ycc + 0.175), (gx, ybc - 0.195), color=OE, lw=1.4, ms=8)
+label(gx + 0.07, YC1 - 0.085, "updated avatar replaces $\\mathcal{G}_s$,", size=6.0, color=OE, ha="left", va="center", weight="bold")
+label(gx + 0.07, YC1 - 0.185, "rendering continues", size=6.0, color=OE, ha="left", va="center", style="italic")
+bw = 0.60; bx2 = dx2 + dw + 0.16; arrow((dx2 + dw + 0.02, ycc), (bx2 - 0.02, ycc)); z = f"zoom{a.zoom}"; yt2 = ycc - bw / 2 - 0.045
+for i, (kind, lab, ec, lw) in enumerate((("photo", "photo only", GE, 0.5), ("update", "after the update", OE, 1.0), ("gt", "real frame", GE, 0.5))):
+    x_ = rgba(D / f"back_{z}_{kind}_{a.back_key}.png"); im_ = (straight_on(x_) if kind == "gt" else render_on(x_))[0]; n = im_.shape[0]; c0 = int(0.20 * n)
+    tile(im_[: n - 2 * c0, c0: n - c0], bx2 + i * (bw + 0.06), yt2, bw, bw, ec=ec, lw=lw)
+    label(bx2 + i * (bw + 0.06) + bw / 2, yt2 - 0.02, lab, size=5.6, color=OE if i == 1 else MUTED, weight="bold" if i == 1 else "normal")
+if gain is not None:
+    ax.text(bx2 + 3 * (bw + 0.06) + 0.04, ycc + 0.06, f"+{gain:.1f} dB", ha="left", va="center", fontsize=9.5, weight="bold", color=OE, zorder=6)
+    label(bx2 + 3 * (bw + 0.06) + 0.04, ycc - 0.10, "PSNR, back views\nof this clip", size=5.6, color=OE, ha="left", va="center")
 fig.savefig(OUT / f"{a.name}.pdf", dpi=a.dpi); fig.savefig(OUT / f"{a.name}.png", dpi=300)
 print("wrote", OUT / f"{a.name}.pdf", f"{W:.2f} x {H:.2f} in")
