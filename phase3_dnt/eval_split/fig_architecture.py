@@ -2,7 +2,7 @@
 code (models/UbodyAvatar/ubody_gaussian.py, guava_fb/fb_common.py, worker6/uv_fusion.py), every thumbnail an image of the model's
 own tensors for one example (teaser_render.py --arch-key: SMPL-X mesh, DINO features (PCA), per-vertex features, UV maps, the
 32-channel feature raster (PCA), renders). Modules are coloured by stage (creation blue, animation green, update orange; the UV
-decoder keeps its creation colour where the update re-runs it); no "ours / inherited" legend in the drawing: the credit to GUAVA
+decoder and encoder take the update colour where the update re-runs them); no "ours / inherited" legend in the drawing: the credit to GUAVA
 for the creation and rendering design goes in the caption and the method text. The avatar sits on one vertical line:
 creation -> skinning <- updated avatar. No timings; the only number is the clip's back-view PSNR gain (teaser_candidates.json).
 Every element is drawn through T / RECT / POLY / SEG / ELL / IMG, which also record it; --export DIR writes layout.json + the
@@ -223,12 +223,15 @@ T(ox + 1.5 * (TW + 0.06) + TW / 2, yb0 - 0.025, "other frames")
 
 # ------------------------------------------------------------------------------------------------ (c) streaming update
 yc0 = YC0 + 0.20; ycc = yc0 + TH / 2
-fan([A / f"stream_frame_{k}.png" for k in sk], 0.10, yc0 + 0.07, 0.30, TH - 0.07, 0.12, "straight"); T(0.10 + 0.27, yc0 - 0.03, "video frames")
-SEG([(0.66, ycc), (0.77, ycc)])
-ex, ew, eh = 0.78, 0.74, 0.56; box(ex, ycc - eh / 2, ew, eh, "Encode + unwrap", "", k="a", ts=6.4, ty=ycc + eh / 2 - 0.105)             # the creation stage's encoder + inverse texture mapping, per frame
-T(ex + ew / 2, ycc + 0.06, "DINOv2 features,\nunwrapped to UV\nwith each frame's pose", size=5.4, va="top", ls=1.05)
-SEG([(ex + ew + 0.02, ycc), (ex + ew + 0.12, ycc)]); ux = ex + ew + 0.12
-fan([A / f"stream_uv_{k}.png" for k in sk], ux, yc0 + 0.22, 0.44, 0.44, 0.10, "uv")
+fan([A / f"stream_frame_{k}.png" for k in sk], 0.10, yc0 + 0.07, 0.30, TH - 0.07, 0.12, "straight", ec=OE); T(0.10 + 0.27, yc0 - 0.03, "video frames")
+SEG([(0.66, ycc), (0.78, ycc)])
+encoder(0.78, ycc, 0.30, 0.62, k="c"); T(0.93, ycc, "DINOv2", size=6.4, color=INK, va="center", bold=True, rot=90)   # same encoder as (a), per frame
+T(0.93, yc0 + 0.07, "encode", size=5.8)
+SEG([(1.10, ycc), (1.22, ycc)]); mw, mh = 0.26, 0.58                                              # unwrap: the frame's posed SMPL-X mesh
+body_tile(A / f"stream_mesh_{sk[-1]}.png", 1.22, ycc - mh / 2, mw, mh, kind="premul", ec=OE, lw=0.8)
+T(1.22 + mw / 2, yc0 + 0.07, "unwrap\n(pose $\\theta_t$)", size=5.8)
+SEG([(1.22 + mw + 0.02, ycc), (1.22 + mw + 0.14, ycc)]); ux = 1.22 + mw + 0.14
+fan([A / f"stream_uv_{k}.png" for k in sk], ux, yc0 + 0.22, 0.44, 0.44, 0.10, "uv", ec=OE)
 T(ux + 0.32, yc0 + 0.07, "UV observations $U_t$,\nweighted by view angle", size=5.8)
 fw = 0.56; dw = 0.56; dx2 = gx - dw / 2; fx2 = dx2 - 0.13 - fw; sx = (ux + 0.68 + fx2) / 2
 SEG([(ux + 0.68, ycc), (sx - 0.14, ycc)])
@@ -237,13 +240,13 @@ T(sx, ycc + 0.16, "weighted\nmean", size=5.6, va="bottom", color=INK); T(sx, ycc
 SEG([(sx + 0.135, ycc), (fx2 - 0.02, ycc)])
 fused = np.asarray(Image.open(D / "uv_rgb_fused.png").convert("RGB")).astype(np.float32) / 255; m_ = fused.max(-1, keepdims=True) > 0.004
 IMG(np.where(m_, fused, np.asarray(DARK, np.float32)), fx2, ycc - fw / 2, fw, fw, ec=OE, lw=0.9); T(fx2 + fw / 2, ycc - fw / 2 - 0.025, "fused UV map", size=5.8, color=OE, bold=True)
-SEG([(fx2 + fw + 0.02, ycc), (dx2 - 0.01, ycc)]); unet(dx2, ycc, dw, 0.32); T(gx, ycc, "UV decoder", size=5.7, color=INK, va="center", bold=True)
+SEG([(fx2 + fw + 0.02, ycc), (dx2 - 0.01, ycc)]); unet(dx2, ycc, dw, 0.32, k="c"); T(gx, ycc, "UV decoder", size=5.7, color=INK, va="center", bold=True)
 # updated avatar: straight up the spine into Skinning (ours), and shown on the unseen back
 SEG([(gx, ycc + 0.175), (gx, ybc - 0.195)], color=OE, lw=1.4, ms=8)
 T(gx + 0.07, YC1 - 0.085, "updated avatar replaces $\\mathcal{G}_s$,", size=6.0, color=OE, ha="left", va="center", bold=True)
 T(gx + 0.07, YC1 - 0.185, "rendering continues", size=6.0, color=OE, ha="left", va="center", italic=True)
 bw = 0.60; bx2 = dx2 + dw + 0.16; SEG([(dx2 + dw + 0.02, ycc), (bx2 - 0.02, ycc)]); z = f"zoom{a.zoom}"; yt2 = ycc - bw / 2 - 0.045
-for i, (kind, lab, ec, lw) in enumerate((("photo", "photo only", GE, 0.5), ("update", "after the update", OE, 1.0), ("gt", "real frame", GE, 0.5))):
+for i, (kind, lab, ec, lw) in enumerate((("photo", "photo only", OE, 0.5), ("update", "after the update", OE, 1.2), ("gt", "real frame", OE, 0.5))):
     x_ = rgba(D / f"back_{z}_{kind}_{a.back_key}.png"); im_ = (straight_on(x_) if kind == "gt" else render_on(x_))[0]; n = im_.shape[0]; c0 = int(0.20 * n)
     IMG(im_[: n - 2 * c0, c0: n - c0], bx2 + i * (bw + 0.06), yt2, bw, bw, ec=ec, lw=lw)
     T(bx2 + i * (bw + 0.06) + bw / 2, yt2 - 0.02, lab, size=5.6, color=OE if i == 1 else MUTED, bold=i == 1)
