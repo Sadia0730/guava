@@ -1,7 +1,7 @@
 """Paper teaser, hand-picked examples (PREREG "Extended benchmark, amendment 5", presentation only). Per row: source photo ->
 avatar from the photo (front view, camera turned 30 deg) | the back the photo never showed, zoomed: photo-only avatar | after the streaming
 UV update | real video frame (teaser_render.py --back-key ... --zoom 1.6). Composited on white from RGBA renders; vector PDF.
-Usage: python fig_teaser_hero.py --rows ubc/A1YNmKj0sCS:frame_000236,ubc/91bxAN6BjAS:frame_000164 --E <root> --renders <dir> --out <dir>"""
+Usage: python fig_teaser_hero.py --rows ubc/A1YNmKj0sCS:frame_000232,ubc/91bxAN6BjAS:frame_000164 --E <root> --renders <dir> --out <dir>"""
 from __future__ import annotations
 
 import argparse
