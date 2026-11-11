@@ -14,7 +14,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 O = Path("/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb")
-ap = argparse.ArgumentParser(); ap.add_argument("--steps", type=int, required=True)
+ap = argparse.ArgumentParser(); ap.add_argument("--steps", type=int, required=True, help="fine-tune steps N (0 = SPRINT-update jobs only, before the pilot)")
 ap.add_argument("--out", default="/dev/shm/ubx858_eval/a6_queue/jobs.jsonl"); a = ap.parse_args()
 OUT = Path(a.out); STATE = OUT.parent
 G = ("export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 PYTHONNOUSERSITE=1 PYTHONPATH=/tmp/pytorch3d-torch22:/tmp/guava-cuda-torch22:"
@@ -52,7 +52,7 @@ for root, sj, only in ROOTS:
         chk = " && ".join(f"{CHECK} {E} {r} {cid}" for r in ("ft_gt", "ft_update100", "ft_sprint_update100"))
         ft.append((jid, steps, (marker(jid), chk)))
 for jid, cmd, done in sp: add(jid, cmd, done)
-for jid, cmd, done in ft: add(jid, cmd, done, heavy=True)
+for jid, cmd, done in (ft if a.steps > 0 else []): add(jid, cmd, done, heavy=True)
 # retries (as make_ext_jobs.py): count ended runs per base id in the queue log
 QL = STATE / "queue.log"; fails = {}
 if QL.exists():
