@@ -27,6 +27,8 @@ COLS = [("guava", "GUAVA"), ("lhm_facefix", "LHM"), ("lhmpp", "LHM++"), ("idol",
         ("fb_update100", "+ update, 100 % video")]
 ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); ap.add_argument("--size", type=int, default=1024)
 ap.add_argument("--no-video", action="store_true"); ap.add_argument("--fps", type=int, default=10); ap.add_argument("--thr", type=float, default=135.0)
+ap.add_argument("--datasets", default=",".join(["ubody", "peoplesnapshot", "neuman", "xhumans", "ubc"]), help="datasets to select from (amendment 7: four subjects without UBody)")
+ap.add_argument("--rows", default="", help="amendment 7b: explicit clip:frame list (e.g. ubc/A1wrrhGRZmS:frame_000248,...) instead of the per-dataset rule")
 a = ap.parse_args(); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 def font(s):
     try: return ImageFont.truetype("DejaVuSans.ttf", s)
@@ -82,7 +84,7 @@ def coverage(cid):
 
 # ---- selection
 sel = []
-for ds in DS:
+for ds in [d for d in DS if d in a.datasets.split(",")]:
     cands = []
     for cid, E in ROOTOF.items():
         if not cid.startswith(ds + "/"): continue
@@ -100,6 +102,14 @@ for ds in DS:
     sel.append({"ds": ds, "kind": "median", "clip": cmed, "key": kmed, "view_deg": round(V[cmed][kmed], 1), "clip_gain_db": round(gmed, 2), "pool": len(q), "note": note})
     sel.append({"ds": ds, "kind": "showcase", "clip": cbest, "key": kbest, "view_deg": round(V[cbest][kbest], 1), "clip_gain_db": round(gbest, 2),
                 "frame_gain_db": round(max(pg)[0], 2), "pool": len(q), "note": note + "; best case by the registered rule"})
+if a.rows:                                                                                           # amendment 7b: fixed list
+    sel = []
+    for item in a.rows.split(","):
+        cid, k = item.rsplit(":", 1); ds = cid.split("/", 1)[0]; E = ROOTOF[cid]; V = views(cid)
+        g, u = score("fb_gt", E)[cid]["psnr"], score("fb_update100", E)[cid]["psnr"]
+        fg = psnr(render("fb_update100", cid, k), gt(cid, k)) - psnr(render("fb_gt", cid, k), gt(cid, k))
+        sel.append({"ds": ds, "kind": "showcase", "clip": cid, "key": k, "view_deg": round(V[k], 1), "clip_gain_db": round(u - g, 2),
+                    "frame_gain_db": round(fg, 2), "pool": None, "note": "amendment 7b: top turned-away-view gain"})
 (OUT / "update_selection.json").write_text(json.dumps(sel, indent=1)); print(json.dumps(sel, indent=1), flush=True)
 
 # ---- figures: one PNG per row (paper), one per kind (all datasets), tiles
@@ -118,7 +128,7 @@ def canvas(rows, name):
     for i, r in enumerate(rows):
         tl, ps = row_tiles(r); y = hd + i * z
         td = OUT / "tiles" / f"{r['kind']}_{r['ds']}_{r['clip'].split('/', 1)[1]}_{r['key']}"; td.mkdir(parents=True, exist_ok=True)
-        for j, t in enumerate(tl): cv.paste(t, (lw + j * z, y)); t.save(td / f"{j:02d}_{LAB[j].replace(' ', '_').replace(',', '').replace('%', 'pct')}.png")
+        for j, t in enumerate(tl): cv.paste(t, (lw + j * z, y)); t.save(td / f"{DSN[r['ds']]}_{r['clip'].split('/', 1)[1]}_{j:02d}_{LAB[j].replace(' ', '_').replace(',', '').replace('%', 'pct').replace('+_', 'Ours_')}.png")
         c0, c1 = coverage(r["clip"]); cov = f"texture seen {c0 * 100:.0f}% -> {c1 * 100:.0f}%" if c0 is not None else ""
         for t, line in enumerate([DSN[r["ds"]], r["clip"].split("/", 1)[1][-20:], f"view {r['view_deg']:.0f}°", cov, f"clip gain {r['clip_gain_db']:+.2f} dB",
                                   "best case" if r["kind"] == "showcase" else "median case"]):
@@ -141,8 +151,8 @@ def canvas(rows, name):
     (OUT / f"{name}_caption.md").write_text("\n".join(cap) + "\n")
     print("wrote", OUT / f"{name}.png", cv.size, flush=True)
 canvas([r for r in sel if r["kind"] == "showcase"], "fig_update_showcase")
-canvas([r for r in sel if r["kind"] == "median"], "fig_update_median")
-for r in sel: canvas([r], f"row_{r['kind']}_{r['ds']}")
+if any(r["kind"] == "median" for r in sel): canvas([r for r in sel if r["kind"] == "median"], "fig_update_median")
+for r in sel: canvas([r], f"row_{r['kind']}_{r['ds']}_{r['clip'].split('/', 1)[1]}")
 
 if not a.no_video:
     import imageio.v2 as iio
