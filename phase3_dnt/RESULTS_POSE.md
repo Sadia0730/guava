@@ -34,7 +34,7 @@ prediction: 7,811 / 7,811 matched, 0 mm, F1 1). 1,077 images, 7,811 valid person
 | Camera input | Body MVE ↓ | Body MPJPE ↓ | Left / right hand MVE ↓ | Face MVE ↓ | Full-body MVE ↓ | Precision / recall / F1 | Body N-MVE ↓ |
 |---|---|---|---|---|---|---|---|
 | none (focal = image width; the registered setting) | 121.0 | 119.2 | 58.3 / 59.4 | 62.4 | 181.1 | 0.96 / 0.78 / 0.86 | 140.7 |
-| AGORA's focal length (registered diagnostic) | 75.3 | 74.6 | 48.9 / 50.6 | 40.4 | 121.9 | 0.96 / 0.78 / 0.86 | 87.5 |
+| AGORA's focal length (registered diagnostic) | 75.3 | 74.6 | 48.9 / 50.6 | 40.4 | 121.9 | 0.96 / 0.78 / 0.86 | 87.6 |
 
 Hand, face and full-body values are means over matched persons (the official code averages hands and face over missed persons as
 zeros: full-body MVE 167.7 / 111.6 that way). Body N-MVE = Body MVE (1 decimal) / F1 (2 decimals), as the official code.
