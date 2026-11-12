@@ -1690,6 +1690,14 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
   views among 130 clips (mean over those clips +0.68 dB); same columns, tile size and file names as amendment 7; new folder
   `O/reports/qualitative_update_4subjects_backgain/`.
 
+- **Amendment 7c (2026-11-12, presentation only; user: "can u add more result? in neuman quality is bad, u can add some more
+  image"):** the same ranking as 7b continued: the next eight different people (no per-dataset cap; teaser clips and the four 7b
+  clips excluded): UBC-Fashion A1BokHoyj1S, 91-3003CN5S, A1Gvc5tOblS, A11unT+W2IS, 91K7loBr8RS, 919iQ+Yy6qS, A1s7vPmyheS and
+  People-Snapshot male-2-casual; frame = `best_frame`. Same columns, tiles and names; new folder
+  `O/reports/qualitative_update_more/`, plus a contact sheet of all twelve. The user may pick the paper's rows from these twelve by
+  eye (as for the teaser, amendment 5); the caption then states that the examples were selected from the twelve largest
+  turned-away gains.
+
 ## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
 
 Purpose: the AGORA column of `RESULTS_POSE.md`. PEAR's column holds test-set leaderboard numbers (evaluation server); the author's
