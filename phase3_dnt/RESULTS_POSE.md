@@ -25,6 +25,26 @@ Exact values: SPRINT 0.7408 / 0.9145, 0.4276 / 0.7382, 83.07 / 52.08 (calibrated
 0.566 / 0.817, 73.78 / 46.73. Files: `/raid/ubx858/outputs/dnt/eval_programme/sprint_scratch_{camwidth,camknown}/author/`,
 `/raid/ubx858/outputs/phase2/author/pear/`.
 
+## AGORA (validation, computed here; not comparable with the test-server column above)
+
+Added 2026-11-12 (PREREG "Pose table ... AGORA" + amendment 1; RUNLOG 147). 1280x720 validation images, YOLOX-L boxes, SPRINT
+scratch EMA 128k; official AGORA protocol in our own implementation (`tools/score_agora.py`; self-test with the ground truth as
+prediction: 7,811 / 7,811 matched, 0 mm, F1 1). 1,077 images, 7,811 valid persons; mm.
+
+| Camera input | Body MVE ↓ | Body MPJPE ↓ | Left / right hand MVE ↓ | Face MVE ↓ | Full-body MVE ↓ | Precision / recall / F1 | Body N-MVE ↓ |
+|---|---|---|---|---|---|---|---|
+| none (focal = image width; the registered setting) | 121.0 | 119.2 | 58.3 / 59.4 | 62.4 | 181.1 | 0.96 / 0.78 / 0.86 | 140.7 |
+| AGORA's focal length (registered diagnostic) | 75.3 | 74.6 | 48.9 / 50.6 | 40.4 | 121.9 | 0.96 / 0.78 / 0.86 | 87.5 |
+
+Hand, face and full-body values are means over matched persons (the official code averages hands and face over missed persons as
+zeros: full-body MVE 167.7 / 111.6 that way). Body N-MVE = Body MVE (1 decimal) / F1 (2 decimals), as the official code.
+
+Why the two rows differ: without the real focal length the predicted body is rotated about the vertical axis by an angle that
+grows with the person's distance from the image centre (median -23 deg at the far left, +21 deg at the far right for the 28 mm
+scenes; +31 deg for the 18 mm scenes), i.e. the output stays in the crop's viewing-ray frame; with AGORA's focal length as camera
+input the median residual rotation is under 1 deg on every axis. The same effect explains part of the 3DPW gap between the two
+SPRINT rows (83.1 vs 73.8 mm MPJPE). Persons missed by the detector (22 %) are not in Body MVE.
+
 Notes
 - The port reproduces PEAR's published row within about 2 PCK points and 2.5 mm (COCO −2.0 / −2.1 pt, LSP-Extended +1.6 / +0.7 pt,
   3DPW +2.5 / +1.4 mm), so differences of that size against the † rows are not meaningful.
