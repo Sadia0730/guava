@@ -1698,3 +1698,16 @@ not changed after any AGORA result is seen, except for bugs (the written output 
 - **Compute and storage.** One short GPU job per split (< 15 min, about 2 GB) on a GPU approved for the benchmark jobs (all GPUs
   are shared today). Working files under `/dev/shm/ubx858_eval/agora_eval/`; results under
   `O/reports/pose_table3/agora/`; nothing new on /raid.
+
+### AGORA Body MVE for SPRINT, amendment 1 (registered 2026-11-12, after an 8-image smoke test of the prediction writer and before any AGORA score exists)
+
+- **Scorer.** The official checkout does not run in this environment (its list-into-cell assignments fail under pandas 2.3) and
+  executing a patched copy of the downloaded code was not permitted in this session. Validation is therefore scored with
+  `tools/score_agora.py`, our own implementation of the same rules written from the official source @ `8c9dece` (matching:
+  matrix 2-norm over the first 24 joints, greedy, box IoU >= 0.1, validity by occlusion; errors: hip-midpoint / wrist / neck
+  alignment, the official vertex index files; averaging: matched valid persons, F1 from TP / FP / FN; its docstring lists each
+  rule with the official file). Self-test done before this registration: ground truth fed back as the prediction gives 7,811 /
+  7,811 valid persons matched, every error 0, F1 1, on 1,077 images. It has not been compared with the official code's output on
+  real predictions; the validation number is reported as "official protocol, our implementation". The test number, the one that
+  goes in the table, comes from the AGORA server and does not depend on this scorer.
+- Everything else (model, detector, crop, camera input, outputs, one test submission) is unchanged.
