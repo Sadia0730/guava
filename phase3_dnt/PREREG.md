@@ -1666,6 +1666,20 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
 - Jobs through `gpu_queue.py` on GPUs the user approved for the benchmark (2, 5, 7, 0, 1, 6) plus any GPU where other users hold
   < 2 GB; finished rows scored by `score.py --tag full` and added to `ext_tables.py` (all metrics, all clips, same bootstrap).
 
+### Extended benchmark, amendment 7 (registered 2026-11-12, presentation only, before the selection script is run on the final score files; user: "create an ablation table and based on numerical result select image for qualitative comparison. it should show large improvements ... four different subject ... name each photo with model and dataset name ... 1024")
+- **Examples:** the "showcase" rule of amendment 1, unchanged (per dataset, among clips with a test view change >= 135 deg, the clip
+  with the largest per-clip PSNR gain fb_update100 - fb_gt; frame = its largest per-frame gain among those turned >= 135 deg), on
+  the final `_full` score files. Four subjects = the showcase rows of People-Snapshot, NeuMan, X-Humans and UBC-Fashion; UBody is
+  left out for the reason of amendment 4 (a) (upper-body framing; its only eligible clip has another person in the source frame).
+  The median-gain rows of the registered rule are produced alongside. Columns as in amendments 1-3 (no per-person-trained method).
+  Captioned as best cases per dataset; the paper's numbers come from all 163 clips.
+- **Files:** tiles 1024 x 1024 (512 render crop, Lanczos-upsampled; stated), each named `<Dataset>_<clip>_<column>.png`; output in
+  a new folder `O/reports/qualitative_update_4subjects/`. No new render, no score change.
+- **Ablation table of the appearance update:** from existing scores only (results_ext_a6.csv and the paired differences of
+  RESULTS_EXT_A6.md, same bootstrap): video share 0 / 25 / 50 / 100 %, pose source (GT / SPRINT), with and without per-subject
+  fine-tuning; plus, descriptive, the turned-away-view gain (>= 135 deg) and texture coverage from `teaser_candidates.json`.
+  No design ablation of the fusion weights (needs new runs; not part of this amendment).
+
 ## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
 
 Purpose: the AGORA column of `RESULTS_POSE.md`. PEAR's column holds test-set leaderboard numbers (evaluation server); the author's
