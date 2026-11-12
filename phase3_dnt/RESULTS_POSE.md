@@ -14,8 +14,8 @@ LSP-Extended (9,428), MPJPE / PA-MPJPE in mm on 3DPW-test (35,515). See `phase2/
 | SMPLest-X † | SMPL-X | 0.71 | 0.91 | 0.40 | 0.74 | 0.82 | 0.91 | 74.8 | 45.8 | 63.5 | 20 |
 | PEAR † | EHM-s | 0.81 | 0.94 | 0.55 | 0.81 | 0.87 | 0.97 | 71.3 | 45.3 | 59.3 | 100 |
 | PEAR, released weights, measured here | EHM-s | 0.79 | 0.92 | 0.57 | 0.82 | not run | not run | 73.8 | 46.7 | not run | – |
-| **SPRINT (ours)** | SMPL-X | 0.74 | 0.91 | 0.43 | 0.74 | not run | not run | 83.1 | 52.1 | not run | not measured |
-| SPRINT (ours), calibrated camera ‡ | SMPL-X | 0.74 | 0.91 | 0.43 | 0.74 | not run | not run | 73.8 | 48.7 | not run | not measured |
+| **SPRINT (ours)** | SMPL-X | 0.74 | 0.91 | 0.43 | 0.74 | not run | not run | 83.1 | 52.1 | submitted: pending | 103 |
+| SPRINT (ours), calibrated camera ‡ | SMPL-X | 0.74 | 0.91 | 0.43 | 0.74 | not run | not run | 73.8 | 48.7 | not possible § | 103 |
 
 † Copied from PEAR's paper (Table 3), not re-run here. ‡ SPRINT takes the camera as an input; the main row gives it no extra
 information (focal length = image width for every dataset), the ‡ row gives it 3DPW's calibrated intrinsics, which the other
@@ -53,4 +53,8 @@ Notes
 - AGORA: PEAR's column matches the test-set leaderboard numbers of the baselines (e.g. OSX 80.2), i.e. predictions uploaded to the
   AGORA evaluation server; the author's script does not cover AGORA. On disk: AGORA train (used to train SPRINT) and validation
   (not used in training); no test images.
-- FPS: PEAR's column is "tested on L40S"; SPRINT's forward pass has not been timed alone on an idle L40S.
+- FPS (added 2026-11-12, RUNLOG 148): SPRINT's network forward at batch 1 on an idle L40S, fp32: 9.73 ms median = 103 FPS (p95 10.71 ms);
+  with the SMPL-X mesh layer 10.94 ms = 91 FPS. How PEAR's 100 FPS was measured (with or without the body model) is not stated.
+- § AGORA test images have hashed names, so the camera type (focal length) is not available on the test set; only the
+  no-camera row can be submitted. Its prediction zip is `O/reports/pose_table3/agora/test_width/predictions.zip`
+  (20,303 persons in 3,256 of 3,387 images; 2.38 GB; SHA-256 `7211a5c2…`); the number comes from the AGORA server after upload.

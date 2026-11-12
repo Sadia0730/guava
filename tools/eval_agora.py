@@ -156,7 +156,7 @@ def main():
             side = max(box[2] - box[0], box[3] - box[1]); c = np.array([(box[0] + box[2]) / 2, (box[1] + box[3]) / 2])
             chk["joints_in_box"].append(float((np.abs(px[n] - c).max(1) <= 0.625 * side).mean()))
             with open(a.pred_dir / f"{stem}_personId_{k}.pkl", "wb") as fh:
-                pickle.dump({"joints": px[n] * 3.0, "allSmplJoints3d": j127[n], "verts": verts[n]}, fh, protocol=2)
+                pickle.dump({"joints": px[n] * 3.0, "allSmplJoints3d": j127[n], "verts": verts[n]}, fh, protocol=3)
     summary = {"images": len(images), "images_with_detection": len(count), "persons": len(items), "model": a.model, "focal": a.focal,
                "checkpoint": str(a.checkpoint.resolve()), "checkpoint_sha256": ev.sha256(a.checkpoint.resolve()), "load_report": load_report,
                "detector": str(ev.DEFAULT_DETECTOR), "detections": str(det_file), "crop": "training_square_box 1.25, 256 px",
