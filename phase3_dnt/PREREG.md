@@ -1665,3 +1665,36 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
   training frames for N steps. If no count beats step 0 by >= 0.1 dB, the rows are still run at N = 500 and the outcome is stated.
 - Jobs through `gpu_queue.py` on GPUs the user approved for the benchmark (2, 5, 7, 0, 1, 6) plus any GPU where other users hold
   < 2 GB; finished rows scored by `score.py --tag full` and added to `ext_tables.py` (all metrics, all clips, same bootstrap).
+
+## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
+
+Purpose: the AGORA column of `RESULTS_POSE.md`. PEAR's column holds test-set leaderboard numbers (evaluation server); the author's
+Table-3 script does not cover AGORA, so the detector and crop PEAR used there are not known. Everything below is fixed now and is
+not changed after any AGORA result is seen, except for bugs (the written output not being what the model predicted; listed in RUNLOG).
+
+- **Model.** SPRINT from scratch, EMA, step 128,000 (`eval_programme/sprint_scratch/best_ema.pt`, SHA-256 `d5d0622a5aa4d2bf…`),
+  `sprint_raw`, plain SMPL-X head. Trained on AGORA train only (62,569 rows); validation and test images were never used.
+- **Images.** The 1280x720 release (validation on disk; test: `test_images_1280x720.zip`, to download). Disclosed: persons are small
+  at this size; the 3840x2160 release is not used.
+- **Detector.** YOLOX-L (DWPose ONNX `EHM-Tracker/pretrained/dwpose/yolox_l.onnx`, `inference_detector` defaults), the detector of
+  our pipeline and of `tools/eval_3dpw_standard.py`. Every detected person is run; no ground-truth box anywhere. Disclosed
+  deviation from PEAR's public demo script (YOLOv8x, confidence 0.5; not installed here).
+- **Crop and camera input.** `training_square_box` (square, 1.25 x the box's longer side, no clipping) -> 256 px; camera input
+  focal = image width, real 0 ("no extra information", the main row of the table).
+- **Output per detected person.** SMPL-X vertices (10,475) and 127 joints in the official layout: 55 kinematic joints from the
+  model's SMPL-X layer (no J14 replacement), 21 vertex joints and 51 static face landmarks computed from the vertices (checked
+  against the official ground truth before this registration: 0 and 1e-7 m), and the first 24 joints projected with the predicted
+  camera, x 3 to 3840x2160 pixel coordinates, for the matching.
+- **Validation (computed here).** Official code `pixelite1201/agora_evaluation` @ `8c9dece`, `evaluate_agora --modeltype SMPLX
+  --onlybfh`, official dataframes `validation_SMPLX.zip` (`*_withjv.pkl`: 1,077 images, 10,175 persons, 7,811 valid). The code is
+  used unmodified except that body-model loading is stubbed (joints and vertices are given directly) and, only if it does not run
+  under this environment's pandas, compatibility edits that leave the computation unchanged (listed in RUNLOG). Reported: B-MVE
+  (the table's "Body MVE"), B-MPJPE, FB / F / LH / RH MVE and MPJPE, precision, recall, F1, NMVE, NMJE. **Not comparable with the
+  test-server numbers in PEAR's table; reported as a validation number.**
+- **Diagnostic (validation only, never in the table).** The same run with AGORA's focal length as camera input (from the image
+  name, constants of the official `projection.py`; real 1).
+- **Test (for the table).** The same pipeline and setting on the test images -> one prediction zip, checked with the official
+  `check_pred_format.py`, uploaded by the user from their AGORA account; one submission of this configuration.
+- **Compute and storage.** One short GPU job per split (< 15 min, about 2 GB) on a GPU approved for the benchmark jobs (all GPUs
+  are shared today). Working files under `/dev/shm/ubx858_eval/agora_eval/`; results under
+  `O/reports/pose_table3/agora/`; nothing new on /raid.
