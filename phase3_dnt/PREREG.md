@@ -1680,6 +1680,16 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
   fine-tuning; plus, descriptive, the turned-away-view gain (>= 135 deg) and texture coverage from `teaser_candidates.json`.
   No design ablation of the fusion weights (needs new runs; not part of this amendment).
 
+- **Amendment 7b (2026-11-12, presentation only; registered AFTER seeing the amendment-7 picks, whose update gain is hard to see
+  (frame gains +0.4 to +1.6 dB), and after reading the ranking in `teaser_candidates.json`; the user asked for examples that "show
+  large improvements"):** a second figure, kept next to the amendment-7 one. Rule: rank clips by the mean PSNR gain fb_update100 -
+  fb_gt on their test frames turned >= 135 deg from the photo (`teaser_candidates.json`, existing renders); take the top four
+  different people with at most two per dataset, excluding the two teaser clips (UBC A1YNmKj0sCS, 91bxAN6BjAS); frame = the clip's
+  turned-away frame with the largest gain (`best_frame`). This gives UBC-Fashion A1wrrhGRZmS (+2.69 dB), People-Snapshot
+  female-3-sport (+2.49), UBC-Fashion A17RfvegkdS (+1.97), NeuMan jogging (+1.52). Captioned as the largest gains on turned-away
+  views among 130 clips (mean over those clips +0.68 dB); same columns, tile size and file names as amendment 7; new folder
+  `O/reports/qualitative_update_4subjects_backgain/`.
+
 ## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
 
 Purpose: the AGORA column of `RESULTS_POSE.md`. PEAR's column holds test-set leaderboard numbers (evaluation server); the author's
