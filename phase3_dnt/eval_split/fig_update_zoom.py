@@ -42,7 +42,7 @@ ap.add_argument("--stride", type=int, default=4); ap.add_argument("--tile", type
 ap.add_argument("--fig-name", default="fig_update_zoom"); ap.add_argument("--only-fig", action="store_true", help="write only the --fig figure")
 ap.add_argument("--paper", action="store_true", help="paper format (amendment 7g)"); ap.add_argument("--drop", default="", help="columns to hide")
 ap.add_argument("--win-set", default="", help="hand-placed windows: cid:key=x0,y0,x1,y1;...")
-ap.add_argument("--caption-extra", default="")
+ap.add_argument("--caption-extra", default=""); ap.add_argument("--caption", default="", help="full caption text (overrides)")
 a = ap.parse_args(); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 DROP = set(filter(None, a.drop.split(",")))
 WSET = {k: tuple(int(v) for v in w.split(",")) for k, w in (e.split("=") for e in filter(None, a.win_set.split(";")))}
@@ -90,6 +90,8 @@ def source_img(cid):
     v = c.max(-1).astype(np.float64)                                                # display only: drop black padding + its edge line
     cols, rows = np.nonzero(np.median(v, 0) > 30)[0], np.nonzero(np.median(v, 1) > 30)[0]
     if not (len(cols) and len(rows)): return c
+    bands = [v[:, :max(cols.min() - 6, 0)], v[:, cols.max() + 7:], v[:max(rows.min() - 6, 0)], v[rows.max() + 7:]]
+    if any(b.size and (b > 40).mean() > 0.01 for b in bands): return c[2:-2, 2:-2] if a.paper else c   # 7h fix: dark content, not padding
     e = lambda lo, hi, N: (lo + 6 if lo > 0 else 0, hi + 1 - 6 if hi < N - 1 else N)     # padded side: also drop the frame's edge line
     (y0, y1), (x0, x1) = e(rows.min(), rows.max(), c.shape[0]), e(cols.min(), cols.max(), c.shape[1])
     c = c[y0:y1, x0:x1]
@@ -204,6 +206,7 @@ if a.fig:
                "methods, and our avatar after fusing the person's video (no gradient steps). Numbers: PSNR (dB) of the full frame. "
                "The boxed region is enlarged below each view. " + (a.caption_extra + " " if a.caption_extra else "") +
                "Examples and zoom regions were selected to show the update; all reported metrics are over the full 163-clip benchmark.")
+    if a.caption: cap = a.caption
     (OUT / f"{a.fig_name}_caption.md").write_text(cap + "\n")
     (OUT / f"{a.fig_name}.json").write_text(json.dumps([done[i][0] for i in a.fig.split(",")], indent=1) + "\n")
 for m, *_ in done.values():

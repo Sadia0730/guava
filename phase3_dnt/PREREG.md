@@ -1744,6 +1744,22 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
   sat on the hip. The figure JSON records each window's source; the caption says examples and zoom regions were selected.
   Format: row label = dataset only (no clip id, no view angle), STIX (Times-like) text as TrueType (no Type 3 fonts), images at
   450 dpi, a thin rule and a wider gap between examples so each view stays with its zoom.
+- **Amendment 7h (2026-11-13, presentation only; user: "for supplement add some results from neuman xhuman and ubody and ubc
+  more. u can make multiple pdf with 3 or 4 rows"):** supplementary zoom figures in the 7g format (photo, GT, GUAVA, LHM, LHM++,
+  IDOL, ours + update; dataset label; STIX text). Windows: the 7f rule only, no hand placement (comparison set as registered: the
+  other five render columns, including the hidden ours-photo-only column); the caption says so. Candidate pools, from rankings
+  already read: UBC-Fashion, the 7b ranking without the two main-figure clips (A1wrrhGRZmS, A17RfvegkdS), first 12 clips at
+  `best_frame`; X-Humans, the seven 7e take frames; NeuMan, the four clips with a test frame turned >= 135 deg (jogging,
+  parkinglot, lab, seattle) at `best_frame`; UBody, the 7d rule extended to the top six clips by per-clip gain (Olympic clip
+  excluded, amendment 4 (a)), frame = largest per-frame gain. Rows are chosen from the pools by viewing their zoom rows (kept when
+  the zoom shows a visible difference): up to two 4-row UBC-Fashion figures and one 3-4-row figure each for X-Humans, NeuMan and
+  UBody. Every candidate left out is listed in RUNLOG with the reason; captions say the examples were selected. New folder
+  `O/reports/qualitative_update_zoom_supp/`.
+  After viewing the 29 candidate rows (same day): NeuMan has no candidate whose zoom shows a visible difference, and in jogging
+  ours misses the hood that LHM and LHM++ show. Deviation from the rule above: all four NeuMan clips are shown in one figure
+  captioned as a limitation, not as wins. Display fix found while viewing: the source-photo black-band trim cut a dark-suited
+  UBody photo down to the tie; it now trims only when the bands are dark outside the 6 px edge zone (the 7g main figure PNG is
+  pixel-identical after the fix).
 
 ## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
 
