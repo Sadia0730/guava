@@ -265,7 +265,10 @@ def build_mirror(exa_root, root):
         dirnames[:] = keep
         for fn in filenames:
             s, t = osp.join(dirpath, fn), osp.join(dst, rel, fn)
-            os.symlink(os.readlink(s) if osp.islink(s) else s, t)
+            if fn.endswith('.py'):                           # real copies: Python resolves a symlinked script to the install's
+                shutil.copy2(osp.realpath(s), t)             # directory, so its config / output paths would point there
+            else:
+                os.symlink(os.readlink(s) if osp.islink(s) else s, t)
             n += 1
     os.symlink(osp.join(exa_root, 'human_model_files'), osp.join(root, 'human_model_files'))
     os.makedirs(osp.join(root, 'work'))
