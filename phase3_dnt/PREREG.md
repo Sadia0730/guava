@@ -1734,6 +1734,16 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
   Fix (2026-11-13, before any window was looked at; the first run stopped at UBC A17RfvegkdS because no 0.44-wide window is half
   covered by a narrow standing person): if no window passes, the width shrinks in steps of 0.04 until one does; the width used is
   written per row.
+- **Amendment 7g (2026-11-13, presentation only, chosen after viewing the 7f figures; user: "in others v neck was not visible
+  you should highlight that. view degree not necessary to mention. change the white dress image ... remove 2nd last column(ours
+  photo only)"; and asked whether the PDF is fit for the paper):** paper version of the zoom figure (`fig_update_zoom.py --paper`,
+  `--only-fig`, so the 7f files are not touched). Rows: UBC-Fashion A1wrrhGRZmS, A17RfvegkdS (replaces X-Humans 00087 / 020154),
+  People-Snapshot male-2-casual, male-3-casual, same frames as 7f; a 3-row version without male-3-casual. Column "ours photo only"
+  hidden (scores and the window rule unchanged). Windows: the 7f rule's for A17RfvegkdS, male-2-casual and male-3-casual; for
+  A1wrrhGRZmS the window is **placed by hand** on the open back (render px x 165-349, y 84-176, 2:1), because the rule's window
+  sat on the hip. The figure JSON records each window's source; the caption says examples and zoom regions were selected.
+  Format: row label = dataset only (no clip id, no view angle), STIX (Times-like) text as TrueType (no Type 3 fonts), images at
+  450 dpi, a thin rule and a wider gap between examples so each view stays with its zoom.
 
 ## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
 
