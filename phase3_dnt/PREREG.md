@@ -1698,6 +1698,18 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
   eye (as for the teaser, amendment 5); the caption then states that the examples were selected from the twelve largest
   turned-away gains.
 
+- **Amendment 7d (2026-11-12, presentation only; user, after seeing the twelve: "most are from ubc can u add good result from any
+  other dataset? red jacket from neuman is bad for mine, could not capture hoodie"):** examples from the datasets other than
+  UBC-Fashion. Registered after reading the 7b ranking (`teaser_candidates.json`) for those datasets, before the UBody step below
+  is computed. (1) People-Snapshot, NeuMan, X-Humans: the 7b ranking continued within each dataset, the next three different
+  people per dataset, excluding every person already shown in amendments 7 / 7b / 7c (People-Snapshot: a subject id such as
+  male-3 counts once over its outfits). This gives People-Snapshot male-4-sport, male-3-plaza, female-1-casual; X-Humans 00034,
+  00087; NeuMan parkinglot, seattle (the only two left); frame = `best_frame`. (2) UBody (no clip in the ranking: none has a usable
+  test frame turned >= 135 deg; the one that has is excluded for another person in its source frame, amendment 4 (a)): the
+  amendment-1 showcase rule over its remaining 29 clips, top two by per-clip PSNR gain fb_update100 - fb_gt, frame = the test frame
+  with the largest per-frame gain. Same columns, tiles and names as amendment 7; new folder `O/reports/qualitative_update_other/`,
+  plus a contact sheet. Captioned as selected examples; the paper's numbers come from all 163 clips.
+
 ## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
 
 Purpose: the AGORA column of `RESULTS_POSE.md`. PEAR's column holds test-set leaderboard numbers (evaluation server); the author's

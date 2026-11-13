@@ -29,6 +29,7 @@ ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); ap.add_
 ap.add_argument("--no-video", action="store_true"); ap.add_argument("--fps", type=int, default=10); ap.add_argument("--thr", type=float, default=135.0)
 ap.add_argument("--datasets", default=",".join(["ubody", "peoplesnapshot", "neuman", "xhumans", "ubc"]), help="datasets to select from (amendment 7: four subjects without UBody)")
 ap.add_argument("--rows", default="", help="amendment 7b: explicit clip:frame list (e.g. ubc/A1wrrhGRZmS:frame_000248,...) instead of the per-dataset rule")
+ap.add_argument("--note", default="amendment 7b: top turned-away-view gain", help="selection note written for --rows")
 a = ap.parse_args(); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 def font(s):
     try: return ImageFont.truetype("DejaVuSans.ttf", s)
@@ -109,7 +110,7 @@ if a.rows:                                                                      
         g, u = score("fb_gt", E)[cid]["psnr"], score("fb_update100", E)[cid]["psnr"]
         fg = psnr(render("fb_update100", cid, k), gt(cid, k)) - psnr(render("fb_gt", cid, k), gt(cid, k))
         sel.append({"ds": ds, "kind": "showcase", "clip": cid, "key": k, "view_deg": round(V[k], 1), "clip_gain_db": round(u - g, 2),
-                    "frame_gain_db": round(fg, 2), "pool": None, "note": "amendment 7b: top turned-away-view gain"})
+                    "frame_gain_db": round(fg, 2), "pool": None, "note": a.note})
 (OUT / "update_selection.json").write_text(json.dumps(sel, indent=1)); print(json.dumps(sel, indent=1), flush=True)
 
 # ---- figures: one PNG per row (paper), one per kind (all datasets), tiles
