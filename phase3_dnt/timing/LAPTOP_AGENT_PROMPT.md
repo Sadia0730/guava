@@ -1,5 +1,5 @@
 You are working on my Linux laptop with an RTX 3080 Laptop GPU, 16 GB VRAM.
-Complete the short RAGA timing run using the kit on branch `driven_not_tracked`
+Complete the laptop timing run using the kit on branch `driven_not_tracked`
 of https://github.com/Sadia0730/guava. Read
 `phase3_dnt/timing/TIMING_ON_LAPTOP.md` before acting.
 
@@ -21,13 +21,15 @@ environment file from `laptop.env.example.sh`, matching the installed checkpoint
 and dependencies. Use the evaluated checkpoints, resolution, precision, fitting
 iterations and model settings unchanged. Keep input data/old results read-only.
 
-Run `run_suite.py --methods raga` on **neuman/bike only**, using the default 10
-warm-up and 50 timed frames. Include all four RAGA initialization/update rows.
-Keep the default cooldown and thermal supervision; preserve failed/stopped logs.
-Do not run all 163 clips. Do not start per-person training, other baseline methods
-or long quality evaluations without a further request. No GPU job should be left
-running after a failure. Fix routine environment/path problems and retry only the
-affected job into a fresh result directory, with cooldown.
+Run the steps of section **3b "Recommended laptop run"** of `TIMING_ON_LAPTOP.md`, in order, on
+**neuman/bike only**, with the default 10 warm-up and 50 timed frames: (a) the four RAGA rows, (b) the two
+estimated-pose rows again with `--box yolox --tag yolox`, (c) released GUAVA, (d) the fine-tuned rows
+(`--methods ft --allow-training`, the evaluated 500 steps; this is the only training allowed). Keep the default
+cooldown and thermal supervision; preserve failed/stopped logs. Do not run all 163 clips. Do not run LHM, LHM++,
+IDOL, GART, GaussianAvatar or ExAvatar on this laptop (they are timed on a server GPU), and no long quality
+evaluations. No GPU job should be left running after a failure. Fix routine environment/path problems and retry
+only the affected job into a fresh result directory, with cooldown. If the released GUAVA checkpoint or the
+ArcFace model is missing, report it and skip that step instead of downloading other models.
 
 Collect completed timings with `collect_timing.py`. Report source construction
 separately from support updates, then the animation phase breakdown: pose,

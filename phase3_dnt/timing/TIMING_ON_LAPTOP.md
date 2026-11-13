@@ -129,6 +129,43 @@ temperature and power records; keep a stopped run and label it incomplete. You c
 increase `--cooldown 90` without changing the model. Do not shorten a training
 schedule and present it as the evaluated reconstruction cost.
 
+## 3b. Recommended laptop run (do this; it covers every row that fits the laptop)
+
+LHM, LHM++ and IDOL need about 15-17 GB of GPU memory (measured on the server), so they are timed on a server GPU,
+not here. GART, GaussianAvatar and ExAvatar are not installed on the laptop; they are timed on the server too.
+Everything below writes a new folder; if a step fails, keep its folder and log and rerun only that step into a new one.
+
+```bash
+cd /data/GUAVA/guava_live
+source /data/GUAVA/laptop_timing.env.sh
+export DATA=/data/GUAVA/timing_data/timing_subset_laptop_v2
+python phase3_dnt/timing/preflight.py --root "$DATA" --methods raga,guava,ft --gpu-info
+T=/data/GUAVA/timing_results/$(date +%Y%m%d)
+
+# a) our four rows (estimated pose with the fixed centre crop, as in the live app)
+python phase3_dnt/timing/run_suite.py --root "$DATA" --out-dir $T/raga --methods raga
+
+# b) the two estimated-pose rows again with the person detector on every frame (as the table's quality rows)
+for r in fb_sprint fb_sprint_update; do sleep 60
+  bash phase3_dnt/timing/run_ours.sh "$DATA" $T/detector/$r --rows $r --box yolox --tag yolox; done
+
+# c) released GUAVA (needs assets/GUAVA/checkpoints/best_160000.pt; else extract backup_for_desktop/models/guava_released.tar)
+python phase3_dnt/timing/run_suite.py --root "$DATA" --out-dir $T/guava --methods guava
+
+# d) our fine-tuned rows: 500 training steps on neuman/bike, then animation (needs live_assets/arcface/glintr100.onnx)
+python phase3_dnt/timing/run_suite.py --root "$DATA" --out-dir $T/ft --methods ft --allow-training
+
+# e) report
+python phase3_dnt/timing/collect_timing.py $T/raga $T/detector/* $T/guava $T/ft --out-dir $T/report
+
+# f) optional: the live app's own frame rate, without / with the appearance update (section 6)
+python phase3_dnt/timing/run_live_replay.py --root "$DATA" --out-dir $T/replay \
+  --python "$GUAVA_PY" --assets "$RAGA_ASSETS" --frames 120 --warmup 20 --workers off,uv
+
+# g) send everything back
+scp -r $T YOUR_USER@YOUR_SERVER:/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/timing/laptop_$(date +%Y%m%d)
+```
+
 ## 4. Interpret the phases correctly
 
 - **Reconstruction:** input preprocessing, source pose/keypoints/regression/fitting
