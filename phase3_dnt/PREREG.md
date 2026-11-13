@@ -1731,6 +1731,9 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
   therefore the region of our largest advantage by construction; the caption says so. Same window for every column of a row,
   drawn as a box on the full view and shown enlarged below it; renders are not altered. New folder
   `O/reports/qualitative_update_zoom/`.
+  Fix (2026-11-13, before any window was looked at; the first run stopped at UBC A17RfvegkdS because no 0.44-wide window is half
+  covered by a narrow standing person): if no window passes, the width shrinks in steps of 0.04 until one does; the width used is
+  written per row.
 
 ## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
 

@@ -90,17 +90,20 @@ def process(item):
     crop = lambda im: im[t:b, l:r_]
     G = crop(g).astype(np.float64); gm = crop(g).sum(-1) > 0
     err = {m: np.abs(crop(R[m]).astype(np.float64) - G).mean(-1) / 255.0 for m, _ in COLS}
-    w = int(round(a.win * s)); h = w // 2
-    adv = (np.mean([boxsum(err[m], h, w) for m in OTHERS], 0) - boxsum(err["fb_update100"], h, w)) / (h * w)
-    ok = boxsum(gm.astype(np.float64), h, w) / (h * w) >= a.min_mask
-    grid = np.zeros_like(ok); grid[::a.stride, ::a.stride] = True
-    score = np.where(ok & grid, adv, -np.inf); y0, x0 = np.unravel_index(int(np.argmax(score)), score.shape)   # ties -> top, left
-    assert np.isfinite(score[y0, x0]), f"{cid} {k}: no window passes the mask rule"
+    win = a.win
+    while True:                       # amendment 7f fix: narrow people -> width shrinks by 0.04 until a window passes the mask rule
+        w = int(round(win * s)); h = w // 2
+        adv = (np.mean([boxsum(err[m], h, w) for m in OTHERS], 0) - boxsum(err["fb_update100"], h, w)) / (h * w)
+        ok = boxsum(gm.astype(np.float64), h, w) / (h * w) >= a.min_mask
+        grid = np.zeros_like(ok); grid[::a.stride, ::a.stride] = True
+        score = np.where(ok & grid, adv, -np.inf); y0, x0 = np.unravel_index(int(np.argmax(score)), score.shape)   # ties -> top, left
+        if np.isfinite(score[y0, x0]): break
+        win = round(win - 0.04, 2); assert win >= 0.12, f"{cid} {k}: no window passes the mask rule"
     zwin = (int(x0), int(y0), int(x0 + w), int(y0 + h))
     zerr = {m: float(err[m][y0:y0 + h, x0:x0 + w].mean()) for m, _ in COLS}
     full = {"Ground truth": crop(g)}; full.update({lab: crop(R[m]) for m, lab in COLS})
     meta = {"clip": cid, "key": k, "dataset": DSN[ds], "view_deg": round(view_deg(cid, k), 1), "crop_box_512": [l, t, r_, b],
-            "zoom_window_in_crop": list(zwin), "zoom_window_frac": [round(v / s, 4) for v in zwin],
+            "zoom_window_in_crop": list(zwin), "win_used": win, "zoom_window_frac": [round(v / s, 4) for v in zwin],
             "zoom_mean_abs_err": {m: round(v, 4) for m, v in zerr.items()},
             "zoom_advantage": round(float(score[y0, x0]), 4),
             "frame_psnr": {m: round(psnr(R[m], g), 2) for m, _ in COLS}}
