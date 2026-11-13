@@ -153,7 +153,8 @@ def canvas(rows, name):
     print("wrote", OUT / f"{name}.png", cv.size, flush=True)
 canvas([r for r in sel if r["kind"] == "showcase"], "fig_update_showcase")
 if any(r["kind"] == "median" for r in sel): canvas([r for r in sel if r["kind"] == "median"], "fig_update_median")
-for r in sel: canvas([r], f"row_{r['kind']}_{r['ds']}_{r['clip'].split('/', 1)[1]}")
+for r in sel:                                                                   # frame key added when a clip appears twice (amendment 7e)
+    canvas([r], f"row_{r['kind']}_{r['ds']}_{r['clip'].split('/', 1)[1]}" + (f"_{r['key']}" if sum(q["clip"] == r["clip"] for q in sel) > 1 else ""))
 
 if not a.no_video:
     import imageio.v2 as iio

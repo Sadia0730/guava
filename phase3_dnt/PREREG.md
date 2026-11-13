@@ -1710,6 +1710,15 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
   with the largest per-frame gain. Same columns, tiles and names as amendment 7; new folder `O/reports/qualitative_update_other/`,
   plus a contact sheet. Captioned as selected examples; the paper's numbers come from all 163 clips.
 
+- **Amendment 7e (2026-11-12, presentation only; user, after NeuMan was found unsuitable for the figure (33-34 update frames, the
+  seattle back never filmed, hood geometry): "than add best result from X human and people snapshot"):** a sheet of these two
+  datasets only. (1) People-Snapshot: the top six sequences of the 7b ranking within the dataset, outfits counted separately
+  (female-3-sport, male-2-casual, male-4-sport, female-3-casual, male-3-plaza, male-3-casual); frame = `best_frame`. (2) X-Humans:
+  all three subjects, one row per test take (key digits 7-8: 00028 takes 06 / 08 / 14, 00034 takes 02 / 07, 00087 takes 02 / 05);
+  frame = the take's test frame turned >= 135 deg from the photo with the largest per-frame PSNR gain fb_update100 - fb_gt (a take
+  without such a frame is skipped, stated). Registered before the per-take gains are computed. Same columns, tiles and names; row
+  files carry the frame key when a clip appears twice; new folder `O/reports/qualitative_update_xh_ps/`, plus a contact sheet.
+
 ## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
 
 Purpose: the AGORA column of `RESULTS_POSE.md`. PEAR's column holds test-set leaderboard numbers (evaluation server); the author's
