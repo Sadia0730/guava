@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
-from PIL import Image
+from PIL import Image, ImageOps
 from scipy.spatial.transform import Rotation as Rot
 
 HERE = Path(__file__).resolve().parent
@@ -36,6 +36,7 @@ ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDe
 ap.add_argument("--out", required=True); ap.add_argument("--rows", required=True); ap.add_argument("--fig", default="")
 ap.add_argument("--win", type=float, default=0.44); ap.add_argument("--min-mask", type=float, default=0.5)
 ap.add_argument("--stride", type=int, default=4); ap.add_argument("--tile", type=int, default=1024)
+ap.add_argument("--fig-name", default="fig_update_zoom"); ap.add_argument("--only-fig", action="store_true", help="write only the --fig figure")
 a = ap.parse_args(); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 
 ROOTOF = {}
@@ -76,7 +77,13 @@ def boxsum(img, h, w):
 def source_img(cid):
     f = json.loads((base(cid) / "frames.json").read_text()); img = rd(base(cid) / "images" / f"{f['source']}.png")
     msk = rd(base(cid) / "masks" / f"{f['source']}.png"); m = (msk[..., 0] > 127) if msk is not None else (img.sum(-1) > 0)
-    l, t, r, b = square_box(m); return img[t:b, l:r]
+    l, t, r, b = square_box(m); c = img[t:b, l:r]
+    v = c.max(-1).astype(np.float64)                                                # display only: drop black padding + its edge line
+    cols, rows = np.nonzero(np.median(v, 0) > 30)[0], np.nonzero(np.median(v, 1) > 30)[0]
+    if not (len(cols) and len(rows)): return c
+    e = lambda lo, hi, N: (lo + 6 if lo > 0 else 0, hi + 1 - 6 if hi < N - 1 else N)     # padded side: also drop the frame's edge line
+    (y0, y1), (x0, x1) = e(rows.min(), rows.max(), c.shape[0]), e(cols.min(), cols.max(), c.shape[1])
+    return c[y0:y1, x0:x1]
 
 
 def process(item):
@@ -113,7 +120,7 @@ def process(item):
 def save_tiles(meta, src, full):
     ds, clip = split(meta["clip"]); td = OUT / "tiles" / f"{ds}_{clip}_{meta['key']}"; td.mkdir(parents=True, exist_ok=True)
     pre = f"{meta['dataset']}_{clip}"; z = a.tile
-    Image.fromarray(src).resize((z, z), Image.LANCZOS).save(td / f"{pre}_00_Source_photo.png")
+    ImageOps.pad(Image.fromarray(src), (z, z), Image.LANCZOS, color="white").save(td / f"{pre}_00_Source_photo.png")
     x0, y0, x1, y1 = meta["zoom_window_in_crop"]
     for j, (lab, im) in enumerate(full.items(), start=1):
         n = lab.replace(" + ", "_").replace(", ", "_").replace(" ", "_")
@@ -156,19 +163,21 @@ def figure(rows, name, width=6.88):
 
 done = {}
 for item in a.rows.split(","):
-    meta, src, full = process(item); done[item] = (meta, src, full); save_tiles(meta, src, full)
-    ds, clip = split(meta["clip"]); figure([done[item]], f"row_{ds}_{clip}_{meta['key']}")
-(OUT / "zoom_selection.json").write_text(json.dumps({"rule": "PREREG ext. amendment 7f", "win": a.win, "min_mask": a.min_mask,
+    meta, src, full = process(item); done[item] = (meta, src, full)
+    if a.only_fig: continue
+    save_tiles(meta, src, full); ds, clip = split(meta["clip"]); figure([done[item]], f"row_{ds}_{clip}_{meta['key']}")
+if not a.only_fig: (OUT / "zoom_selection.json").write_text(json.dumps({"rule": "PREREG ext. amendment 7f", "win": a.win, "min_mask": a.min_mask,
                                                      "stride": a.stride, "rows": [d[0] for d in done.values()]}, indent=1) + "\n")
 if a.fig:
-    figure([done[i] for i in a.fig.split(",")], "fig_update_zoom")
+    figure([done[i] for i in a.fig.split(",")], a.fig_name)
     cap = ("Appearance update on turned-away views. Each row: the source photo, the ground-truth test frame, four single-image "
            "methods, our avatar from the photo only, and our avatar after fusing the person's video (no gradient steps). Numbers: "
            "PSNR (dB) of the full 512 px frame. The boxed region, enlarged below each view, is placed automatically where our "
            "updated avatar's error is lowest relative to the other five columns (it shows our largest advantage by construction). "
            "Examples were selected from the clips with the largest gains on turned-away views; all numbers in the tables are over "
            "the full 163-clip benchmark.")
-    (OUT / "fig_update_zoom_caption.md").write_text(cap + "\n")
+    (OUT / f"{a.fig_name}_caption.md").write_text(cap + "\n")
+    (OUT / f"{a.fig_name}.json").write_text(json.dumps([done[i][0] for i in a.fig.split(",")], indent=1) + "\n")
 for m, *_ in done.values():
     print(f"{m['clip']:34s} {m['key']}  window {m['zoom_window_frac']}  err others/ours "
           f"{np.mean([m['zoom_mean_abs_err'][o] for o in OTHERS]):.4f}/{m['zoom_mean_abs_err']['fb_update100']:.4f}")
