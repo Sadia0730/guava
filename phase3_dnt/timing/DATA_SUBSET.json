@@ -1,0 +1,152 @@
+{
+  "zip_name": "timing_subset_laptop_v2.zip",
+  "bytes": 128613078,
+  "sha256": "9a551c8c68e56dd958a187a3974cc1c464479e53dffb37b7ba4a29246f59b38c",
+  "file_count": 484,
+  "purpose": "timing only; no quality-score claims",
+  "selection": "fixed first-sorted clip per dataset",
+  "clips": [
+    {
+      "id": "ubody/ConductMusic_S15",
+      "source": "frame_000000",
+      "support": [
+        "frame_000001",
+        "frame_000002",
+        "frame_000003",
+        "frame_000004",
+        "frame_000005",
+        "frame_000006"
+      ],
+      "test": [
+        "frame_000150",
+        "frame_000151",
+        "frame_000152",
+        "frame_000153",
+        "frame_000154",
+        "frame_000155",
+        "frame_000156",
+        "frame_000157",
+        "frame_000158",
+        "frame_000159",
+        "frame_000160",
+        "frame_000161"
+      ],
+      "reconstruction_frames": 7
+    },
+    {
+      "id": "peoplesnapshot/female-1-casual",
+      "source": "frame_000000",
+      "support": [
+        "frame_000004",
+        "frame_000008",
+        "frame_000012",
+        "frame_000016",
+        "frame_000020",
+        "frame_000024"
+      ],
+      "test": [
+        "frame_000504",
+        "frame_000508",
+        "frame_000512",
+        "frame_000516",
+        "frame_000520",
+        "frame_000524",
+        "frame_000528",
+        "frame_000532",
+        "frame_000536",
+        "frame_000540",
+        "frame_000544",
+        "frame_000548"
+      ],
+      "reconstruction_frames": 7
+    },
+    {
+      "id": "neuman/bike",
+      "source": "frame_000000",
+      "support": [
+        "frame_000001",
+        "frame_000003",
+        "frame_000004",
+        "frame_000005",
+        "frame_000006",
+        "frame_000008"
+      ],
+      "test": [
+        "frame_000002",
+        "frame_000007",
+        "frame_000012",
+        "frame_000017",
+        "frame_000022",
+        "frame_000027",
+        "frame_000032",
+        "frame_000037",
+        "frame_000042",
+        "frame_000047"
+      ],
+      "reconstruction_frames": 83
+    },
+    {
+      "id": "xhumans/00028",
+      "source": "frame_020001",
+      "support": [
+        "frame_020002",
+        "frame_020003",
+        "frame_020004",
+        "frame_020005",
+        "frame_020006",
+        "frame_020007"
+      ],
+      "test": [
+        "frame_060001",
+        "frame_060002",
+        "frame_060003",
+        "frame_060004",
+        "frame_060005",
+        "frame_060006",
+        "frame_060007",
+        "frame_060008",
+        "frame_060009",
+        "frame_060010",
+        "frame_060011",
+        "frame_060012"
+      ],
+      "reconstruction_frames": 7
+    },
+    {
+      "id": "ubc/91-3003CN5S",
+      "source": "frame_000000",
+      "support": [
+        "frame_000004",
+        "frame_000008",
+        "frame_000012",
+        "frame_000016",
+        "frame_000020",
+        "frame_000024"
+      ],
+      "test": [
+        "frame_000164",
+        "frame_000168",
+        "frame_000172",
+        "frame_000188",
+        "frame_000192",
+        "frame_000224",
+        "frame_000228",
+        "frame_000232",
+        "frame_000236",
+        "frame_000240",
+        "frame_000244",
+        "frame_000248"
+      ],
+      "reconstruction_frames": 7
+    }
+  ],
+  "validation": {
+    "python_files_parsed": 16,
+    "shell_syntax": true,
+    "all_cli_help": true,
+    "zip_crc": true,
+    "npz_arrays_equal_to_evaluated_inputs": 95,
+    "lmdb_values_equal_to_evaluated_inputs": 338,
+    "gpu_execution": false
+  }
+}
