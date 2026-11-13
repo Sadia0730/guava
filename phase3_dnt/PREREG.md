@@ -1719,6 +1719,19 @@ publicbench_v1, publicbench_v2, finalbench_ext). Base model B28k (`guava_fb_B30k
   without such a frame is skipped, stated). Registered before the per-take gains are computed. Same columns, tiles and names; row
   files carry the frame key when a clip appears twice; new folder `O/reports/qualitative_update_xh_ps/`, plus a contact sheet.
 
+- **Amendment 7f (2026-11-13, presentation only; user: "can u add zoom in the grid focussing on improvent in mide and flaws on
+  others"):** zoom strips for the qualitative figure (`eval_split/fig_update_zoom.py`, CPU, existing renders only). Rows: the
+  shortlist read off the 7b-7e sheets by eye (UBC-Fashion A1wrrhGRZmS, A17RfvegkdS, A1BokHoyj1S, A11unT+W2IS; People-Snapshot
+  male-2-casual, male-3-casual, female-3-casual; X-Humans 00087 frames 020154 and 050141, 00034 frame 070054; UBody
+  Interview_S1_Trim2), each at the frame already shown; the paper figure uses the four suggested to the user (A1wrrhGRZmS,
+  male-2-casual, male-3-casual, 00087 / 020154) unless the user picks others. Columns: photo, GT, GUAVA, LHM, LHM++, IDOL, ours
+  photo only, ours + update (100 % of the video); same square crop rule as the update figures. **Zoom window (rule, fixed now):** a
+  2:1 window, width 0.44 of the crop side, at least half covered by the ground-truth person mask, placed (4 px stride on the 512 px
+  render) where the mean absolute RGB error of the other five render columns minus that of ours + update is largest. The window is
+  therefore the region of our largest advantage by construction; the caption says so. Same window for every column of a row,
+  drawn as a box on the full view and shown enlarged below it; renders are not altered. New folder
+  `O/reports/qualitative_update_zoom/`.
+
 ## Pose table (PEAR Table 3 format): AGORA Body MVE for SPRINT (registered 2026-11-12, before any AGORA validation or test image is run through the model; user: "start evaluation with Agora")
 
 Purpose: the AGORA column of `RESULTS_POSE.md`. PEAR's column holds test-set leaderboard numbers (evaluation server); the author's
