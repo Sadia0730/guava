@@ -67,3 +67,9 @@ SPRINT has the lower error for 13.9 % of LSP-Extended persons, 22.0 % of COCO pe
 `fig_pose_ours_better` is the registered selection of the largest SPRINT gains (mostly PEAR failures on inverted bodies or on
 another person in the crop); `fig_pose_pear_better` the reverse (mostly SPRINT orientation failures); `fig_pose_random_*` six random
 persons per dataset (typical behaviour; PEAR more accurate in most).
+
+**Black padding (added 2026-11-14, RUNLOG 161).** The author's protocol pads crops that extend past the image border with black.
+PEAR is sensitive to this, ours is not: on 3DPW, PEAR 45.1 mm PA-MPJPE on crops inside the image vs 48.7 on padded crops (ours
+53.4 / 50.6); ours has the lower error on 27 % of unpadded and 45 % of padded frames. Several of PEAR's largest failures (mesh on a
+neighbouring person) disappear when the padding is filled with edge pixels. The paper figure (`fig_pose_paper_nopad`) therefore
+uses only crops inside the image.

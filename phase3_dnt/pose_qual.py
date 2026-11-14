@@ -153,6 +153,22 @@ def render_mesh(img, vpx, vcam, faces, color=(196, 204, 222)):
     return (img * (1 - m) + layer * m).astype(np.uint8)
 
 
+def crop_outside(ds, name):
+    """per person: share of the protocol's square crop that lies outside the image (black padding); image size from the file
+    header, one per sequence for 3DPW."""
+    from PIL import Image
+    key = (lambda n: n.split("/")[1]) if name == "3DPW-TEST" else (lambda n: n)
+    size = {}
+    for n in ds.imgname:
+        if key(n) not in size: size[key(n)] = Image.open(ds.img_root / n).size                       # (w, h)
+    out = np.zeros(len(ds))
+    for i, n in enumerate(ds.imgname):
+        w, h = size[key(n)]; b = ds.bbox_size[i]; cx, cy = ds.center[i]
+        ix = max(0.0, min(cx + b / 2, w) - max(cx - b / 2, 0)); iy = max(0.0, min(cy + b / 2, h) - max(cy - b / 2, 0))
+        out[i] = 1 - ix * iy / (b * b)
+    return out
+
+
 BONES14 = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (6, 7), (7, 8), (8, 9), (9, 10), (10, 11), (8, 12), (9, 12), (12, 13), (2, 8), (3, 9)]
 
 
@@ -298,15 +314,21 @@ def cmd_figure(a):
                 P_, S_ = (np.load(a.out / f"{w}_{name}.npz") for w in ("pear", "sprint"))
                 ep, es = P_["err"], S_["err"]; elig = np.where(P_["nvis"] >= 12)[0]; group = np.array(ds_.imgname)
             thr = float(np.median(ep[elig])); ok = elig[es[elig] <= thr]; diff = ep - es
+            pad = crop_outside(ds_, name); stats = {}
+            for lab, m in (("inside", pad[elig] <= 0.01), ("padded", pad[elig] > 0.01)):
+                e_ = elig[m]; stats[lab] = {"n": int(len(e_)), "mean_pear": float(ep[e_].mean()), "mean_ours": float(es[e_].mean()),
+                                            "share_ours_lower": float((es[e_] < ep[e_]).mean())}
+            print(name, "padding", json.dumps(stats), flush=True)
+            if a.no_pad: ok = ok[pad[ok] <= 0.01]
             seen, picks = set(), []
             for i in ok[np.argsort(-diff[ok], kind="stable")]:
                 if group[i] in seen or (name, str(i)) in skip: continue
                 seen.add(group[i]); picks.append(int(i))
                 if len(picks) == a.candidates: break
-            psel[name] = {"pear_median_error": thr, "eligible": int(len(elig)), "sprint_accurate": int(len(ok)),
+            psel[name] = {"pear_median_error": thr, "eligible": int(len(elig)), "sprint_accurate": int(len(ok)), "padding": stats, "no_pad": a.no_pad,
                           "share_ours_lower": D[name]["share_ours_lower"], "candidates": picks}
             print(name, psel[name], flush=True)
-        (a.out / "selection_paper.json").write_text(json.dumps(psel, indent=1) + "\n")
+        (a.out / ("selection_paper_nopad.json" if a.no_pad else "selection_paper.json")).write_text(json.dumps(psel, indent=1) + "\n")
 
         def side_panels(ex):
             Vs = [ex["pear_V"], ex["sprint_V"], ex["G"]]
@@ -356,15 +378,17 @@ def cmd_figure(a):
             return meta
 
         c_, p_ = psel["COCO-VAL"]["candidates"], psel["3DPW-TEST"]["candidates"]
-        m1 = paper_fig([("COCO-VAL", c_[0]), ("3DPW-TEST", p_[0])], "fig_pose_paper")
-        m2 = paper_fig([("COCO-VAL", c_[0]), ("COCO-VAL", c_[1]), ("3DPW-TEST", p_[0]), ("3DPW-TEST", p_[1])], "fig_pose_paper_supp")
+        sfx = "_nopad" if a.no_pad else ""
+        m1 = paper_fig([("COCO-VAL", c_[0]), ("3DPW-TEST", p_[0])], "fig_pose_paper" + sfx)
+        m2 = paper_fig([("COCO-VAL", c_[0]), ("COCO-VAL", c_[1]), ("3DPW-TEST", p_[0]), ("3DPW-TEST", p_[1])], "fig_pose_paper_supp" + sfx)
         sh = {n: round(100 * psel[n]["share_ours_lower"]) for n in psel}
         cap = ("Pose comparison with PEAR~\\cite{{pear}} on COCO and 3DPW. {sel} Top: meshes on the input crop. Bottom: for COCO, a zoom on "
                "the joint whose error differs most between the two methods (green: ground truth, red: prediction); for 3DPW, a side view of each "
                "mesh after Procrustes alignment with the ground-truth joints (green), with the joint whose error differs most marked. "
                "Examples are selected where our regressor is accurate (error at most PEAR's median) and PEAR's error is much larger; on average "
                "PEAR is more accurate (Table~\\ref{{tab:pose}}): ours has the lower error for {c}\\% of COCO persons and {p}\\% of 3DPW frames.")
-        for fname, meta, lab in (("fig_pose_paper", m1, "fig:pose"), ("fig_pose_paper_supp", m2, "fig:pose_supp")):
+        if a.no_pad: cap = cap.replace("Examples are selected where", "Examples are selected among crops inside the image (no black padding) where")
+        for fname, meta, lab in (("fig_pose_paper" + sfx, m1, "fig:pose"), ("fig_pose_paper_supp" + sfx, m2, "fig:pose_supp")):
             parts = "; ".join(f"{NAMES[m['dataset']]}: PEAR {m['pear']}, ours {m['ours']}" for m in meta)
             body = cap.format(sel=f"Per example ({parts}).", c=sh["COCO-VAL"], p=sh["3DPW-TEST"]).replace("%", "\\%").replace("\\\\%", "\\%")
             tex = ("% Generated by phase3_dnt/pose_qual.py figure --paper (PREREG pose figure amendment 1)\n\\begin{figure*}[t]\n\\centering\n"
@@ -414,6 +438,7 @@ def main():
     p.add_argument("--candidates", type=int, default=6, help="select: candidates kept per list (figure uses the first 2 not skipped)")
     p.add_argument("--skip", nargs="*", default=[], help="figure: DATASET:INDEX candidates skipped by the registered rule (log in RUNLOG)")
     p.add_argument("--size", type=int, default=512)
+    p.add_argument("--no-pad", action="store_true", help="figure --paper: amendment 2, only crops inside the image")
     p.add_argument("--paper", action="store_true", help="figure: paper version (PREREG amendment 1: COCO + 3DPW, 3DPW side views)")
     p.add_argument("--tiles", action="store_true", help="figure: write one PNG per panel (clean, highlight, zoom) under <out>/tiles instead of the figures")
     a = p.parse_args()
