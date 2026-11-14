@@ -254,6 +254,33 @@ def cmd_figure(a):
 
     D = sel["datasets"]; order = ("LSP-EXTENDED", "COCO-VAL", "3DPW-TEST")
     def pick(name, key, n=2): return [(name, i) for i in D[name][key] if (name, str(i)) not in skip][:n]
+    if a.tiles:                                                   # the same examples as the figures, one PNG per panel
+        groups = {"ours_better": [x for n in order for x in pick(n, "ours_better")],
+                  "pear_better": [x for n in order for x in pick(n, "pear_better")],
+                  "random": [(n, i) for n in order for i in D[n]["random"]]}
+        Y, G, R = (5, 183, 242), (89, 199, 52), (48, 59, 255)     # BGR: box yellow, ground truth green, prediction red
+        t = max(2, S // 256); rad = max(4, S // 110); index = []
+        for g, items in groups.items():
+            d = a.out / "tiles" / g; d.mkdir(parents=True, exist_ok=True)
+            for k, (name, i) in enumerate(items, 1):
+                ex = example(name, i); x0, y0, w = ex["win"]
+                stem = f"{k:02d}_{NAMES[name].replace('-', '')}_" + Path(ex["imgname"]).with_suffix("").as_posix().replace("imageFiles/", "").replace("val2017/", "").replace("/", "_")
+                row = {"group": g, "dataset": name, "index": i, "image": ex["imgname"], "PEAR": ex["pear_lab"], "ours": ex["sprint_lab"], "files": []}
+                for key, col in (("input", "input"), ("pear", "PEAR"), ("sprint", "ours")):
+                    clean = cv2.cvtColor(ex[key], cv2.COLOR_RGB2BGR); pt = ex["pts"].get(key)
+                    hl = clean.copy(); cv2.rectangle(hl, (x0, y0), (x0 + w, y0 + w), Y, t, cv2.LINE_AA)
+                    def mark(img, f, ox, oy):
+                        q = lambda v: (int(round((v[0] - ox) * f)), int(round((v[1] - oy) * f)))
+                        m = 2 if f > 1 else 1                             # larger markers in the zoom tiles
+                        if pt is not None and ex["gt"] is not None: cv2.line(img, q(ex["gt"]), q(pt), R, t * m, cv2.LINE_AA)
+                        for v, c in ((pt, R), (ex["gt"], G)):
+                            if v is not None: cv2.circle(img, q(v), rad * m, c, -1, cv2.LINE_AA); cv2.circle(img, q(v), rad * m, (255, 255, 255), max(1, t * m // 2), cv2.LINE_AA)
+                    mark(hl, 1.0, 0, 0)
+                    zm = cv2.resize(clean[y0:y0 + w, x0:x0 + w], (S, S), interpolation=cv2.INTER_LANCZOS4); mark(zm, S / w, x0, y0)
+                    for suffix, img in (("", clean), ("_highlight", hl), ("_zoom", zm)):
+                        fn = f"{stem}_{col}{suffix}.png"; cv2.imwrite(str(d / fn), img); row["files"].append(f"tiles/{g}/{fn}")
+                index.append(row)
+        (a.out / "tiles" / "index.json").write_text(json.dumps(index, indent=1) + "\n"); print("tiles", sum(len(r["files"]) for r in index)); return
     fig([(NAMES[n], pick(n, "ours_better")) for n in order], "fig_pose_ours_better", False)
     fig([(NAMES[n], pick(n, "pear_better")) for n in order], "fig_pose_pear_better", False)
     for n in order:
@@ -270,6 +297,7 @@ def main():
     p.add_argument("--candidates", type=int, default=6, help="select: candidates kept per list (figure uses the first 2 not skipped)")
     p.add_argument("--skip", nargs="*", default=[], help="figure: DATASET:INDEX candidates skipped by the registered rule (log in RUNLOG)")
     p.add_argument("--size", type=int, default=512)
+    p.add_argument("--tiles", action="store_true", help="figure: write one PNG per panel (clean, highlight, zoom) under <out>/tiles instead of the figures")
     a = p.parse_args()
     {"errors": cmd_errors, "select": cmd_select, "figure": cmd_figure}[a.stage](a)
 
