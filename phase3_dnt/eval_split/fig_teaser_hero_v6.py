@@ -34,6 +34,8 @@ ap.add_argument("--no-rim-trim", action="store_true"); ap.add_argument("--dpi", 
 ap.add_argument("--cands", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/reports/paper_figures/teaser_candidates.json",
                 help="teaser_candidates.py output: per clip, the mean PSNR gain of the update on its test frames seen from behind (>= 135 deg)")
 ap.add_argument("--time-label", default="55 ms", help='title of the avatar panel: "Avatar in <label>"')
+ap.add_argument("--top", type=float, default=0.47, help="header height (in)"); ap.add_argument("--row-gap", type=float, default=0.06)
+ap.add_argument("--sub-gap", type=float, default=0.185, help="title -> subtitle offset (in)")
 ap.add_argument("--overall-gain", default=None, help="one badge under the update column instead of the per-row back-view badges")
 a = ap.parse_args(); RR = Path(a.renders); E = Path(a.E); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 plt.rcParams.update({"font.family": "STIXGeneral", "mathtext.fontset": "stix", "font.size": 7, "pdf.fonttype": 42})
@@ -97,7 +99,7 @@ for r in a.rows.split(","):
 
 LEFT, ARW, g, G = 0.10, 0.34, 0.035, 0.17
 sq = (a.width - LEFT - ARW - G - 4 * g - 0.06) / (3 + 3 * NARROW); nw = sq * NARROW                  # square side; narrow width
-top, RG = 0.47, 0.06; Hfig = top + len(rows) * (sq + RG) + 0.03 + (0.17 if a.overall_gain else 0)
+top, RG = a.top, a.row_gap; Hfig = top + len(rows) * (sq + RG) + 0.03 + (0.17 if a.overall_gain else 0)
 fig = plt.figure(figsize=(a.width, Hfig)); ax = fig.add_axes([0, 0, 1, 1]); ax.set_xlim(0, a.width); ax.set_ylim(0, Hfig); ax.axis("off")
 xs = [LEFT]; xs.append(xs[0] + nw + ARW); xs.append(xs[1] + nw + g); xs.append(xs[2] + nw + G); xs.append(xs[3] + sq + g); xs.append(xs[4] + sq + g)
 for (x0, x1, fc) in ((xs[1] - 0.05, xs[2] + nw + 0.05, PANEL), (xs[3] - 0.06, xs[5] + sq + 0.06, ACC_F)):
@@ -106,10 +108,10 @@ H1 = Hfig - 0.06; cB = (xs[1] + xs[2] + nw) / 2; cC = (xs[3] + xs[5] + sq) / 2
 ax.text(xs[0] + nw / 2, H1, "One photo", ha="center", va="top", fontsize=8.2, weight="bold", color=INK)
 ax.text(cB, H1, f"Avatar in {a.time_label}", ha="center", va="top", fontsize=8.2, weight="bold", color=INK)
 for x, t in ((xs[1] + nw / 2, "same pose"), (xs[2] + nw / 2, "new pose")):
-    ax.text(x, H1 - 0.185, t, ha="center", va="top", fontsize=6.6, style="italic", color=MUTED)
+    ax.text(x, H1 - a.sub_gap, t, ha="center", va="top", fontsize=6.6, style="italic", color=MUTED)
 ax.text(cC, H1, "The back the photo never showed", ha="center", va="top", fontsize=8.2, weight="bold", color=ACC)
 for i, t in enumerate(("from the photo only", "after the video update", "real video frame")):
-    ax.text(xs[3 + i] + sq / 2, H1 - 0.185, t, ha="center", va="top", fontsize=6.8, style="italic", color=ACC if i == 1 else MUTED,
+    ax.text(xs[3 + i] + sq / 2, H1 - a.sub_gap, t, ha="center", va="top", fontsize=6.8, style="italic", color=ACC if i == 1 else MUTED,
             weight="bold" if i == 1 else "normal")
 for ri, r in enumerate(rows):
     y = Hfig - top - (ri + 1) * (sq + RG) + RG
