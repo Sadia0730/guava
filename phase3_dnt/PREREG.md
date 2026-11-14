@@ -1865,3 +1865,11 @@ or mirror pixels PEAR is accurate (COCO error 27 % -> 2-3 %; 3DPW 99 -> 31 mm). 
   image, per sequence for 3DPW). The figure therefore shows PEAR errors that are not caused by the protocol's black padding.
 - **Reported.** The padding analysis (mean errors and shares with / without padded crops) goes into RUNLOG and the results file;
   the caption states that the examples use crops inside the image.
+
+### Pose qualitative comparison, amendment 3: first COCO example replaced (registered 2026-11-14 after viewing the amendment-2 figure, before rendering the replacement; user: "change the coco first image")
+- **Change.** COCO person 623 (val2017/000000042628.jpg) is dropped at the authors' request. Its marked ground-truth ankle is
+  hidden in snow, so the zoom shows no visible foot. The figure uses the next candidates of the unchanged amendment-2 ranking
+  (`--skip COCO-VAL:623`): main figure COCO 4363; supplementary COCO 4363 and 2783. The rule, thresholds and 3DPW examples are
+  unchanged.
+- **Outputs.** New files with suffix `_v3` next to the amendment-2 files; nothing existing is overwritten. If a replacement also
+  shows a hidden or ambiguous ground-truth joint, that is reported instead of picking further by eye.
