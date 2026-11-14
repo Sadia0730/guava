@@ -1873,3 +1873,12 @@ or mirror pixels PEAR is accurate (COCO error 27 % -> 2-3 %; 3DPW 99 -> 31 mm). 
   unchanged.
 - **Outputs.** New files with suffix `_v3` next to the amendment-2 files; nothing existing is overwritten. If a replacement also
   shows a hidden or ambiguous ground-truth joint, that is reported instead of picking further by eye.
+
+### Pose qualitative comparison, amendment 4: the marked COCO joint must be visible (registered 2026-11-14 after viewing the amendment-3 figure, before rendering)
+- **Found.** COCO's own flags (person_keypoints_val2017.json) show that the marked joint is "labelled, not visible" (v = 1) for
+  623 (left ankle, in snow) and for its replacement 2783 (left ankle, behind a lifter). The flags of the other candidates were
+  read before this rule was written: 4363 right hip v = 2, 2359 right elbow v = 2, 4389 left wrist v = 1, 70 right knee v = 1,
+  3679 right elbow v = 2.
+- **Rule.** Amendments 1-3 plus: a COCO candidate is used only if its marked joint (largest |PEAR - ours| distance among the
+  joints the protocol scores) has COCO visibility 2. Applied as `--skip COCO-VAL:623 COCO-VAL:2783` (first two failing
+  candidates in rank order). Main figure: COCO 4363; supplementary: 4363 and 2359. 3DPW unchanged. Suffix `_v4`.
