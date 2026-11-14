@@ -58,3 +58,12 @@ Notes
 - § AGORA test images have hashed names, so the camera type (focal length) is not available on the test set; only the
   no-camera row can be submitted. Its prediction zip is `O/reports/pose_table3/agora/test_width/predictions.zip`
   (20,303 persons in 3,256 of 3,387 images; 2.38 GB; SHA-256 `7211a5c2…`); AGORA test server result (2026-11-12, entry kept private, anonymous): Body MVE 126.1, MPJPE 124.2, N-MVE 144.9; F1 0.87 (P 0.96, R 0.79); face MVE 49.9; L / R hand MVE 46.8 / 47.5; full-body MVE 174.2. Validation (own scorer) gave 121.0 / F1 0.86, consistent.
+
+## Qualitative comparison with released PEAR (added 2026-11-14, RUNLOG 158)
+
+`O/reports/pose_qual/`: input, PEAR and SPRINT meshes on the author's-protocol crops, with the joint whose error changes most
+boxed and zoomed (green ground truth, red prediction). Per-person errors reproduce the table's PCK exactly.
+SPRINT has the lower error for 13.9 % of LSP-Extended persons, 22.0 % of COCO persons (>= 12 keypoints) and 35.6 % of 3DPW frames.
+`fig_pose_ours_better` is the registered selection of the largest SPRINT gains (mostly PEAR failures on inverted bodies or on
+another person in the crop); `fig_pose_pear_better` the reverse (mostly SPRINT orientation failures); `fig_pose_random_*` six random
+persons per dataset (typical behaviour; PEAR more accurate in most).
