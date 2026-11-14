@@ -153,6 +153,36 @@ def render_mesh(img, vpx, vcam, faces, color=(196, 204, 222)):
     return (img * (1 - m) + layer * m).astype(np.uint8)
 
 
+BONES14 = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (6, 7), (7, 8), (8, 9), (9, 10), (10, 11), (8, 12), (9, 12), (12, 13), (2, 8), (3, 9)]
+
+
+def procrustes(S1, S2):
+    """similarity transform of S1 onto S2 (J, 3) as eap.compute_similarity_transform, returned as a function on points."""
+    m1, m2 = S1.mean(0), S2.mean(0); X1, X2 = S1 - m1, S2 - m2; K = X1.T @ X2
+    U, _, Vh = np.linalg.svd(K); V = Vh.T; Z = np.eye(3); Z[2, 2] = np.sign(np.linalg.det(U @ V.T))
+    R = V @ Z @ U.T; s = np.trace(R @ K) / (X1 ** 2).sum(); t = m2 - s * R @ m1
+    return lambda P: s * P @ R.T + t
+
+
+def rot_y(P, ang=np.pi / 2):
+    c, s = np.cos(ang), np.sin(ang)
+    return P @ np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]).T
+
+
+def side_view(V, faces, G, P, k, centre, sc, S):
+    """side view (rotated 90 deg about the vertical axis): mesh V (None: skeleton only), ground-truth joints G in green,
+    predicted joint P[k] in red with a line to G[k]; orthographic, shared centre / scale per example."""
+    img = np.full((S, S, 3), 246, np.uint8)
+    q = lambda X: (rot_y(X)[:, :2] - centre) * sc + S / 2
+    if V is not None:
+        img = render_mesh(img, q(V), rot_y(V), faces)
+    g = q(G); t = max(2, S // 200)
+    for a_, b_ in BONES14:
+        cv2.line(img, tuple(np.round(g[a_] * 4).astype(int)), tuple(np.round(g[b_] * 4).astype(int)), (52, 199, 89), t, cv2.LINE_AA, shift=2)
+    for v in g: cv2.circle(img, tuple(np.round(v * 4).astype(int)), t * 2, (52, 199, 89), -1, cv2.LINE_AA, shift=2)
+    return img, g, (q(P) if P is not None else None)
+
+
 def to_disp(p_img, aff, S):
     A = np.vstack([aff, [0, 0, 1]]); q = np.c_[p_img, np.ones(len(p_img))] @ A.T
     return q[:, :2] * (S / eap.PATCH)
@@ -191,6 +221,9 @@ def cmd_figure(a):
                 stored = float(np.load(STORED[(w, name)])[i, 1])
                 assert abs(pj.mean() - stored) < 0.5, (w, i, pj.mean(), stored)
                 err[w] = pj; ex[w + "_lab"] = f"PA-MPJPE {pj.mean():.0f} mm"
+                f3 = procrustes(pr[KL], gt3[KL]); assert np.abs(f3(pr[KL]) - al).max() < 1e-6
+                ex[w + "_V"] = f3(res[w]["verts"][0] - res[w]["j3d"][0, 39]); ex[w + "_J"] = f3(pr[KL])
+            ex["G"] = gt3[KL]; ex["k3"] = int(np.argmax(np.abs(err["pear"] - err["sprint"])))
             k = int(np.argmax(np.abs(err["pear"] - err["sprint"]))); jk = KL[k]; gk = OP_OF_KL[k]
             gt_pt = gt2[gk] if vis[gk] else None
             ex["pts"] = {w: ex[w + "_j"][jk] for w in runs}
@@ -254,6 +287,90 @@ def cmd_figure(a):
 
     D = sel["datasets"]; order = ("LSP-EXTENDED", "COCO-VAL", "3DPW-TEST")
     def pick(name, key, n=2): return [(name, i) for i in D[name][key] if (name, str(i)) not in skip][:n]
+    if a.paper:                                                   # PREREG amendment 1: COCO + 3DPW, SPRINT accurate
+        psel = {}
+        for name in ("COCO-VAL", "3DPW-TEST"):
+            ds_ = dataset(ev, name)
+            if name == "3DPW-TEST":
+                ep, es = (np.load(STORED[(w, name)])[:, 1] for w in ("pear", "sprint"))
+                elig = np.arange(len(ds_)); group = np.array([n.split("/")[1] for n in ds_.imgname])
+            else:
+                P_, S_ = (np.load(a.out / f"{w}_{name}.npz") for w in ("pear", "sprint"))
+                ep, es = P_["err"], S_["err"]; elig = np.where(P_["nvis"] >= 12)[0]; group = np.array(ds_.imgname)
+            thr = float(np.median(ep[elig])); ok = elig[es[elig] <= thr]; diff = ep - es
+            seen, picks = set(), []
+            for i in ok[np.argsort(-diff[ok], kind="stable")]:
+                if group[i] in seen or (name, str(i)) in skip: continue
+                seen.add(group[i]); picks.append(int(i))
+                if len(picks) == a.candidates: break
+            psel[name] = {"pear_median_error": thr, "eligible": int(len(elig)), "sprint_accurate": int(len(ok)),
+                          "share_ours_lower": D[name]["share_ours_lower"], "candidates": picks}
+            print(name, psel[name], flush=True)
+        (a.out / "selection_paper.json").write_text(json.dumps(psel, indent=1) + "\n")
+
+        def side_panels(ex):
+            Vs = [ex["pear_V"], ex["sprint_V"], ex["G"]]
+            R_ = np.concatenate([rot_y(v)[:, :2] for v in Vs]); lo, hi = R_.min(0), R_.max(0)
+            centre, sc = (lo + hi) / 2, 0.9 * S / max(hi - lo)
+            out = {"input": side_view(None, faces, ex["G"], None, None, centre, sc, S)}
+            for w in ("pear", "sprint"): out[w] = side_view(ex[w + "_V"], faces, ex["G"], ex[w + "_J"], ex["k3"], centre, sc, S)
+            return out
+
+        def paper_fig(items, fname):
+            per = 2; nrow = (len(items) + per - 1) // per
+            W = 6.88; gap = 0.04; sep = 0.10; cw = (W - 5 * gap - sep) / 6; head, lab, rgap = 0.19, 0.13, 0.08
+            rowh = 2 * cw + gap + lab; H = head + nrow * rowh + (nrow - 1) * rgap
+            f = plt.figure(figsize=(W, H), dpi=450)
+            def xpos(c): return c * (cw + gap) + (sep if c >= 3 else 0)
+            for c, t in enumerate(["Input", "PEAR", "Ours"] * 2):
+                f.text((xpos(c) + cw / 2) / W, 1 - head / 2 / H, t, ha="center", va="center", fontsize=8)
+            if nrow > 1 or len(items) > 1:
+                f.add_artist(plt.Line2D([(xpos(3) - sep / 2 - gap / 2) / W] * 2, [0.01, 1 - head / H], transform=f.transFigure, color="0.72", lw=0.5))
+            meta = []
+            for n_, (name, i) in enumerate(items):
+                r, e = divmod(n_, per); top = head + r * (rowh + rgap); ex = example(name, i)
+                if r and e == 0: f.add_artist(plt.Line2D([0, 1], [1 - (top - rgap / 2) / H] * 2, transform=f.transFigure, color="0.72", lw=0.5))
+                sv = side_panels(ex) if name == "3DPW-TEST" else None
+                meta.append({"dataset": name, "index": i, "image": ex["imgname"], "pear": ex["pear_lab"], "ours": ex["sprint_lab"]})
+                for p_, key in enumerate(["input", "pear", "sprint"]):
+                    c = 3 * e + p_; x = xpos(c) / W
+                    ax = f.add_axes([x, 1 - (top + cw) / H, cw / W, cw / H]); az = f.add_axes([x, 1 - (top + 2 * cw + gap) / H, cw / W, cw / H])
+                    if sv is None:
+                        draw(ax, ex[key], ex, ex["pts"].get(key)); draw(az, ex[key], ex, ex["pts"].get(key), zoom=True)
+                        bottom = "COCO, zoom" if p_ == 0 else ex[key + "_lab"]
+                    else:
+                        ax.imshow(ex[key]); ax.set_xticks([]); ax.set_yticks([])
+                        for sp in ax.spines.values(): sp.set_visible(False)
+                        img_, g, pp = sv[key]; az.imshow(img_); az.set_xticks([]); az.set_yticks([])
+                        for sp in az.spines.values(): sp.set_edgecolor("0.75"); sp.set_linewidth(0.6)
+                        k = ex["k3"]
+                        if pp is not None:
+                            az.plot([g[k][0], pp[k][0]], [g[k][1], pp[k][1]], "-", color="#ff3b30", lw=0.8)
+                            az.plot(*pp[k], "o", ms=3.6, mfc="#ff3b30", mec="white", mew=0.4)
+                        az.plot(*g[k], "o", ms=3.6, mfc="#34c759", mec="white", mew=0.4)
+                        az.set_xlim(-0.5, S - 0.5); az.set_ylim(S - 0.5, -0.5)
+                        bottom = "3DPW, ground truth (side)" if p_ == 0 else ex[key + "_lab"] + " (side)"
+                    f.text((xpos(c) + cw / 2) / W, 1 - (top + 2 * cw + gap + 0.02) / H, bottom, ha="center", va="top", fontsize=6.3)
+            f.savefig(a.out / f"{fname}.pdf", dpi=450); f.savefig(a.out / f"{fname}.png", dpi=300); plt.close(f)
+            (a.out / f"{fname}.json").write_text(json.dumps(meta, indent=1) + "\n"); print("wrote", fname, flush=True)
+            return meta
+
+        c_, p_ = psel["COCO-VAL"]["candidates"], psel["3DPW-TEST"]["candidates"]
+        m1 = paper_fig([("COCO-VAL", c_[0]), ("3DPW-TEST", p_[0])], "fig_pose_paper")
+        m2 = paper_fig([("COCO-VAL", c_[0]), ("COCO-VAL", c_[1]), ("3DPW-TEST", p_[0]), ("3DPW-TEST", p_[1])], "fig_pose_paper_supp")
+        sh = {n: round(100 * psel[n]["share_ours_lower"]) for n in psel}
+        cap = ("Pose comparison with PEAR~\\cite{{pear}} on COCO and 3DPW. {sel} Top: meshes on the input crop. Bottom: for COCO, a zoom on "
+               "the joint whose error differs most between the two methods (green: ground truth, red: prediction); for 3DPW, a side view of each "
+               "mesh after Procrustes alignment with the ground-truth joints (green), with the joint whose error differs most marked. "
+               "Examples are selected where our regressor is accurate (error at most PEAR's median) and PEAR's error is much larger; on average "
+               "PEAR is more accurate (Table~\\ref{{tab:pose}}): ours has the lower error for {c}\\% of COCO persons and {p}\\% of 3DPW frames.")
+        for fname, meta, lab in (("fig_pose_paper", m1, "fig:pose"), ("fig_pose_paper_supp", m2, "fig:pose_supp")):
+            parts = "; ".join(f"{NAMES[m['dataset']]}: PEAR {m['pear']}, ours {m['ours']}" for m in meta)
+            body = cap.format(sel=f"Per example ({parts}).", c=sh["COCO-VAL"], p=sh["3DPW-TEST"]).replace("%", "\\%").replace("\\\\%", "\\%")
+            tex = ("% Generated by phase3_dnt/pose_qual.py figure --paper (PREREG pose figure amendment 1)\n\\begin{figure*}[t]\n\\centering\n"
+                   f"\\includegraphics[width=\\textwidth]{{figures/{fname}.pdf}}\n\\caption{{{body}}}\n\\label{{{lab}}}\n\\end{{figure*}}\n")
+            (a.out / f"{fname}.tex").write_text(tex)
+        return
     if a.tiles:                                                   # the same examples as the figures, one PNG per panel
         groups = {"ours_better": [x for n in order for x in pick(n, "ours_better")],
                   "pear_better": [x for n in order for x in pick(n, "pear_better")],
@@ -297,6 +414,7 @@ def main():
     p.add_argument("--candidates", type=int, default=6, help="select: candidates kept per list (figure uses the first 2 not skipped)")
     p.add_argument("--skip", nargs="*", default=[], help="figure: DATASET:INDEX candidates skipped by the registered rule (log in RUNLOG)")
     p.add_argument("--size", type=int, default=512)
+    p.add_argument("--paper", action="store_true", help="figure: paper version (PREREG amendment 1: COCO + 3DPW, 3DPW side views)")
     p.add_argument("--tiles", action="store_true", help="figure: write one PNG per panel (clean, highlight, zoom) under <out>/tiles instead of the figures")
     a = p.parse_args()
     {"errors": cmd_errors, "select": cmd_select, "figure": cmd_figure}[a.stage](a)
