@@ -1855,3 +1855,13 @@ PEAR 340 mm from a front/back flip that the overlay hides; side view checked in 
   the joint with the largest error change marked (red: prediction, line to the ground truth); below the input, the ground-truth
   skeleton alone. COCO unchanged (box, keypoints, zoom).
 - **Caption** states the selection, the shares of persons / frames where SPRINT is better, and that PEAR is more accurate on average.
+
+### Pose qualitative comparison, amendment 2: no padded crops (registered 2026-11-14 after viewing the amendment-1 figure, before the new selection; user: "i still cant belive in my eyes pear can make this kind of mistake")
+
+Check behind it (scratch script): in three of the four amendment-1 examples the author's-protocol crop extends past the image
+border (16 %, 16 %, 29 % of the crop is black padding) and PEAR's mesh moves to another person; with the same crop padded by edge
+or mirror pixels PEAR is accurate (COCO error 27 % -> 2-3 %; 3DPW 99 -> 31 mm). The fourth (no padding) is unchanged (91 mm).
+- **Rule.** Amendment 1 plus: only persons whose crop lies inside the image (at most 1 % of the crop outside; image size read per
+  image, per sequence for 3DPW). The figure therefore shows PEAR errors that are not caused by the protocol's black padding.
+- **Reported.** The padding analysis (mean errors and shares with / without padded crops) goes into RUNLOG and the results file;
+  the caption states that the examples use crops inside the image.
