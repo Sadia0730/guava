@@ -1840,3 +1840,18 @@ labelled as one; the random rows below show typical behaviour.
 - **Format.** As the paper's zoom figure (STIX text, TrueType fonts, 6.88 in wide, thin separators); PDF + PNG + selection JSON.
 - **Compute and storage.** One shared-GPU job for the per-person errors (COCO + LSP-Extended, both models; < 15 min) and a short
   one for the figure crops. Outputs under `O/reports/pose_qual/`; nothing new on /raid; no existing output is changed.
+
+### Pose qualitative comparison, amendment 1: paper figure (registered 2026-11-14 after viewing the RUNLOG 158 figures, before the new selection is computed; user: "i am wondering how ours is better are u sure? remove LSP extend and create the visualization again to paste in cvpr paper as pdf")
+
+Post-viewing change, disclosed as such. Viewing showed that the registered "ours better" picks were mostly cases where both
+models fail (SPRINT PCK@0.05 0.00 / 0.08 on two of them) and that a 3D error is not visible in a front overlay (3DPW fencing:
+PEAR 340 mm from a front/back flip that the overlay hides; side view checked in a scratch script).
+- **Datasets.** COCO and 3DPW. LSP-Extended dropped from the figure at the user's request; its numbers stay in the table.
+- **Rule.** Same eligibility and ranking (PEAR error minus SPRINT error, distinct images / sequences), restricted to persons where
+  SPRINT is accurate: SPRINT error <= the median PEAR error of that dataset (COCO: normalised 2D error; 3DPW: PA-MPJPE). First
+  two per dataset; same skip rule. Main paper: the first one per dataset; supplement: the first two.
+- **3DPW panels.** Top: overlays without 2D markers (3DPW's 2D keypoints are detections, not ground truth). Bottom: side view
+  (90 deg about the vertical axis) of each mesh after the frame's Procrustes alignment, ground-truth joints and skeleton in green,
+  the joint with the largest error change marked (red: prediction, line to the ground truth); below the input, the ground-truth
+  skeleton alone. COCO unchanged (box, keypoints, zoom).
+- **Caption** states the selection, the shares of persons / frames where SPRINT is better, and that PEAR is more accurate on average.
