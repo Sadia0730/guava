@@ -1806,3 +1806,37 @@ not changed after any AGORA result is seen, except for bugs (the written output 
   real predictions; the validation number is reported as "official protocol, our implementation". The test number, the one that
   goes in the table, comes from the AGORA server and does not depend on this scorer.
 - Everything else (model, detector, crop, camera input, outputs, one test submission) is unchanged.
+
+## Pose table: qualitative comparison with released PEAR (registered 2026-11-14, before any per-image pose error is computed or any example is viewed; user: "create results for pose estimator model and save visual result with difference of improvement. if possible highlight visual result")
+
+Purpose: a figure in the format of PEAR's qualitative figure (input, then each method's mesh overlaid) for the pose table of
+`RESULTS_POSE.md`. Only released PEAR can be run here (OSX, Multi-HMR, SMPLest-X are not installed; their table rows are copied).
+On average PEAR is more accurate than SPRINT on every dataset of the table, so the "ours better" figure is a selection and is
+labelled as one; the random rows below show typical behaviour.
+
+- **Models.** Released PEAR (`ev.DEFAULT_TEACHER`, its EHM head) and SPRINT from scratch, EMA, step 128,000
+  (`eval_programme/sprint_scratch/best_ema.pt`, `sprint_raw`, plain SMPL-X head, camera input focal = image width, real 0: the
+  main row of the table). No calibrated-camera row in the figure.
+- **Data and crops.** The author's protocol of the table (`tools/eval_author_protocol.py`, HMR2 crops, 256 px): COCO-val (4,648
+  persons), LSP-Extended (9,428), 3DPW-test (35,515). The overlays use the same crop at higher resolution (same affine, scaled).
+- **Per-person error.** COCO / LSP-Extended: mean over the ground-truth keypoints with confidence > 0.5 of the 2D distance divided
+  by max(box w, h) (the PCK normalisation); computed by a new script that runs both models through the same crops and joint
+  mapping as the evaluator, and must reproduce the stored PCK of both rows (to 0.001) before any selection. 3DPW: the stored
+  per-frame PA-MPJPE of both rows (RUNLOG 61; PEAR's author-protocol run), recomputed for the shown frames (must agree to 0.5 mm).
+- **Eligibility.** At least 12 ground-truth keypoints with confidence > 0.5 (2D datasets; as `lsp_qual.py`); 3DPW: all frames.
+- **"Ours better" (main figure).** Per dataset, persons ranked by PEAR error minus SPRINT error, descending; the first two with
+  distinct images (2D) or distinct sequences (3DPW). A candidate is skipped only if the crop centre does not show the scored person
+  (another person in front or a wrong person); every skip is listed in RUNLOG. Caption states the share of eligible persons with
+  lower error for SPRINT and that on average PEAR is more accurate.
+- **"PEAR better" (supplement, limitations).** The same ranking reversed, first two per dataset, same rules.
+- **Random (supplement).** Six eligible persons per dataset, `numpy.random.default_rng(0).choice(eligible, 6, replace=False)`,
+  model-independent.
+- **Highlight.** In each example, the joint with the largest error reduction between the two methods (2D: among the visible
+  ground-truth keypoints; 3DPW: among the 14 evaluated joints, per-joint error after the frame's Procrustes alignment) gets a
+  square window (side 0.30 of the crop, centred on its ground-truth 2D keypoint, or on the mean of the two predicted joints when
+  that keypoint is not visible; clamped inside the crop), drawn on every panel; a zoom of the window sits below each panel, with
+  the ground-truth keypoint (green), the method's predicted joint (red) and the line between them. Each panel is labelled with the
+  selection metric (PCK@0.05 and normalised error for 2D; PA-MPJPE in mm for 3DPW).
+- **Format.** As the paper's zoom figure (STIX text, TrueType fonts, 6.88 in wide, thin separators); PDF + PNG + selection JSON.
+- **Compute and storage.** One shared-GPU job for the per-person errors (COCO + LSP-Extended, both models; < 15 min) and a short
+  one for the figure crops. Outputs under `O/reports/pose_qual/`; nothing new on /raid; no existing output is changed.
