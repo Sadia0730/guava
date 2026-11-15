@@ -34,6 +34,8 @@ ap.add_argument("--mode", default="mean", choices=("mean", "wta", "fill"), help=
 ap.add_argument("--every", type=int, default=1, help="use every n-th training frame (1 = all)")
 ap.add_argument("--max-frac", type=float, default=0.0, help="use the first ceil(frac x n) training frames after the source, in time order (extended benchmark 25 / 50 %% rows; 0 = all)")
 ap.add_argument("--max-frames", type=int, default=0, help="use at most N training frames after the source (0 = all)")
+ap.add_argument("--views", type=int, default=0, help="matched-evidence row: fuse exactly the frames baselines/lhmpp/run_lhmpp.py --views N gets "
+                "(N positions spaced uniformly over [source] + training frames, source first); 0 = off")
 ap.add_argument("--fb-ckpt", default="/vault/research/COS/VIRLab/ubx858/persistent_avatar/outputs/guava_fb/runs/guava_fb_B30k/checkpoints/best.pt")
 ap.add_argument("--data-root", default=""); ap.add_argument("--overwrite", action="store_true")
 ap.add_argument("--support-gain", type=float, default=1.0, help="exposure-shift probe (PREREG phase 7 amendment 1): brightness gain applied to every training frame fused after the source")
@@ -155,6 +157,11 @@ def main():
         train = [k for k in fj["recon"] if k != fj["source"] and k in recs][:: a.every]
         if a.max_frames: train = train[:a.max_frames]
         if a.max_frac: import math; train = train[:math.ceil(a.max_frac * len(train))]
+        if a.views:                                                                                  # same formula as run_lhmpp.py (refs)
+            pool_ = [fj["source"]] + [k for k in fj["recon"] if k != fj["source"]]
+            refs = [pool_[i] for i in np.unique(np.linspace(0, len(pool_) - 1, a.views).round().astype(int))]
+            assert refs[0] == fj["source"] and all(k in recs for k in refs[1:]), f"{c['id']}: a matched frame is not in the clip records"
+            train = refs[1:]
         per = []
         for k in train:
             f = frame_feats(exposure_shift(to_dev(F.collate1(fbd.source_info(0, k)), dev), a.support_gain, a.support_sat)); seen |= f["vis"]
@@ -176,6 +183,7 @@ def main():
         uv_rgb_png(uv0, od / "uv_rgb_source.png"); uv_rgb_png(uvmap, od / "uv_rgb_fused.png")
         cov0 = float(f0["vis"].sum()) / n_uv; cov = float((W > 0).sum()) / n_uv; covt = float(touched.sum()) / n_uv
         info = {"method": a.name, **CK, "gpu": GPU, "settings": {"mode": a.mode, "prior": a.prior, "thr": a.thr, "cap": a.cap, "every": a.every, "max_frames": a.max_frames, "max_frac": a.max_frac, "support_gain": a.support_gain, "support_sat": a.support_sat},
+                "views": a.views, "ref_keys": [fj["source"]] + list(train) if a.views else None,
                 "source": fj["source"], "n_train_used": len(train), "n_train_available": len(fj["recon"]) - 1, "n_test": len(fj["test"]),
                 "coverage_source": cov0, "coverage_seen_any_frame": float(seen.sum()) / n_uv, "coverage_fused": cov, "texels_updated_frac": covt,
                 "mean_W_updated": float(W[touched].mean()) if covt > 0 else 0.0, "selfcheck_source_only_vs_static_u8": selfcheck,

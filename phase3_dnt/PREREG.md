@@ -1896,3 +1896,25 @@ Descriptive extension of the turned-away analysis (teaser_candidates.py, +0.68 d
   in ext_tables.py) and the number of clips that improve. Nothing is selected from the result; all rows and metrics are reported.
 - **Outputs.** `O/reports/far_view/far_view_scores.{json,md}` (new folder); no existing file is changed. GPU: one idle card, a
   few minutes (LPIPS only).
+
+### LHM++ with 16 images on all 163 clips, and our update on the same 16 frames (registered 2026-11-15, before any new render; user: "can u generate the result on 163? and fix this line")
+Review question: the paper compares LHM++ given 16 images with our update on 41 clips only, and the two rows did not see the same
+frames (LHM++: 16 frames; `fb_update100`: every reconstruction frame).
+- **Why 41.** `lhmpp_v16` was registered and run on 2026-11-06 for the benchmark of that day (FinalBench addendum: UBody 30,
+  People-Snapshot 4, NeuMan 4, X-Humans 3). The extended benchmark (2026-11-09) listed only LHM++ [1 view] for its 122 new clips.
+- **Row (a) `lhmpp_v16` on the 122 `finalbench_ext` clips.** `run_lhmpp.py --views 16`, adapter, weights and settings unchanged
+  (16 positions spaced uniformly over [source] + reconstruction frames, source first). The 41 existing clips are not rerun.
+- **Row (b) `fb_update_v16` on all 163 clips.** `fusion_gt_row.py` with the rule of `fb_update100` (weighted mean, source prior 2,
+  no threshold, no cap, supplied parameters, fixed weights) but fusing exactly the frames LHM++ receives: new option `--views 16`,
+  the same selection formula as the adapter. Check after the run: per clip the fused key list (`ref_keys` in run.json) must equal
+  the `ref_keys` of the `lhmpp_v16` run; a clip that differs is reported and left out of the paired comparison.
+- **Scores and table.** `score.py --tag full` per root; `eval_split/v16_table.py` (new): clips scored by all of `lhmpp`,
+  `lhmpp_v16`, `fb_gt`, `fb_update_v16`, `fb_update100`; PSNR / SSIM / LPIPS per dataset and over all clips (clip means, as
+  ext_tables.py); paired differences `lhmpp_v16 - lhmpp`, `fb_update_v16 - fb_gt`, `fb_update_v16 - lhmpp_v16`,
+  `fb_update100 - fb_update_v16` with ext_tables.py's bootstrap (10,000 draws, seed 20261109, people resampled within datasets).
+- **Reporting.** The numbers as they come out, whatever they are (LHM++ gaining more than ours, or our 16-frame gain near zero,
+  included). Nothing is tuned and no clip is selected; a clip whose render fails is listed as missing.
+- **Paper.** The 41-clip sentence of `5_result.tex` is rewritten with the 163-clip numbers; a table row, if added, is labelled
+  "16 images".
+- **Outputs.** New folders `renders/{lhmpp_v16,fb_update_v16}` and score files `{lhmpp_v16,fb_update_v16}_full.json` (the three
+  existing `lhmpp_v16_full.json` files are not touched), `O/reports/v16/`. GPUs 4 / 7 (LHM++) and 5 (ours), idle at registration.
