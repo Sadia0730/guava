@@ -1882,3 +1882,17 @@ or mirror pixels PEAR is accurate (COCO error 27 % -> 2-3 %; 3DPW 99 -> 31 mm). 
 - **Rule.** Amendments 1-3 plus: a COCO candidate is used only if its marked joint (largest |PEAR - ours| distance among the
   joints the protocol scores) has COCO visibility 2. Applied as `--skip COCO-VAL:623 COCO-VAL:2783` (first two failing
   candidates in rank order). Main figure: COCO 4363; supplementary: 4363 and 2359. 3DPW unchanged. Suffix `_v4`.
+
+### Far-view subset: SSIM, LPIPS and the other methods (registered 2026-11-15, before computing; user: "why not computed can u do that?")
+Descriptive extension of the turned-away analysis (teaser_candidates.py, +0.68 dB PSNR): the same frames, more metrics and rows.
+- **Frames (unchanged rule).** Roots `finalbench_ext`, `publicbench_v1`, `publicbench_v2` (UBody has no such views); test frames
+  whose global-root rotation differs from the source frame's by >= 135 deg (geodesic angle, `base/<clip>/smplx2020.npz`); a frame
+  is used only if the render of EVERY listed method exists; a clip is used if at least one frame remains.
+- **Rows.** `guava`, `lhm_facefix`, `lhmpp`, `idol`, `fb_gt`, `fb_update25`, `fb_update50`, `fb_update100`, `gart`,
+  `gaussianavatar`, `exavatar_gtface`, `ft_gt` (the supplied-parameter rows of the main table and the update budgets).
+- **Metrics.** score.py's functions on the stored 8-bit 512 renders vs `gt512`: PSNR, SSIM (11 px Gaussian), LPIPS-VGG 0.1. Mean
+  over a clip's qualifying frames, then mean over clips, per dataset and over all clips. Paired differences `fb_update100 - fb_gt`
+  for the three metrics with 95 % percentile bootstrap intervals (10,000 draws, seed 20261109, people resampled within datasets as
+  in ext_tables.py) and the number of clips that improve. Nothing is selected from the result; all rows and metrics are reported.
+- **Outputs.** `O/reports/far_view/far_view_scores.{json,md}` (new folder); no existing file is changed. GPU: one idle card, a
+  few minutes (LPIPS only).
