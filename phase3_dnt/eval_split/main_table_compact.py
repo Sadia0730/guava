@@ -47,7 +47,7 @@ def marks(V):
 
 CAPTION = ("Avatar quality per dataset (number of clips in parentheses) and over all 163 clips. Every method receives the supplied "
            "body parameters of the source and of each test frame. Top: avatars initialized from one photo, with no training on the "
-           "test person; RAGA with update additionally accumulates the reconstruction frames that follow the photo, with fixed "
+           "test person. RAGA with update additionally accumulates the reconstruction frames that follow the photo, with fixed "
            "network weights (offline). Bottom: methods trained on the person's reconstruction frames. Bold: best; underline: second "
            "best, within each group. Scores average the test frames of a clip, then clips. Estimated poses and update budgets: "
            "Table~\\ref{tab:ablation_update}.")
@@ -58,10 +58,10 @@ MARKS = "boldunder"                                                      # set b
 
 CAPTION_RAGA = ("\\textbf{Reconstruction quality per dataset and on all 163 clips.} Clip counts are in parentheses. All rows use "
                 "supplied driving parameters. The first block initializes from one photo without training on the test person. The "
-                "live appearance update also uses later images of that person with fixed network weights; its quality is measured by "
+                "live appearance update also uses later images of that person with fixed network weights. Its quality is measured by "
                 "offline fusion of reconstruction frames. Video methods train on the reconstruction partition. Metrics average frames "
                 "within each clip and then average clips equally. ExAvatar also receives supplied facial parameters. "
-                "\\ragaFirst{Best} and \\ragaSecond{second best} values are marked within each block; ties share a rank.")
+                "\\ragaFirst{Best} and \\ragaSecond{second best} values are marked within each block, and ties share a rank.")
 
 
 def tex(V, M):
