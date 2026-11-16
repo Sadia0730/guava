@@ -29,8 +29,12 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--E", required=True); ap.add_argument("--split", required=True); ap.add_argument("--clips", default="")
 ap.add_argument("--name", required=True)
 ap.add_argument("--prior", type=float, default=2.0); ap.add_argument("--thr", type=float, default=0.3); ap.add_argument("--cap", type=float, default=4.0)
-ap.add_argument("--mode", default="mean", choices=("mean", "wta", "fill"), help="mean: weighted running mean (as registered); wta: per texel the single "
-                "best-facing frame's features (source weight x prior); fill: source texels untouched, unseen texels from the best-facing frame")
+ap.add_argument("--mode", default="mean", choices=("mean", "wta", "fill", "gavg"), help="mean: weighted running mean (as registered); wta: per texel the single "
+                "best-facing frame's features (source weight x prior); fill: source texels untouched, unseen texels from the best-facing frame; "
+                "gavg: every frame's UV map is decoded on its own and the decoded UV Gaussians are averaged per texel with the weights of mean "
+                "(PREREG 2026-11-16 'Averaging decoded Gaussians')")
+ap.add_argument("--gavg-cond", default="own", choices=("own", "source"), help="gavg: global style and camera embedding of each frame's decode: "
+                "own = that frame's (its single-image avatar's UV branch) | source = the source photo's (as the fused decode)")
 ap.add_argument("--every", type=int, default=1, help="use every n-th training frame (1 = all)")
 ap.add_argument("--max-frac", type=float, default=0.0, help="use the first ceil(frac x n) training frames after the source, in time order (extended benchmark 25 / 50 %% rows; 0 = all)")
 ap.add_argument("--max-frames", type=int, default=0, help="use at most N training frames after the source (0 = all)")
@@ -115,6 +119,51 @@ def decode(src, f0, uvmap):
 
 
 @torch.no_grad()
+def uv_gaussians(fc, uvmap):
+    """gavg: the UV branch alone. Per-texel Gaussian attributes (valid texels, as decode() slices them) of a UV map decoded with frame
+    fc's global style and camera embedding."""
+    cam = inf.harmo_encoder(get_cam_dirs(fc["w2c"])); n = inf.uvmap_size
+    x = DEC(uvmap[None], extra_style=inf.uv_style_mapping(fc["d"]["f_global"]))
+    x = torch.cat([x, inf.uv_base_feature[None].expand(1, -1, -1, -1)], 1); ug = inf.uv_point_decoder(x, cam)
+    return {k: v.reshape(1, n * n, -1)[:, inf.uv_mask_flat, :] for k, v in ug.items()}
+
+
+def gavg_add(GA, ug, wg, q0):
+    """accumulate one frame's decoded UV Gaussians with per-texel weight wg (1, N, 1): scales in log space, quaternions with the
+    sign of the source's (q and -q are the same rotation), everything else (features, opacity, local position) linearly."""
+    for k, v in ug.items():
+        if k == "scales": v = v.clamp_min(1e-12).log()
+        elif k == "rotations": v = v * torch.where((v * q0).sum(-1, keepdim=True) < 0, -1.0, 1.0)
+        GA[k] = GA.get(k, 0) + v * wg
+
+
+def gavg_finish(GA, GW, ug0):
+    """weighted mean per texel; texels with zero accumulated weight keep the source decode's Gaussian."""
+    has = GW > 0; out = {}
+    for k, v in GA.items():
+        m = v / GW.clamp_min(1e-9)
+        if k == "scales": m = m.exp()
+        elif k == "rotations":
+            nrm = m.norm(dim=-1, keepdim=True); m = torch.where(nrm > 1e-6, m / nrm.clamp_min(1e-9), ug0[k])
+        out[k] = torch.where(has, m, ug0[k])
+    return out
+
+
+@torch.no_grad()
+def avatar_from_ug(src, f0, ug):
+    """decode()'s avatar assembly with given UV Gaussians: the vertex branch is the source's, as in every other mode."""
+    d = f0["d"]; n = inf.uvmap_size
+    gfe = inf.global_feature_mapping(d["f_global"]); cam = inf.harmo_encoder(get_cam_dirs(src["w2c_cam"]))
+    vsf = torch.cat([f0["vfeat"][None], inf.vertex_base_feature[None].expand(1, -1, -1), gfe[:, None].expand(-1, f0["vfeat"].shape[0], -1)], -1)
+    vg = inf.vertex_gs_decoder(vsf, cam); vg["positions"] = inf.v_template.clone()[None].expand(1, -1, -1)
+    ug = dict(ug)
+    ug["binding_face"] = inf.smplx.uvmap_f_idx.clone().reshape(1, n * n, -1)[:, inf.uv_mask_flat, :]
+    ug["face_bary"] = inf.smplx.uvmap_f_bary.clone().reshape(1, n * n, -1)[:, inf.uv_mask_flat, :]
+    av = Ubody_Gaussian(cfg.MODEL, UF.clone_assets(vg), UF.clone_assets(ug), pruning=True); av.init_ehm(inf.ehm); av.eval()
+    return av
+
+
+@torch.no_grad()
 def build_static(src):
     torch.manual_seed(0); vg, ug, _ = inf(src)
     av = Ubody_Gaussian(cfg.MODEL, vg, ug, pruning=True); av.init_ehm(inf.ehm); av.eval(); return av
@@ -154,6 +203,11 @@ def main():
         t_first = to_dev(F.collate1(fbd.target_info(0, fj["test"][0])), dev)
         r_static = u8(render(build_static(src), t_first)); r_dec0 = u8(render(decode(src, f0, uv0), t_first))
         selfcheck = float((r_static.int() - r_dec0.int()).abs().max())
+        selfcheck_g = None
+        if a.mode == "gavg":                                                                         # decoded UV Gaussians, weights as mean
+            flat = lambda w_: w_.reshape(-1)[inf.uv_mask_flat][None, :, None]                         # noqa: E731
+            ug0 = uv_gaussians(f0, uv0); q0 = ug0["rotations"]; GA = {}; GW = flat(w0).clone(); gavg_add(GA, ug0, GW, q0)
+            selfcheck_g = float((r_static.int() - u8(render(avatar_from_ug(src, f0, gavg_finish(GA, GW, ug0)), t_first)).int()).abs().max())
         train = [k for k in fj["recon"] if k != fj["source"] and k in recs][:: a.every]
         if a.max_frames: train = train[:a.max_frames]
         if a.max_frac: import math; train = train[:math.ceil(a.max_frac * len(train))]
@@ -166,15 +220,18 @@ def main():
         for k in train:
             f = frame_feats(exposure_shift(to_dev(F.collate1(fbd.source_info(0, k)), dev), a.support_gain, a.support_sat)); seen |= f["vis"]
             w = f["facing"]
-            if a.mode == "mean":
+            if a.mode in ("mean", "gavg"):
                 upd = (w > 0) & (w >= a.thr) & (W < cap) & UMASK
                 wu = torch.where(upd, w, torch.zeros_like(w)); S += f["uv"] * wu; W += wu; touched |= upd
+                if a.mode == "gavg":
+                    wg = flat(wu); gavg_add(GA, uv_gaussians(f if a.gavg_cond == "own" else f0, f["uv"]), wg, q0); GW += wg
             else:
                 upd = (w > B) & (w >= a.thr) & UMASK
                 FB = torch.where(upd[None], f["uv"], FB); B = torch.where(upd, w, B); touched |= upd; W = torch.where(upd, w, W)
             per.append({"key": k, "n_texels": int(upd.sum()), "visible": int(f["vis"].sum()), "mem_alloc_gb": round(torch.cuda.memory_allocated() / 2**30, 3)})
-        uvmap = torch.where(touched[None], S / W.clamp_min(1e-6), uv0) if a.mode == "mean" else torch.where(touched[None], FB, uv0)
-        av = decode(src, f0, uvmap); t_build = (time.perf_counter() - t0) * 1000
+        uvmap = torch.where(touched[None], S / W.clamp_min(1e-6), uv0) if a.mode in ("mean", "gavg") else torch.where(touched[None], FB, uv0)
+        av = avatar_from_ug(src, f0, gavg_finish(GA, GW, ug0)) if a.mode == "gavg" else decode(src, f0, uvmap)
+        t_build = (time.perf_counter() - t0) * 1000
         tr = []
         for k in fj["test"]:
             t = to_dev(F.collate1(fbd.target_info(0, k)), dev)
@@ -182,11 +239,13 @@ def main():
             torchvision.io.write_png(u8(r), str(od / f"{k}.png"))
         uv_rgb_png(uv0, od / "uv_rgb_source.png"); uv_rgb_png(uvmap, od / "uv_rgb_fused.png")
         cov0 = float(f0["vis"].sum()) / n_uv; cov = float((W > 0).sum()) / n_uv; covt = float(touched.sum()) / n_uv
-        info = {"method": a.name, **CK, "gpu": GPU, "settings": {"mode": a.mode, "prior": a.prior, "thr": a.thr, "cap": a.cap, "every": a.every, "max_frames": a.max_frames, "max_frac": a.max_frac, "support_gain": a.support_gain, "support_sat": a.support_sat},
+        info = {"method": a.name, **CK, "gpu": GPU, "settings": {"mode": a.mode, "prior": a.prior, "thr": a.thr, "cap": a.cap, "every": a.every, "max_frames": a.max_frames, "max_frac": a.max_frac, "support_gain": a.support_gain, "support_sat": a.support_sat,
+                                                            **({"gavg_cond": a.gavg_cond} if a.mode == "gavg" else {})},
                 "views": a.views, "ref_keys": [fj["source"]] + list(train) if a.views else None,
                 "source": fj["source"], "n_train_used": len(train), "n_train_available": len(fj["recon"]) - 1, "n_test": len(fj["test"]),
                 "coverage_source": cov0, "coverage_seen_any_frame": float(seen.sum()) / n_uv, "coverage_fused": cov, "texels_updated_frac": covt,
                 "mean_W_updated": float(W[touched].mean()) if covt > 0 else 0.0, "selfcheck_source_only_vs_static_u8": selfcheck,
+                **({"selfcheck_gavg_source_only_vs_static_u8": selfcheck_g} if a.mode == "gavg" else {}),
                 "fusion_ms_total": t_build, "render_ms_per_frame": float(np.mean(tr) * 1000), "per_frame": per,
                 "note": "GT-pose fusion of the training frames into the UV map, feed-forward, no per-person optimisation (PREREG gap diagnosis D1)"}
         od_final.mkdir(parents=True, exist_ok=True)
