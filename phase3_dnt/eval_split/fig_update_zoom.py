@@ -22,6 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
+import matplotlib.patheffects as pe
 from PIL import Image, ImageOps
 from scipy.spatial.transform import Rotation as Rot
 
@@ -43,6 +44,7 @@ ap.add_argument("--fig-name", default="fig_update_zoom"); ap.add_argument("--onl
 ap.add_argument("--paper", action="store_true", help="paper format (amendment 7g)"); ap.add_argument("--drop", default="", help="columns to hide")
 ap.add_argument("--win-set", default="", help="hand-placed windows: cid:key=x0,y0,x1,y1;...")
 ap.add_argument("--caption-extra", default=""); ap.add_argument("--caption", default="", help="full caption text (overrides)")
+ap.add_argument("--white-bg", action="store_true", help="display only: show GT and renders on white (scores unchanged)")
 a = ap.parse_args(); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 DROP = set(filter(None, a.drop.split(",")))
 WSET = {k: tuple(int(v) for v in w.split(",")) for k, w in (e.split("=") for e in filter(None, a.win_set.split(";")))}
@@ -134,6 +136,39 @@ def process(item):
     return meta, source_img(cid), full
 
 
+def white_bg(im, thr=3, band=10, hole=500, hole_zero=0.8):
+    """Display only. Background = black pixels (max channel <= thr) connected to the image border, plus enclosed black regions
+    (e.g. between legs whose feet touch) of at least `hole` px that are mostly exact zeros (>= hole_zero). A pixel within `band`
+    px of it is treated as a soft edge blended on black, I = alpha * F, where F's brightness is the largest brightness met by
+    walking straight inward (along the distance gradient) while the distance to the background keeps growing; thin dark parts
+    (heels, straps, hair strands) end that walk at once and stay as they are. Soft edges are recomposited on white; interior
+    pixels are left unchanged."""
+    from scipy import ndimage as ndi
+    mx = im.max(-1).astype(np.float64); dark = mx <= thr
+    lab, n = ndi.label(dark); edge_ids = set(np.unique(np.r_[lab[0], lab[-1], lab[:, 0], lab[:, -1]]).tolist()) - {0}
+    ids = list(edge_ids)
+    if n:
+        sz = np.bincount(lab.ravel(), minlength=n + 1); zc = np.bincount(lab.ravel(), weights=(mx == 0).ravel(), minlength=n + 1)
+        ids += [c for c in range(1, n + 1) if c not in edge_ids and sz[c] >= hole and zc[c] / sz[c] >= hole_zero]
+    bg = np.isin(lab, ids)
+    if not bg.any(): return im
+    d = ndi.distance_transform_edt(~bg); H, W = mx.shape
+    ys, xs = np.nonzero((~bg) & (d <= band))
+    gy, gx = np.gradient(ndi.gaussian_filter(d, 1.0)); u = np.hypot(gy, gx) + 1e-9; uy, ux = gy[ys, xs] / u[ys, xs], gx[ys, xs] / u[ys, xs]
+    F = mx[ys, xs].copy(); prev = d[ys, xs].copy(); live = np.ones(len(ys), bool)
+    for k in range(1, band + 1):
+        yy = np.clip(np.rint(ys + k * uy).astype(int), 0, H - 1); xx = np.clip(np.rint(xs + k * ux).astype(int), 0, W - 1)
+        dk = d[yy, xx]; live &= dk > prev + 0.3; prev = np.where(live, dk, prev)
+        F = np.where(live, np.maximum(F, mx[yy, xx]), F)
+    Fm = np.zeros_like(mx); wm = np.zeros_like(mx); Fm[ys, xs] = F; wm[ys, xs] = 1.0          # smooth F along the edge (no streaks)
+    Fs = ndi.gaussian_filter(Fm, 1.5) / np.maximum(ndi.gaussian_filter(wm, 1.5), 1e-6)
+    F = np.maximum(Fs[ys, xs], mx[ys, xs])
+    alpha = np.ones_like(mx); alpha[bg] = 0.0
+    ok = F > 8; alpha[ys[ok], xs[ok]] = np.clip(mx[ys[ok], xs[ok]] / F[ok], 0.0, 1.0)
+    out = im.astype(np.float64) + (1.0 - alpha)[..., None] * 255.0
+    return np.clip(np.rint(out), 0, 255).astype(np.uint8)
+
+
 def save_tiles(meta, src, full):
     ds, clip = split(meta["clip"]); td = OUT / "tiles" / f"{ds}_{clip}_{meta['key']}"; td.mkdir(parents=True, exist_ok=True)
     pre = f"{meta['dataset']}_{clip}"; z = a.tile
@@ -174,11 +209,14 @@ def figure(rows, name, width=6.88):
         keep = {"Ground truth"} | {lab for _, lab in shown}
         for j, (lab, im) in enumerate([(l, v) for l, v in full.items() if l in keep], start=1):
             x = j * (cw + gap)
+            if a.white_bg: im = white_bg(im)
             ax = fig.add_axes([x / width, (ytop - cw) / H, cw / width, cw / H]); ax.imshow(im, interpolation="lanczos"); ax.axis("off")
             ax.add_patch(Rectangle((x0 - 0.5, y0 - 0.5), x1 - x0, y1 - y0, fill=False, ec=BOXC, lw=0.7))
             key = {"GUAVA": "guava", "LHM": "lhm_facefix", "LHM++": "lhmpp", "IDOL": "idol", "Ours, photo only": "fb_gt", "Ours + update": "fb_update100"}.get(lab)
             if key:
-                ax.text(0.97, 0.03, f"{meta['frame_psnr'][key]:.2f}", transform=ax.transAxes, ha="right", va="bottom", fontsize=fs_num, color="white")
+                ax.text(0.97, 0.03, f"{meta['frame_psnr'][key]:.2f}", transform=ax.transAxes, ha="right", va="bottom", fontsize=fs_num,
+                        color="black" if a.white_bg else "white",
+                        path_effects=[pe.withStroke(linewidth=1.2, foreground="white")] if a.white_bg else None)
             az = fig.add_axes([x / width, (ytop - cw - gap / 2 - zh) / H, cw / width, zh / H])
             az.imshow(im[y0:y1, x0:x1], interpolation="lanczos"); az.set_xticks([]); az.set_yticks([])
             for sp in az.spines.values(): sp.set_edgecolor(BOXC); sp.set_linewidth(0.8)
