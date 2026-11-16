@@ -1918,3 +1918,26 @@ frames (LHM++: 16 frames; `fb_update100`: every reconstruction frame).
   "16 images".
 - **Outputs.** New folders `renders/{lhmpp_v16,fb_update_v16}` and score files `{lhmpp_v16,fb_update_v16}_full.json` (the three
   existing `lhmpp_v16_full.json` files are not touched), `O/reports/v16/`. GPUs 4 / 7 (LHM++) and 5 (ours), idle at registration.
+
+### Held-out averages and the far-view split, from the per-clip scores (registered 2026-11-15, before computing; review items "Far-view results by dataset, including GART" and "Held-out averages ... recompute them from the per-clip results and add confidence intervals")
+Descriptive re-aggregation of stored per-clip scores; nothing is rendered, scored again, tuned or selected.
+- **Already seen (stated for honesty).** The paper's held-out sentences (photo only 25.89 vs 24.53 / 24.09 / 23.94 dB; refreshed
+  26.38 vs GART 28.54; fine tuned 29.13 vs 28.54) were derived from the dataset columns of the main table, and RUNLOG 170 / 171
+  already give the far-view PSNR of our rows and of GART per dataset. This entry fixes how the pooled numbers and their intervals
+  are computed; the numbers are reported as they come out, including where GART stays ahead.
+- **Groups.** Held out = People-Snapshot, NeuMan, X-Humans (never in training). In domain = UBody, UBC-Fashion. Also every dataset
+  alone and all clips.
+- **Rows.** `guava`, `lhm_facefix`, `lhmpp`, `idol`, `fb_gt`, `fb_update100`, `gart`, `gaussianavatar`, `exavatar_gtface`, `ft_gt`
+  (the supplied-parameter rows of the main table).
+- **(a) All test frames.** `O/eval/<root>/scores/<row>_full.json`, clips and people as ext_tables.py (clips scored by every row).
+  Clip mean, then mean over the clips of a group. PSNR, SSIM, LPIPS.
+- **(b) Far-view frames.** `per_clip` of `O/reports/far_view/far_view_scores.json` (test frames turned >= 135 deg from the source,
+  PREREG "Far-view subset"), the same groups (UBody has no such frames).
+- **Intervals.** 95 % percentile bootstrap, 10,000 draws, seed 20261109, people resampled within each dataset (ext_tables.py),
+  the same draws for every row and metric; for a group the draws of its datasets are pooled. Paired differences per clip with the
+  same draws: `fb_gt` minus each of `lhm_facefix`, `lhmpp`, `idol`, `guava`; `fb_update100 - fb_gt`; `fb_update100` and `ft_gt`
+  minus each of `gart`, `gaussianavatar`, `exavatar_gtface`; and the number of clips that are better.
+- **Paper.** The held-out sentences of `5_result.tex` take the recomputed means with intervals on the differences; the far-view
+  paragraph or table reports UBC-Fashion and the held-out clips separately, GART included.
+- **Outputs.** `eval_split/heldout_split_table.py` (new); `O/reports/heldout_split/heldout_split.{md,json}` (new folder); no
+  existing file is changed. CPU only.
