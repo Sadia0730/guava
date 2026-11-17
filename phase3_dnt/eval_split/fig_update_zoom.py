@@ -45,6 +45,7 @@ ap.add_argument("--paper", action="store_true", help="paper format (amendment 7g
 ap.add_argument("--win-set", default="", help="hand-placed windows: cid:key=x0,y0,x1,y1;...")
 ap.add_argument("--caption-extra", default=""); ap.add_argument("--caption", default="", help="full caption text (overrides)")
 ap.add_argument("--white-bg", action="store_true", help="display only: show GT and renders on white (scores unchanged)")
+ap.add_argument("--dpi", type=int, default=0, help="output resolution of both the pdf images and the png (default: 450 / 300)")
 a = ap.parse_args(); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 DROP = set(filter(None, a.drop.split(",")))
 WSET = {k: tuple(int(v) for v in w.split(",")) for k, w in (e.split("=") for e in filter(None, a.win_set.split(";")))}
@@ -192,7 +193,7 @@ def figure(rows, name, width=6.88):
     if P: rh = cw + gap / 2 + zh; H = head + len(rows) * rh + (len(rows) - 1) * sep + 0.01
     else: rh = cw + zh + gap; H = head + len(rows) * (rh + 0.05)
     fs_head, fs_lab, fs_num = (8.0, 7.5, 6.2) if P else (6.6, 5.2, 4.6)
-    fig = plt.figure(figsize=(width, H), dpi=450 if P else 300)
+    fig = plt.figure(figsize=(width, H), dpi=a.dpi or (450 if P else 300))
     heads = ["Photo", "Ground truth"] + [lab for _, lab in shown]
     for j, lab in enumerate(heads):
         fig.text((j * (cw + gap) + cw / 2) / width, 1 - (head / 2) / H, lab, ha="center", va="center", fontsize=fs_head,
@@ -220,7 +221,7 @@ def figure(rows, name, width=6.88):
             az = fig.add_axes([x / width, (ytop - cw - gap / 2 - zh) / H, cw / width, zh / H])
             az.imshow(im[y0:y1, x0:x1], interpolation="lanczos"); az.set_xticks([]); az.set_yticks([])
             for sp in az.spines.values(): sp.set_edgecolor(BOXC); sp.set_linewidth(0.8)
-    fig.savefig(OUT / f"{name}.pdf", dpi=450 if P else 300); fig.savefig(OUT / f"{name}.png", dpi=300); plt.close(fig)
+    fig.savefig(OUT / f"{name}.pdf", dpi=a.dpi or (450 if P else 300)); fig.savefig(OUT / f"{name}.png", dpi=a.dpi or 300); plt.close(fig)
     print("wrote", OUT / f"{name}.pdf", f"{width} x {H:.2f} in", flush=True)
 
 
