@@ -5,7 +5,7 @@ update row, eval_guava_rows.py --upd-kp-thr 20) in place of "Frame gates" (the l
 --plain-labels also drops "background worker" from the (c) subtitle and writes "driving frame" for "live frame".
 Presentation only; drawing code, thumbnails and the example clip unchanged. Never overwrites an existing output.
 Usage: python fig_architecture_refresh.py --E <root> --clip ubc/A1YNmKj0sCS --renders /dev/shm/ubx858_eval/teaser_renders
-       --back-key frame_000232 --out <dir> --name fig_architecture_refresh [--plain-labels] [--export <dir>]"""
+       --back-key frame_000232 --out <dir> --name fig_architecture_refresh [--plain-labels] [--paper-symbols] [--export <dir>]"""
 from __future__ import annotations
 
 import argparse
@@ -27,8 +27,15 @@ ap.add_argument("--cands", default="/vault/research/COS/VIRLab/ubx858/persistent
                 help="teaser_candidates.py output: mean PSNR gain of the update on the clip's back-view test frames")
 ap.add_argument("--export", default="", help="directory for layout.json + thumbnails (input of fig_architecture_pptx.py)")
 ap.add_argument("--plain-labels", action="store_true", help="no 'background worker' in the (c) subtitle; 'driving frame' for 'live frame'")
+ap.add_argument("--paper-symbols", action="store_true", help="band titles of the caption (initialization, pose-driven animation) and the method section's symbols "
+                "(I_0, F_0, U_0, G_0, I_i, U_i, w_i, fused map, G_k -> G_k+1) in place of I_s, F, G_s, U_t, w_t")
 a = ap.parse_args(); ds, clip = a.clip.split("/"); D = Path(a.renders) / ds / clip; A = D / "arch"; E = Path(a.E)
 OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
+
+
+def L(old, new): return new if a.paper_symbols else old                                               # label: default / manuscript notation
+
+
 for e_ in ("pdf", "png"): assert not (OUT / f"{a.name}.{e_}").exists(), f"{OUT / a.name}.{e_} exists (never overwrite)"
 meta = json.loads((A / "arch.json").read_text()); run = json.loads((D / "run.json").read_text())
 EXP = Path(a.export) if a.export else None
@@ -140,8 +147,8 @@ def fan(paths, x, y, w, h, dx, kind, ec=GE):
 
 # ================================================================================================ bands
 YA0, YA1 = 2.60, 3.95; YB0, YB1 = 1.36, 2.53; YC0, YC1 = 0.03, 1.29
-band("a", YA0, YA1, "(a) Avatar creation", "one photo, one forward pass")
-band("b", YB0, YB1, "(b) Animation", "every frame")
+band("a", YA0, YA1, L("(a) Avatar creation", "(a) Avatar initialization"), "one photo, one forward pass")
+band("b", YB0, YB1, L("(b) Animation", "(b) Pose-driven animation"), "every frame")
 band("c", YC0, YC1, "(c) Appearance refresh", "no gradient steps" if a.plain_labels else "background worker, no gradient steps")
 src_key = run["source"]; base = E / "base" / ds / clip; dk = meta["drive"]; sk = meta["stream"]
 gain = next((c["gain_back_mean"] for c in json.loads(Path(a.cands).read_text()) if c["clip"] == a.clip), None) if Path(a.cands).exists() else None
@@ -151,13 +158,13 @@ TH = 0.80; TW = 0.35
 ya = YA0 + 0.185; yc = ya + TH / 2
 im = np.asarray(Image.open(next(base.glob(f"images/{src_key}.*"))).convert("RGB")).astype(np.float32) / 255
 mk = np.asarray(Image.open(base / "masks" / f"{src_key}.png").convert("L")).astype(np.float32) / 255
-IMG(crop_body(im * mk[..., None] + (1 - mk[..., None]), mk, TW / TH), 0.10, ya, TW, TH); T(0.10 + TW / 2, ya - 0.025, "photo $I_s$")
+IMG(crop_body(im * mk[..., None] + (1 - mk[..., None]), mk, TW / TH), 0.10, ya, TW, TH); T(0.10 + TW / 2, ya - 0.025, L("photo $I_s$", "photo $I_0$"))
 body_tile(A / "mesh_source.png", 0.52, ya, TW, TH, kind="premul"); T(0.52 + TW / 2, ya - 0.025, "SMPL-X fit")
 SEG([(0.90, yc), (1.02, yc)])
 encoder(1.02, yc, 0.30, 0.66); T(1.17, yc, "DINOv2", size=6.6, color=INK, va="center", bold=True, rot=90)
 T(1.115, ya - 0.062, "❄", size=6.2, color=BLUE, va="center", family="DejaVu Sans"); T(1.165, ya - 0.025, "frozen", ha="left")
 SEG([(1.35, yc), (1.47, yc)])
-body_tile(A / "feat_pca.png", 1.47, ya, TW, TH, kind="premul"); T(1.47 + TW / 2, ya - 0.025, "features $F$")
+body_tile(A / "feat_pca.png", 1.47, ya, TW, TH, kind="premul"); T(1.47 + TW / 2, ya - 0.025, L("features $F$", "features $F_0$"))
 # two branches
 yt, yb = ya + TH - 0.19, ya + 0.19; xs0 = 1.47 + TW
 SEG([(xs0 + 0.02, yc), (xs0 + 0.10, yc), (xs0 + 0.10, yt), (xs0 + 0.22, yt)]); SEG([(xs0 + 0.10, yc), (xs0 + 0.10, yb), (xs0 + 0.22, yb)])
@@ -171,15 +178,15 @@ for du in (0, 1):
 IMG(dots, vx0, yt - vh / 2, vw, vh, r=0.02)
 SEG([(vx0 + vw + 0.02, yt), (vx0 + vw + 0.14, yt)])
 bx = vx0 + vw + 0.14; box(bx, yt - 0.16, 0.86, 0.32, "Vertex decoder", "MLP, 1 Gaussian / vertex")
-T(vx0 - 0.02, yt + 0.215, "$F$ sampled at the projected vertices", size=5.6, ha="left", va="bottom")
+T(vx0 - 0.02, yt + 0.215, L("$F$ sampled at the projected vertices", "$F_0$ sampled at the projected vertices"), size=5.6, ha="left", va="bottom")
 # UV branch: inverse texture mapping -> partial UV map -> StyleUNet
 uw = 0.38; uv_tile(A / "uv_source.png", vx0 - 0.02, yb - uw / 2, uw, uw)
 ux_ = vx0 + uw + 0.12; SEG([(vx0 - 0.02 + uw + 0.02, yb), (ux_, yb)]); unet(ux_, yb, 0.56, 0.32)
 T(ux_ + 0.28, yb, "UV decoder", size=5.7, color=INK, va="center", bold=True)
-T(ux_ + 0.30, yb - 0.175, "1 Gaussian / texel", size=5.6); T(vx0 - 0.02 + uw / 2 - 0.04, yb - uw / 2 - 0.02, "UV map", size=5.6)
+T(ux_ + 0.30, yb - 0.175, "1 Gaussian / texel", size=5.6); T(vx0 - 0.02 + uw / 2 - 0.04, yb - uw / 2 - 0.02, L("UV map", "UV map $U_0$"), size=5.6)
 # avatar
 xa = bx + 0.86 + 0.34; SEG([(bx + 0.86, yt), (xa - 0.12, yt), (xa - 0.12, yc)], arrow=False); SEG([(ux_ + 0.56, yb), (xa - 0.12, yb), (xa - 0.12, yc), (xa, yc)])
-body_tile(D / "orbit_photo_000.png", xa, ya, TW, TH, kind="render", ec=INK, lw=0.9); T(xa + TW / 2 + 0.06, ya - 0.075, "avatar $\\mathcal{G}_s$", color=INK, bold=True, ha="left", va="center")
+body_tile(D / "orbit_photo_000.png", xa, ya, TW, TH, kind="render", ec=INK, lw=0.9); T(xa + TW / 2 + 0.06, ya - 0.075, L("avatar $\\mathcal{G}_s$", "avatar $\\mathcal{G}_0$"), color=INK, bold=True, ha="left", va="center")
 # magnifier: schematic 3D Gaussians (crisp, opaque, all inside the lens)
 mc = (xa + TW + 0.50, yc + 0.02); mr = 0.33; SEG([(xa + TW * 0.72, yc + 0.10), (mc[0] - mr * 0.93, mc[1] + 0.05)], color=INK, lw=0.5, arrow=False, z=5.5)
 ELL(xa + TW * 0.66, yc + 0.10, 0.06, 0.06, fc="none", ec=INK, lw=0.6, z=5.6); ELL(mc[0], mc[1], 2 * mr, 2 * mr, fc="white", ec=INK, lw=0.9, z=6.0)
@@ -223,24 +230,24 @@ T(ox + 1.5 * (TW + 0.06) + TW / 2, yb0 - 0.025, "other frames")
 
 # ------------------------------------------------------------------------------------------------ (c) streaming update
 yc0 = YC0 + 0.20; ycc = yc0 + TH / 2
-fan([A / f"stream_frame_{k}.png" for k in sk], 0.10, yc0 + 0.07, 0.28, TH - 0.07, 0.12, "straight"); T(0.10 + 0.26, yc0 - 0.03, "video frames")
+fan([A / f"stream_frame_{k}.png" for k in sk], 0.10, yc0 + 0.07, 0.28, TH - 0.07, 0.12, "straight"); T(0.10 + 0.26, yc0 - 0.03, L("video frames", "video frames $I_i$"))
 SEG([(0.64, ycc), (0.74, ycc)])
 gx0, gw, gh = 0.74, 0.80, 0.74; RECT(gx0, ycc - gh / 2, gw, gh, PAL["c"][0], PAL["c"][1], 0.8)
 T(gx0 + gw / 2, ycc + gh / 2 - 0.115, "Fit check", size=6.6, color=INK, va="center", bold=True)
 for i, s_ in enumerate(("matte non-empty", "keypoint error ≤ 20 px")):
     yy = ycc + 0.02 - i * 0.15; T(gx0 + 0.055, yy, "✓", size=5.6, color=GREEN, va="center", bold=True, family="DejaVu Sans"); T(gx0 + 0.105, yy, s_, size=5.3, color=INK, ha="left", va="center")
 SEG([(gx0 + gw + 0.02, ycc), (gx0 + gw + 0.12, ycc)]); ux = gx0 + gw + 0.12
-fan([A / f"stream_uv_{k}.png" for k in sk], ux, yc0 + 0.23, 0.42, 0.42, 0.10, "uv"); T(ux + 0.31, yc0 + 0.075, "UV observations $U_t$,\nweights $w_t$", size=5.8)
+fan([A / f"stream_uv_{k}.png" for k in sk], ux, yc0 + 0.23, 0.42, 0.42, 0.10, "uv"); T(ux + 0.31, yc0 + 0.075, L("UV observations $U_t$,\nweights $w_t$", "UV observations $U_i$,\nweights $w_i$"), size=5.8)
 SEG([(ux + 0.65, ycc), (ux + 0.75, ycc)]); sx = ux + 0.88
 ELL(sx, ycc, 0.25, 0.25, fc=PAL["c"][0], ec=OE, lw=0.9, z=3.0); T(sx, ycc - 0.005, "$\\Sigma$", size=8.6, color=INK, va="center")
 T(sx, ycc + 0.16, "weighted\nmean", size=5.6, va="bottom", color=INK); T(sx, ycc - 0.16, "over all\nframes", size=5.6)
 fw = 0.54; dw = 0.56; dx2 = gx - dw / 2; fx2 = dx2 - 0.13 - fw; SEG([(sx + 0.135, ycc), (fx2 - 0.02, ycc)])
 fused = np.asarray(Image.open(D / "uv_rgb_fused.png").convert("RGB")).astype(np.float32) / 255; m_ = fused.max(-1, keepdims=True) > 0.004
-IMG(np.where(m_, fused, np.asarray(DARK, np.float32)), fx2, ycc - fw / 2, fw, fw, ec=OE, lw=0.9); T(fx2 + fw / 2, ycc - fw / 2 - 0.025, "fused UV map", size=5.8, color=OE, bold=True)
+IMG(np.where(m_, fused, np.asarray(DARK, np.float32)), fx2, ycc - fw / 2, fw, fw, ec=OE, lw=0.9); T(fx2 + fw / 2, ycc - fw / 2 - 0.025, L("fused UV map", "fused UV map $\\overline{U}_k$"), size=5.8, color=OE, bold=True)
 SEG([(fx2 + fw + 0.02, ycc), (dx2 - 0.01, ycc)]); unet(dx2, ycc, dw, 0.32); T(gx, ycc, "UV decoder", size=5.7, color=INK, va="center", bold=True)
 # updated avatar: straight up the spine into Skinning (ours), and shown on the unseen back
 SEG([(gx, ycc + 0.175), (gx, ybc - 0.195)], color=OE, lw=1.4, ms=8)
-T(gx + 0.07, YC1 - 0.085, "updated avatar replaces $\\mathcal{G}_s$,", size=6.0, color=OE, ha="left", va="center", bold=True)
+T(gx + 0.07, YC1 - 0.085, L("updated avatar replaces $\\mathcal{G}_s$,", "updated avatar $\\mathcal{G}_{k+1}$ replaces $\\mathcal{G}_k$,"), size=6.0, color=OE, ha="left", va="center", bold=True)
 T(gx + 0.07, YC1 - 0.185, "rendering continues", size=6.0, color=OE, ha="left", va="center", italic=True)
 bw = 0.60; bx2 = dx2 + dw + 0.16; SEG([(dx2 + dw + 0.02, ycc), (bx2 - 0.02, ycc)]); z = f"zoom{a.zoom}"; yt2 = ycc - bw / 2 - 0.045
 for i, (kind, lab, ec, lw) in enumerate((("photo", "photo only", GE, 0.5), ("update", "after the update", OE, 1.0), ("gt", "real frame", GE, 0.5))):
