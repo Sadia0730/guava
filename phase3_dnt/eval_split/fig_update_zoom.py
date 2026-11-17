@@ -45,6 +45,7 @@ ap.add_argument("--paper", action="store_true", help="paper format (amendment 7g
 ap.add_argument("--win-set", default="", help="hand-placed windows: cid:key=x0,y0,x1,y1;...")
 ap.add_argument("--caption-extra", default=""); ap.add_argument("--caption", default="", help="full caption text (overrides)")
 ap.add_argument("--white-bg", action="store_true", help="display only: show GT and renders on white (scores unchanged)")
+ap.add_argument("--despill", action="store_true", help="with --white-bg: remove green-screen spill from soft edges (display only)")
 ap.add_argument("--dpi", type=int, default=0, help="output resolution of both the pdf images and the png (default: 450 / 300)")
 a = ap.parse_args(); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 DROP = set(filter(None, a.drop.split(",")))
@@ -137,13 +138,14 @@ def process(item):
     return meta, source_img(cid), full
 
 
-def white_bg(im, thr=3, band=10, hole=500, hole_zero=0.8):
+def white_bg(im, thr=3, band=10, hole=500, hole_zero=0.8, despill=False):
     """Display only. Background = black pixels (max channel <= thr) connected to the image border, plus enclosed black regions
     (e.g. between legs whose feet touch) of at least `hole` px that are mostly exact zeros (>= hole_zero). A pixel within `band`
     px of it is treated as a soft edge blended on black, I = alpha * F, where F's brightness is the largest brightness met by
     walking straight inward (along the distance gradient) while the distance to the background keeps growing; thin dark parts
     (heels, straps, hair strands) end that walk at once and stay as they are. Soft edges are recomposited on white; interior
-    pixels are left unchanged."""
+    pixels are left unchanged. despill: in that edge band, green is limited to max(red, blue) first (green-screen spill in
+    a matted frame would otherwise show as a green fringe on white; skin, red, blue and neutral colours are unaffected)."""
     from scipy import ndimage as ndi
     mx = im.max(-1).astype(np.float64); dark = mx <= thr
     lab, n = ndi.label(dark); edge_ids = set(np.unique(np.r_[lab[0], lab[-1], lab[:, 0], lab[:, -1]]).tolist()) - {0}
@@ -155,6 +157,9 @@ def white_bg(im, thr=3, band=10, hole=500, hole_zero=0.8):
     if not bg.any(): return im
     d = ndi.distance_transform_edt(~bg); H, W = mx.shape
     ys, xs = np.nonzero((~bg) & (d <= band))
+    if despill:
+        im = im.copy(); px = im[ys, xs].astype(np.int16); px[:, 1] = np.minimum(px[:, 1], np.maximum(px[:, 0], px[:, 2]))
+        im[ys, xs] = px.astype(np.uint8); mx = im.max(-1).astype(np.float64)
     gy, gx = np.gradient(ndi.gaussian_filter(d, 1.0)); u = np.hypot(gy, gx) + 1e-9; uy, ux = gy[ys, xs] / u[ys, xs], gx[ys, xs] / u[ys, xs]
     F = mx[ys, xs].copy(); prev = d[ys, xs].copy(); live = np.ones(len(ys), bool)
     for k in range(1, band + 1):
@@ -210,7 +215,7 @@ def figure(rows, name, width=6.88):
         keep = {"Ground truth"} | {lab for _, lab in shown}
         for j, (lab, im) in enumerate([(l, v) for l, v in full.items() if l in keep], start=1):
             x = j * (cw + gap)
-            if a.white_bg: im = white_bg(im)
+            if a.white_bg: im = white_bg(im, despill=a.despill)
             ax = fig.add_axes([x / width, (ytop - cw) / H, cw / width, cw / H]); ax.imshow(im, interpolation="lanczos"); ax.axis("off")
             ax.add_patch(Rectangle((x0 - 0.5, y0 - 0.5), x1 - x0, y1 - y0, fill=False, ec=BOXC, lw=0.7))
             key = {"GUAVA": "guava", "LHM": "lhm_facefix", "LHM++": "lhmpp", "IDOL": "idol", "Ours, photo only": "fb_gt", "Ours + update": "fb_update100"}.get(lab)
