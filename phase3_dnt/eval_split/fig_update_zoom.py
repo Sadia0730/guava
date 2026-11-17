@@ -46,6 +46,9 @@ ap.add_argument("--win-set", default="", help="hand-placed windows: cid:key=x0,y
 ap.add_argument("--caption-extra", default=""); ap.add_argument("--caption", default="", help="full caption text (overrides)")
 ap.add_argument("--white-bg", action="store_true", help="display only: show GT and renders on white (scores unchanged)")
 ap.add_argument("--despill", action="store_true", help="with --white-bg: remove green-screen spill from soft edges (display only)")
+ap.add_argument("--white-mode", default="soft", choices=["soft", "cut"], help="with --white-bg: soft = recomposite soft edges (RUNLOG 179); cut = cut at about half opacity, GT by its stored matte (display only)")
+ap.add_argument("--cut", default="0.35,0.75", help="with --white-mode cut: opacity range of the edge transition (lo,hi)")
+ap.add_argument("--num-corner", default="br", choices=["br", "auto"], help="PSNR label: br = bottom right (as before); auto = first corner (br, tr, tl, bl) that no person and no zoom box touches in any tile")
 ap.add_argument("--dpi", type=int, default=0, help="output resolution of both the pdf images and the png (default: 450 / 300)")
 a = ap.parse_args(); OUT = Path(a.out); OUT.mkdir(parents=True, exist_ok=True)
 DROP = set(filter(None, a.drop.split(",")))
@@ -130,11 +133,21 @@ def process(item):
     zerr = {m: float(err[m][y0:y0 + h, x0:x0 + w].mean()) for m, _ in COLS}
     if item in WSET: adv_v = float(np.mean([zerr[m] for m in OTHERS]) - zerr["fb_update100"])
     full = {"Ground truth": crop(g)}; full.update({lab: crop(R[m]) for m, lab in COLS})
+    person = np.zeros(crop(g).shape[:2], bool)                                        # union of all shown silhouettes (label placement)
+    for im in full.values(): person |= im.max(-1) > 12
+    if a.white_bg and a.white_mode == "cut":                                          # display only; scores and window use g and R above
+        img, mat = rd(base(cid) / "images" / f"{k}.png"), base(cid) / "masks" / f"{k}.png"
+        mat = np.asarray(Image.open(mat).convert("L")) if mat.exists() else None
+        exact = img is not None and mat is not None and img.shape == g.shape and \
+            np.abs(img.astype(np.float64) * mat[..., None] / 255.0 - g).max() <= 1.5      # GT = frame x stored matte
+        full = {"Ground truth": crop(gt_white(img, mat) if exact else render_white(g))}
+        full.update({lab: crop(render_white(R[m])) for m, lab in COLS})
     meta = {"clip": cid, "key": k, "dataset": DSN[ds], "view_deg": round(view_deg(cid, k), 1), "crop_box_512": [l, t, r_, b],
             "zoom_window_in_crop": list(zwin), "win_used": win, "zoom_window_frac": [round(v / s, 4) for v in zwin],
             "zoom_mean_abs_err": {m: round(v, 4) for m, v in zerr.items()},
             "zoom_advantage": round(adv_v, 4), "window_source": wsrc,
             "frame_psnr": {m: round(psnr(R[m], g), 2) for m, _ in COLS}}
+    meta["_person"] = person
     return meta, source_img(cid), full
 
 
@@ -175,6 +188,82 @@ def white_bg(im, thr=3, band=10, hole=500, hole_zero=0.8, despill=False):
     return np.clip(np.rint(out), 0, 255).astype(np.uint8)
 
 
+def _bg_mask(mx, thr=3, hole=500, hole_zero=0.8):
+    """Black connected to the frame border, plus enclosed black regions of >= hole px that are mostly exact zeros (as white_bg)."""
+    from scipy import ndimage as ndi
+    lab, n = ndi.label(mx <= thr); edge_ids = set(np.unique(np.r_[lab[0], lab[-1], lab[:, 0], lab[:, -1]]).tolist()) - {0}; ids = list(edge_ids)
+    if n:
+        sz = np.bincount(lab.ravel(), minlength=n + 1); zc = np.bincount(lab.ravel(), weights=(mx == 0).ravel(), minlength=n + 1)
+        ids += [c for c in range(1, n + 1) if c not in edge_ids and sz[c] >= hole and zc[c] / sz[c] >= hole_zero]
+    return np.isin(lab, ids)
+
+
+def _est_alpha(im, band=10, fsig=2.5):
+    """Opacity of a render on black (no matte stored): brightness / brightness of the interior met along the inward normal (bilinear
+    samples while the distance to the background grows, at most `band` px), smoothed along the edge. 1 beyond `band`, 0 on background."""
+    from scipy import ndimage as ndi
+    mx = im.max(-1).astype(np.float64); bg = _bg_mask(mx); al = np.ones_like(mx); al[bg] = 0.0
+    if not bg.any(): return al
+    d = ndi.distance_transform_edt(~bg); ys, xs = np.nonzero((~bg) & (d <= band))
+    gy, gx = np.gradient(ndi.gaussian_filter(d, 1.5)); u = np.hypot(gy, gx) + 1e-9; uy, ux = gy[ys, xs] / u[ys, xs], gx[ys, xs] / u[ys, xs]
+    F = mx[ys, xs].copy(); prev = d[ys, xs].copy(); live = np.ones(len(ys), bool)
+    for k in range(1, band + 1):
+        pos = [ys + k * uy, xs + k * ux]
+        v = ndi.map_coordinates(mx, pos, order=1, mode="nearest"); dk = ndi.map_coordinates(d, pos, order=1, mode="nearest")
+        live &= dk > prev + 0.3; prev = np.where(live, dk, prev); F = np.where(live, np.maximum(F, v), F)
+    Fm = np.zeros_like(mx); wm = np.zeros_like(mx); Fm[ys, xs] = F; wm[ys, xs] = 1.0
+    Fs = ndi.gaussian_filter(Fm, fsig) / np.maximum(ndi.gaussian_filter(wm, fsig), 1e-6)
+    al[ys, xs] = np.clip(mx[ys, xs] / np.maximum(np.maximum(Fs[ys, xs], mx[ys, xs]), 1.0), 0, 1)
+    return al
+
+
+def _white_cut(F, al, spill=4):
+    """F: colour without the black background (float 0-255), al: opacity. Opacity is remapped by a smooth step from lo to hi (a cut at
+    about half opacity with a narrow transition: no faint halo, no dark rim) and the result is put on white. Within `spill` px of the
+    new edge, green is limited to max(red, blue) (green-screen spill)."""
+    from scipy import ndimage as ndi
+    lo, hi = (float(v) for v in a.cut.split(",")); t = np.clip((al - lo) / (hi - lo), 0, 1); t = t * t * (3 - 2 * t)
+    sel = (ndi.distance_transform_edt(t > 0.02) <= spill) & (t > 0)
+    F = F.copy(); px = F[sel]; px[:, 1] = np.minimum(px[:, 1], np.maximum(px[:, 0], px[:, 2])); F[sel] = px
+    return np.clip(np.rint(t[..., None] * F + (1 - t[..., None]) * 255.0), 0, 255).astype(np.uint8)
+
+
+def render_white(im):
+    """Display only: a render on black -> on white (--white-mode cut). Interior pixels (opacity 1) are unchanged."""
+    from scipy import ndimage as ndi
+    al = ndi.gaussian_filter(_est_alpha(im), 0.6); I = im.astype(np.float64)
+    F = np.where((al >= 0.999)[..., None], I, np.minimum(I / np.maximum(al, 0.35)[..., None], 255.0))
+    return _white_cut(F, al)
+
+
+def gt_white(img, matte, bsig=3.0):
+    """Display only: ground truth on white from the frame and its stored matte (GT = frame x matte). Edge colours come from the matting
+    equation I = a F + (1 - a) B with B = the frame's local background colour (Gaussian mean over matte < 0.02)."""
+    from scipy import ndimage as ndi
+    I = img.astype(np.float64); al = matte.astype(np.float64) / 255.0; isbg = (al < 0.02).astype(np.float64)
+    ws = ndi.gaussian_filter(isbg, bsig); B = np.stack([ndi.gaussian_filter(I[..., c] * isbg, bsig) for c in range(3)], -1) / np.maximum(ws, 1e-6)[..., None]
+    ok = (ws > 1e-3) & (al < 0.999) & (al > 0.3); F = I.copy()
+    F[ok] = np.clip((I[ok] - (1 - al[ok])[:, None] * B[ok]) / al[ok][:, None], 0, 255)
+    return _white_cut(F, al)
+
+
+def num_corner(rows, w=0.27, h=0.14):
+    """PSNR label corner (--num-corner auto): the first of br, tr, tl, bl whose w x h box (fractions of the tile) contains no person
+    pixel of any shown tile and does not meet the zoom box, for every row; if none is free everywhere, the corner with least person."""
+    occ = {}
+    for c in ("br", "tr", "tl", "bl"):
+        worst = 0.0
+        for meta, _, _ in rows:
+            P = meta["_person"]; S = P.shape[0]; bw, bh = int(round(w * S)), int(round(h * S))
+            ys = slice(S - bh, S) if c[0] == "b" else slice(0, bh); xs = slice(S - bw, S) if c[1] == "r" else slice(0, bw)
+            x0, y0, x1, y1 = meta["zoom_window_in_crop"]
+            hit = not (x1 < xs.start or x0 > xs.stop or y1 < ys.start or y0 > ys.stop)
+            worst = max(worst, 1.0 if hit else float(P[ys, xs].mean()))
+        occ[c] = worst
+        if worst == 0.0: return c
+    return min(occ, key=occ.get)
+
+
 def save_tiles(meta, src, full):
     ds, clip = split(meta["clip"]); td = OUT / "tiles" / f"{ds}_{clip}_{meta['key']}"; td.mkdir(parents=True, exist_ok=True)
     pre = f"{meta['dataset']}_{clip}"; z = a.tile
@@ -203,6 +292,7 @@ def figure(rows, name, width=6.88):
     for j, lab in enumerate(heads):
         fig.text((j * (cw + gap) + cw / 2) / width, 1 - (head / 2) / H, lab, ha="center", va="center", fontsize=fs_head,
                  fontweight="bold" if lab.startswith("Ours") else "normal")
+    corner = num_corner(rows) if a.num_corner == "auto" else "br"
     for i, (meta, src, full) in enumerate(rows):
         ytop = H - head - i * (rh + (sep if P else 0.05))
         if P and i:
@@ -215,14 +305,19 @@ def figure(rows, name, width=6.88):
         keep = {"Ground truth"} | {lab for _, lab in shown}
         for j, (lab, im) in enumerate([(l, v) for l, v in full.items() if l in keep], start=1):
             x = j * (cw + gap)
-            if a.white_bg: im = white_bg(im, despill=a.despill)
+            if a.white_bg and a.white_mode == "soft": im = white_bg(im, despill=a.despill)
             ax = fig.add_axes([x / width, (ytop - cw) / H, cw / width, cw / H]); ax.imshow(im, interpolation="lanczos"); ax.axis("off")
             ax.add_patch(Rectangle((x0 - 0.5, y0 - 0.5), x1 - x0, y1 - y0, fill=False, ec=BOXC, lw=0.7))
             key = {"GUAVA": "guava", "LHM": "lhm_facefix", "LHM++": "lhmpp", "IDOL": "idol", "Ours, photo only": "fb_gt", "Ours + update": "fb_update100"}.get(lab)
             if key:
-                ax.text(0.97, 0.03, f"{meta['frame_psnr'][key]:.2f}", transform=ax.transAxes, ha="right", va="bottom", fontsize=fs_num,
-                        color="black" if a.white_bg else "white",
-                        path_effects=[pe.withStroke(linewidth=1.2, foreground="white")] if a.white_bg else None)
+                if a.num_corner == "auto":                                        # free corner: plain text, nothing behind it
+                    ax.text(0.97 if corner[1] == "r" else 0.03, 0.03 if corner[0] == "b" else 0.97, f"{meta['frame_psnr'][key]:.2f}",
+                            transform=ax.transAxes, ha="right" if corner[1] == "r" else "left", va="bottom" if corner[0] == "b" else "top",
+                            fontsize=fs_num + 0.4, color="black" if a.white_bg else "white")
+                else:
+                    ax.text(0.97, 0.03, f"{meta['frame_psnr'][key]:.2f}", transform=ax.transAxes, ha="right", va="bottom", fontsize=fs_num,
+                            color="black" if a.white_bg else "white",
+                            path_effects=[pe.withStroke(linewidth=1.2, foreground="white")] if a.white_bg else None)
             az = fig.add_axes([x / width, (ytop - cw - gap / 2 - zh) / H, cw / width, zh / H])
             az.imshow(im[y0:y1, x0:x1], interpolation="lanczos"); az.set_xticks([]); az.set_yticks([])
             for sp in az.spines.values(): sp.set_edgecolor(BOXC); sp.set_linewidth(0.8)
@@ -236,7 +331,7 @@ for item in a.rows.split(","):
     if a.only_fig: continue
     save_tiles(meta, src, full); ds, clip = split(meta["clip"]); figure([done[item]], f"row_{ds}_{clip}_{meta['key']}")
 if not a.only_fig: (OUT / "zoom_selection.json").write_text(json.dumps({"rule": "PREREG ext. amendment 7f", "win": a.win, "min_mask": a.min_mask,
-                                                     "stride": a.stride, "rows": [d[0] for d in done.values()]}, indent=1) + "\n")
+                                                     "stride": a.stride, "rows": [{k: v for k, v in d[0].items() if not k.startswith("_")} for d in done.values()]}, indent=1) + "\n")
 if a.fig:
     figure([done[i] for i in a.fig.split(",")], a.fig_name)
     cap = ("Appearance update on turned-away views. Each row: the source photo, the ground-truth test frame, four single-image "
@@ -252,7 +347,7 @@ if a.fig:
                "Examples and zoom regions were selected to show the update; all reported metrics are over the full 163-clip benchmark.")
     if a.caption: cap = a.caption
     (OUT / f"{a.fig_name}_caption.md").write_text(cap + "\n")
-    (OUT / f"{a.fig_name}.json").write_text(json.dumps([done[i][0] for i in a.fig.split(",")], indent=1) + "\n")
+    (OUT / f"{a.fig_name}.json").write_text(json.dumps([{k: v for k, v in done[i][0].items() if not k.startswith("_")} for i in a.fig.split(",")], indent=1) + "\n")
 for m, *_ in done.values():
     print(f"{m['clip']:34s} {m['key']}  window {m['zoom_window_frac']}  err others/ours "
           f"{np.mean([m['zoom_mean_abs_err'][o] for o in OTHERS]):.4f}/{m['zoom_mean_abs_err']['fb_update100']:.4f}")
